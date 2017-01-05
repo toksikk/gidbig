@@ -608,7 +608,27 @@ func handleBotControlMessages(s *discordgo.Session, m *discordgo.MessageCreate, 
 }
 
 func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
+	if m.Content == "ping" || m.Content == "pong" {
+		u, _ := s.User("@me")
+		BotID := u.ID
+		// Ignore all messages created by the bot itself
+		if m.Author.ID == BotID {
+			return
+		}
 
+		// If the message is "ping" reply with "Pong!"
+		if m.Content == "ping" {
+			_, _ = s.ChannelMessageSend(m.ChannelID, "Pong!")
+		}
+
+		// If the message is "pong" reply with "Ping!"
+		if m.Content == "pong" {
+			_, _ = s.ChannelMessageSend(m.ChannelID, "Ping!")
+		}
+
+		// Updating bot status
+		s.UpdateStatus(0, "Ping Pong with "+m.Author.Username)
+	}
 	if len(m.Content) <= 0 || (m.Content[0] != '!' && len(m.Mentions) < 1) {
 		return
 	}
