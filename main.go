@@ -609,13 +609,6 @@ func handleBotControlMessages(s *discordgo.Session, m *discordgo.MessageCreate, 
 
 func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 	if m.Content == "ping" || m.Content == "pong" {
-		u, _ := s.User("@me")
-		BotID := u.ID
-		// Ignore all messages created by the bot itself
-		if m.Author.ID == BotID {
-			return
-		}
-
 		// If the message is "ping" reply with "Pong!"
 		if m.Content == "ping" {
 			_, _ = s.ChannelMessageSend(m.ChannelID, "Pong!")
