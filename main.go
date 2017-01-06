@@ -503,6 +503,11 @@ func handleBotControlMessages(s *discordgo.Session, m *discordgo.MessageCreate, 
 	}
 }
 
+func setIdleStatus(s *discordgo.Session) {
+	time.Sleep(time.Duration(randomRange(10, 60)) * time.Second)
+	s.UpdateStreamingStatus(1, "", "")
+}
+
 func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 	if m.Content == "ping" || m.Content == "pong" {
 		// If the message is "ping" reply with "Pong!"
@@ -517,6 +522,8 @@ func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 		// Updating bot status
 		s.UpdateStatus(0, "Ping Pong with "+m.Author.Username)
+
+		go setIdleStatus(s)
 	}
 	if len(m.Content) <= 0 || (m.Content[0] != '!' && len(m.Mentions) < 1) {
 		return
