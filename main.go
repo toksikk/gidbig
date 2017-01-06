@@ -18,24 +18,21 @@ import (
 	log "github.com/Sirupsen/logrus"
 	"github.com/bwmarrin/discordgo"
 	"github.com/dustin/go-humanize"
-	redis "gopkg.in/redis.v3"
 )
 
 var (
 	// discordgo session
 	discord *discordgo.Session
 
-	// Redis client connection (used for stats)
-	rcli *redis.Client
-
 	// Map of Guild id's to *Play channels, used for queuing and rate-limiting guilds
-	queues map[string]chan *Play = make(map[string]chan *Play)
+	queues = make(map[string]chan *Play)
 
-	// Sound encoding settings
-	BITRATE        = 128
-	MAX_QUEUE_SIZE = 6
+	// bitrate Sound encoding settings
+	bitrate = 128
+	// maxQueueSize Sound encoding settings
+	maxQueueSize = 6
 
-	// Owner
+	// OWNER variable
 	OWNER string
 )
 
@@ -53,6 +50,7 @@ type Play struct {
 	Forced bool
 }
 
+// SoundCollection of Sounds
 type SoundCollection struct {
 	Prefix    string
 	Commands  []string
@@ -76,8 +74,8 @@ type Sound struct {
 	buffer [][]byte
 }
 
-// Array of all the sounds we have
-var AIRHORN *SoundCollection = &SoundCollection{
+// AIRHORN Array of all the sounds we have
+var AIRHORN = &SoundCollection{
 	Prefix: "airhorn",
 	Commands: []string{
 		"!airhorn",
@@ -100,7 +98,8 @@ var AIRHORN *SoundCollection = &SoundCollection{
 	},
 }
 
-var KHALED *SoundCollection = &SoundCollection{
+// KHALED collection
+var KHALED = &SoundCollection{
 	Prefix:    "another",
 	ChainWith: AIRHORN,
 	Commands: []string{
@@ -114,7 +113,8 @@ var KHALED *SoundCollection = &SoundCollection{
 	},
 }
 
-var CENA *SoundCollection = &SoundCollection{
+// CENA collection
+var CENA = &SoundCollection{
 	Prefix: "jc",
 	Commands: []string{
 		"!johncena",
@@ -130,7 +130,8 @@ var CENA *SoundCollection = &SoundCollection{
 	},
 }
 
-var ETHAN *SoundCollection = &SoundCollection{
+// ETHAN collection
+var ETHAN = &SoundCollection{
 	Prefix: "ethan",
 	Commands: []string{
 		"!ethan",
@@ -153,7 +154,8 @@ var ETHAN *SoundCollection = &SoundCollection{
 	},
 }
 
-var COW *SoundCollection = &SoundCollection{
+// COW collection
+var COW = &SoundCollection{
 	Prefix: "cow",
 	Commands: []string{
 		"!stan",
@@ -166,7 +168,8 @@ var COW *SoundCollection = &SoundCollection{
 	},
 }
 
-var BIRTHDAY *SoundCollection = &SoundCollection{
+// BIRTHDAY collection
+var BIRTHDAY = &SoundCollection{
 	Prefix: "birthday",
 	Commands: []string{
 		"!birthday",
@@ -180,7 +183,8 @@ var BIRTHDAY *SoundCollection = &SoundCollection{
 	},
 }
 
-var WOW *SoundCollection = &SoundCollection{
+// WOW collection
+var WOW = &SoundCollection{
 	Prefix: "wow",
 	Commands: []string{
 		"!wowthatscool",
@@ -191,7 +195,8 @@ var WOW *SoundCollection = &SoundCollection{
 	},
 }
 
-var COLLECTIONS []*SoundCollection = []*SoundCollection{
+// COLLECTIONS all collections
+var COLLECTIONS = []*SoundCollection{
 	AIRHORN,
 	KHALED,
 	CENA,
@@ -211,6 +216,7 @@ func createSound(Name string, Weight int, PartDelay int) *Sound {
 	}
 }
 
+// Load soundcollection
 func (sc *SoundCollection) Load() {
 	for _, sound := range sc.Sounds {
 		sc.soundRange += sound.Weight
@@ -218,13 +224,14 @@ func (sc *SoundCollection) Load() {
 	}
 }
 
-func (s *SoundCollection) Random() *Sound {
+// Random select sound
+func (sc *SoundCollection) Random() *Sound {
 	var (
 		i      int
-		number int = randomRange(0, s.soundRange)
+		number = randomRange(0, sc.soundRange)
 	)
 
-	for _, sound := range s.Sounds {
+	for _, sound := range sc.Sounds {
 		i += sound.Weight
 
 		if number < i {
@@ -280,7 +287,7 @@ func (s *Sound) Load(c *SoundCollection) error {
 	}
 }
 
-// Plays this sound over the specified VoiceConnection
+// Play plays this sound over the specified VoiceConnection
 func (s *Sound) Play(vc *discordgo.VoiceConnection) {
 	vc.Speaking(true)
 	defer vc.Speaking(false)
@@ -360,46 +367,12 @@ func enqueuePlay(user *discordgo.User, guild *discordgo.Guild, coll *SoundCollec
 	_, exists := queues[guild.ID]
 
 	if exists {
-		if len(queues[guild.ID]) < MAX_QUEUE_SIZE {
+		if len(queues[guild.ID]) < maxQueueSize {
 			queues[guild.ID] <- play
 		}
 	} else {
-		queues[guild.ID] = make(chan *Play, MAX_QUEUE_SIZE)
+		queues[guild.ID] = make(chan *Play, maxQueueSize)
 		playSound(play, nil)
-	}
-}
-
-func trackSoundStats(play *Play) {
-	if rcli == nil {
-		return
-	}
-
-	_, err := rcli.Pipelined(func(pipe *redis.Pipeline) error {
-		var baseChar string
-
-		if play.Forced {
-			baseChar = "f"
-		} else {
-			baseChar = "a"
-		}
-
-		base := fmt.Sprintf("airhorn:%s", baseChar)
-		pipe.Incr("airhorn:total")
-		pipe.Incr(fmt.Sprintf("%s:total", base))
-		pipe.Incr(fmt.Sprintf("%s:sound:%s", base, play.Sound.Name))
-		pipe.Incr(fmt.Sprintf("%s:user:%s:sound:%s", base, play.UserID, play.Sound.Name))
-		pipe.Incr(fmt.Sprintf("%s:guild:%s:sound:%s", base, play.GuildID, play.Sound.Name))
-		pipe.Incr(fmt.Sprintf("%s:guild:%s:chan:%s:sound:%s", base, play.GuildID, play.ChannelID, play.Sound.Name))
-		pipe.SAdd(fmt.Sprintf("%s:users", base), play.UserID)
-		pipe.SAdd(fmt.Sprintf("%s:guilds", base), play.GuildID)
-		pipe.SAdd(fmt.Sprintf("%s:channels", base), play.ChannelID)
-		return nil
-	})
-
-	if err != nil {
-		log.WithFields(log.Fields{
-			"error": err,
-		}).Warning("Failed to track stats in redis")
 	}
 }
 
@@ -427,9 +400,6 @@ func playSound(play *Play, vc *discordgo.VoiceConnection) (err error) {
 		time.Sleep(time.Millisecond * 125)
 	}
 
-	// Track stats for this play in redis
-	go trackSoundStats(play)
-
 	// Sleep for a specified amount of time before playing the sound
 	time.Sleep(time.Millisecond * 32)
 
@@ -443,7 +413,7 @@ func playSound(play *Play, vc *discordgo.VoiceConnection) (err error) {
 
 	// If there is another song in the queue, recurse and play that
 	if len(queues[play.GuildID]) > 0 {
-		play := <-queues[play.GuildID]
+		play = <-queues[play.GuildID]
 		playSound(play, vc)
 		return nil
 	}
@@ -456,22 +426,7 @@ func playSound(play *Play, vc *discordgo.VoiceConnection) (err error) {
 }
 
 func onReady(s *discordgo.Session, event *discordgo.Ready) {
-	log.Info("Recieved READY payload")
-}
-
-func onGuildCreate(s *discordgo.Session, event *discordgo.GuildCreate) {
-	/*
-		if event.Guild.Unavailable != nil {
-			return
-		}
-
-		for _, channel := range event.Guild.Channels {
-			if channel.ID == event.Guild.ID {
-				s.ChannelMessageSend(channel.ID, "**AIRHORN BOT READY FOR HORNING. TYPE `!AIRHORN` WHILE IN A VOICE CHANNEL TO ACTIVATE**")
-				return
-			}
-		}
-	*/
+	log.Info("Received READY payload.")
 }
 
 func scontains(key string, options ...string) bool {
@@ -481,14 +436,6 @@ func scontains(key string, options ...string) bool {
 		}
 	}
 	return false
-}
-
-func calculateAirhornsPerSecond(cid string) {
-	current, _ := strconv.Atoi(rcli.Get("airhorn:a:total").Val())
-	time.Sleep(time.Second * 10)
-	latest, _ := strconv.Atoi(rcli.Get("airhorn:a:total").Val())
-
-	discord.ChannelMessageSend(cid, fmt.Sprintf("Current APS: %v", (float64(latest-current))/10.0))
 }
 
 func displayBotStats(cid string) {
@@ -514,45 +461,6 @@ func displayBotStats(cid string) {
 	fmt.Fprintf(w, "```\n")
 	w.Flush()
 	discord.ChannelMessageSend(cid, buf.String())
-}
-
-func utilSumRedisKeys(keys []string) int {
-	results := make([]*redis.StringCmd, 0)
-
-	rcli.Pipelined(func(pipe *redis.Pipeline) error {
-		for _, key := range keys {
-			results = append(results, pipe.Get(key))
-		}
-		return nil
-	})
-
-	var total int
-	for _, i := range results {
-		t, _ := strconv.Atoi(i.Val())
-		total += t
-	}
-
-	return total
-}
-
-func displayUserStats(cid, uid string) {
-	keys, err := rcli.Keys(fmt.Sprintf("airhorn:*:user:%s:sound:*", uid)).Result()
-	if err != nil {
-		return
-	}
-
-	totalAirhorns := utilSumRedisKeys(keys)
-	discord.ChannelMessageSend(cid, fmt.Sprintf("Total Airhorns: %v", totalAirhorns))
-}
-
-func displayServerStats(cid, sid string) {
-	keys, err := rcli.Keys(fmt.Sprintf("airhorn:*:guild:%s:sound:*", sid)).Result()
-	if err != nil {
-		return
-	}
-
-	totalAirhorns := utilSumRedisKeys(keys)
-	discord.ChannelMessageSend(cid, fmt.Sprintf("Total Airhorns: %v", totalAirhorns))
 }
 
 func utilGetMentioned(s *discordgo.Session, m *discordgo.MessageCreate) *discordgo.User {
@@ -590,19 +498,8 @@ func airhornBomb(cid string, guild *discordgo.Guild, user *discordgo.User, cs st
 func handleBotControlMessages(s *discordgo.Session, m *discordgo.MessageCreate, parts []string, g *discordgo.Guild) {
 	if scontains(parts[1], "status") {
 		displayBotStats(m.ChannelID)
-	} else if scontains(parts[1], "stats") {
-		if len(m.Mentions) >= 2 {
-			displayUserStats(m.ChannelID, utilGetMentioned(s, m).ID)
-		} else if len(parts) >= 3 {
-			displayUserStats(m.ChannelID, parts[2])
-		} else {
-			displayServerStats(m.ChannelID, g.ID)
-		}
 	} else if scontains(parts[1], "bomb") && len(parts) >= 4 {
 		airhornBomb(m.ChannelID, g, utilGetMentioned(s, m), parts[3])
-	} else if scontains(parts[1], "aps") {
-		s.ChannelMessageSend(m.ChannelID, ":ok_hand: give me a sec m8")
-		go calculateAirhornsPerSecond(m.ChannelID)
 	}
 }
 
@@ -610,12 +507,12 @@ func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 	if m.Content == "ping" || m.Content == "pong" {
 		// If the message is "ping" reply with "Pong!"
 		if m.Content == "ping" {
-			_, _ = s.ChannelMessageSend(m.ChannelID, "Pong!")
+			s.ChannelMessageSend(m.ChannelID, "Pong!")
 		}
 
 		// If the message is "pong" reply with "Ping!"
 		if m.Content == "pong" {
-			_, _ = s.ChannelMessageSend(m.ChannelID, "Ping!")
+			s.ChannelMessageSend(m.ChannelID, "Ping!")
 		}
 
 		// Updating bot status
@@ -690,7 +587,6 @@ func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 func main() {
 	var (
 		Token      = flag.String("t", "", "Discord Authentication Token")
-		Redis      = flag.String("r", "", "Redis Connection String")
 		Shard      = flag.String("s", "", "Shard ID")
 		ShardCount = flag.String("c", "", "Number of shards")
 		Owner      = flag.String("o", "", "Owner ID")
@@ -708,23 +604,9 @@ func main() {
 		coll.Load()
 	}
 
-	// If we got passed a redis server, try to connect
-	if *Redis != "" {
-		log.Info("Connecting to redis...")
-		rcli = redis.NewClient(&redis.Options{Addr: *Redis, DB: 0})
-		_, err = rcli.Ping().Result()
-
-		if err != nil {
-			log.WithFields(log.Fields{
-				"error": err,
-			}).Fatal("Failed to connect to redis")
-			return
-		}
-	}
-
 	// Create a discord session
 	log.Info("Starting discord session...")
-	discord, err = discordgo.New(*Token)
+	discord, err = discordgo.New("Bot " + *Token)
 	if err != nil {
 		log.WithFields(log.Fields{
 			"error": err,
@@ -752,7 +634,7 @@ func main() {
 	}
 
 	// We're running!
-	log.Info("AIRHORNBOT is ready to horn it up.")
+	log.Info("Gidbig is ready. Quit with CTRL-C.")
 
 	// Wait for a signal to quit
 	c := make(chan os.Signal, 1)
