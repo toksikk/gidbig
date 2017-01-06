@@ -98,6 +98,70 @@ var AIRHORN = &SoundCollection{
 	},
 }
 
+// BSTH collection
+var BSTH = &SoundCollection{
+	Prefix: "bsth",
+	Commands: []string{
+		"!bsth",
+	},
+	Sounds: []*Sound{
+		createSound("achso", 1, 250),
+		createSound("angeben", 1, 250),
+		createSound("aufwiedersehen", 1, 250),
+		createSound("bluemchen", 1, 250),
+		createSound("blutsprobe", 1, 250),
+		createSound("chefkoch", 1, 250),
+		createSound("danke", 1, 250),
+		createSound("eindummer", 1, 250),
+		createSound("eleganz", 1, 250),
+		createSound("fettesau", 1, 250),
+		createSound("fett", 1, 250),
+		createSound("fressen", 1, 250),
+		createSound("geraeusch", 1, 250),
+		createSound("gottseimitdir", 1, 250),
+		createSound("gruss", 1, 250),
+		createSound("gulli", 1, 250),
+		createSound("harfenkonzert", 1, 250),
+		createSound("hosen", 1, 250),
+		createSound("indiehose", 1, 250),
+		createSound("kai", 1, 250),
+		createSound("kalkleiste", 1, 250),
+		createSound("keinegrauenzellen", 1, 250),
+		createSound("kohlen", 1, 250),
+		createSound("meinspruch", 1, 250),
+		createSound("miete", 1, 250),
+		createSound("nuesse", 1, 250),
+		createSound("ohneheu", 1, 250),
+		createSound("riecher", 1, 250),
+		createSound("sauer", 1, 250),
+		createSound("schatten", 1, 250),
+		createSound("scheitel", 1, 250),
+		createSound("solingen", 1, 250),
+		createSound("unglaublich", 1, 250),
+		createSound("unmoeglich", 1, 250),
+		createSound("vortreten", 1, 250),
+		createSound("zufaellig", 1, 250),
+	},
+}
+
+// BSTH2 collection
+var BSTH2 = &SoundCollection{
+	Prefix: "bsth2",
+	Commands: []string{
+		"!bsth2",
+	},
+	Sounds: []*Sound{
+		createSound("abendplanung", 1, 250),
+		createSound("alleine", 1, 250),
+		createSound("chefkoch", 1, 250),
+		createSound("fett", 1, 250),
+		createSound("hubschrauber", 1, 250),
+		createSound("perspektive", 1, 250),
+		createSound("platonisch", 1, 250),
+		createSound("qualle", 1, 250),
+	},
+}
+
 // KHALED collection
 var KHALED = &SoundCollection{
 	Prefix:    "another",
@@ -204,6 +268,7 @@ var COLLECTIONS = []*SoundCollection{
 	COW,
 	BIRTHDAY,
 	WOW,
+	BSTH,
 }
 
 // Create a Sound struct
@@ -504,11 +569,11 @@ func handleBotControlMessages(s *discordgo.Session, m *discordgo.MessageCreate, 
 }
 
 func setIdleStatus(s *discordgo.Session) {
-	games := []string{"Terranigma", "Secret of Mana", "Quake 3 Arena", "Duke Nukem 3D", "Monkey Island 2: LeChuck's Revenge", "Teenage Mutant Ninja Turtles: Turtles in Time", "Unreal Tournament", "Half-Life", "Warcraft II", "Starcraft", "Diablo", "Diablo II", "The Legend of Zelda: A Link to the Past", "The Legend of Zelda: Ocarina of Time", "Star Fox", "Tetris", "Pokémon Red", "Pokémon Blue", "Die Siedler II", "Day of the Tentacle", "Maniac Mansion", "Prince of Persia", "Super Mario Kart"}
+	games := []string{"Terranigma", "Secret of Mana", "Quake 3 Arena", "Duke Nukem 3D", "Monkey Island 2: LeChuck's Revenge", "TMNT: Turtles in Time", "Unreal Tournament", "Half-Life", "Half-Life 2", "Warcraft II", "Starcraft", "Diablo", "Diablo II", "The Legend of Zelda: A Link to the Past", "The Legend of Zelda: Ocarina of Time", "Star Fox", "Tetris", "Pokémon Red", "Pokémon Blue", "Die Siedler II", "Day of the Tentacle", "Maniac Mansion", "Prince of Persia", "Super Mario Kart"}
 	for {
-		time.Sleep(time.Duration(randomRange(10, 60)) * time.Minute)
 		s.UpdateStreamingStatus(1, "", "")
 		s.UpdateStatus(0, games[randomRange(0, len(games))])
+		time.Sleep(time.Duration(randomRange(10, 30)) * time.Minute)
 	}
 }
 
