@@ -504,8 +504,12 @@ func handleBotControlMessages(s *discordgo.Session, m *discordgo.MessageCreate, 
 }
 
 func setIdleStatus(s *discordgo.Session) {
-	time.Sleep(time.Duration(randomRange(10, 60)) * time.Second)
-	s.UpdateStreamingStatus(1, "", "")
+	games := []string{"Terranigma", "Secret of Mana", "Quake 3 Arena", "Duke Nukem 3D", "Monkey Island 2: LeChuck's Revenge", "Teenage Mutant Ninja Turtles: Turtles in Time", "Unreal Tournament", "Half-Life", "Warcraft II", "Starcraft", "Diablo", "Diablo II", "The Legend of Zelda: A Link to the Past", "The Legend of Zelda: Ocarina of Time", "Star Fox", "Tetris", "Pokémon Red", "Pokémon Blue", "Die Siedler II", "Day of the Tentacle", "Maniac Mansion", "Prince of Persia", "Super Mario Kart"}
+	for {
+		time.Sleep(time.Duration(randomRange(10, 60)) * time.Minute)
+		s.UpdateStreamingStatus(1, "", "")
+		s.UpdateStatus(0, games[randomRange(0, len(games))])
+	}
 }
 
 func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
@@ -522,8 +526,6 @@ func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 		// Updating bot status
 		s.UpdateStatus(0, "Ping Pong with "+m.Author.Username)
-
-		go setIdleStatus(s)
 	}
 	if len(m.Content) <= 0 || (m.Content[0] != '!' && len(m.Mentions) < 1) {
 		return
@@ -640,6 +642,7 @@ func main() {
 		return
 	}
 
+	go setIdleStatus(discord)
 	// We're running!
 	log.Info("Gidbig is ready. Quit with CTRL-C.")
 
