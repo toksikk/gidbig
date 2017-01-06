@@ -269,6 +269,7 @@ var COLLECTIONS = []*SoundCollection{
 	BIRTHDAY,
 	WOW,
 	BSTH,
+	BSTH2,
 }
 
 // Create a Sound struct
