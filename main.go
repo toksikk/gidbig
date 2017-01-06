@@ -590,7 +590,7 @@ func setIdleStatus(s *discordgo.Session) {
 	for {
 		s.UpdateStreamingStatus(1, "", "")
 		s.UpdateStatus(0, games[randomRange(0, len(games))])
-		time.Sleep(time.Duration(randomRange(10, 30)) * time.Minute)
+		time.Sleep(time.Duration(randomRange(5, 15)) * time.Minute)
 	}
 }
 
