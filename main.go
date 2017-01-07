@@ -17,6 +17,7 @@ import (
 
 	log "github.com/Sirupsen/logrus"
 	"github.com/bwmarrin/discordgo"
+	humanize "github.com/dustin/go-humanize"
 )
 
 var (
