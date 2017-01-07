@@ -17,7 +17,6 @@ import (
 
 	log "github.com/Sirupsen/logrus"
 	"github.com/bwmarrin/discordgo"
-	"github.com/dustin/go-humanize"
 )
 
 var (
@@ -586,7 +585,44 @@ func handleBotControlMessages(s *discordgo.Session, m *discordgo.MessageCreate, 
 }
 
 func setIdleStatus(s *discordgo.Session) {
-	games := []string{"Terranigma", "Secret of Mana", "Quake III Arena", "Duke Nukem 3D", "Monkey Island 2: LeChuck's Revenge", "Turtles in Time", "Unreal Tournament", "Half-Life", "Half-Life 2", "Warcraft II", "Starcraft", "Diablo", "Diablo II", "A Link to the Past", "Ocarina of Time", "Star Fox", "Tetris", "Pokémon Red", "Pokémon Blue", "Die Siedler II", "Day of the Tentacle", "Maniac Mansion", "Prince of Persia", "Super Mario Kart"}
+	games := []string{
+		"Terranigma",
+		"Secret of Mana",
+		"Quake III Arena",
+		"Duke Nukem 3D",
+		"Monkey Island 2: LeChuck's Revenge",
+		"Turtles in Time",
+		"Unreal Tournament",
+		"Half-Life",
+		"Half-Life 2",
+		"Warcraft II",
+		"Starcraft",
+		"Diablo",
+		"Diablo II",
+		"A Link to the Past",
+		"Ocarina of Time",
+		"Star Fox",
+		"Tetris",
+		"Pokémon Red",
+		"Pokémon Blue",
+		"Die Siedler II",
+		"Day of the Tentacle",
+		"Maniac Mansion",
+		"Prince of Persia",
+		"Super Mario Kart",
+		"Pac-Man",
+		"Frogger",
+		"Donkey Kong",
+		"Donkey Kong Country",
+		"Asteroids",
+		"Doom",
+		"Breakout",
+		"Street Fighter II",
+		"Wolfenstein 3D",
+		"Mega Man",
+		"Myst",
+		"R-Type",
+	}
 	for {
 		s.UpdateStreamingStatus(1, "", "")
 		s.UpdateStatus(0, games[randomRange(0, len(games))])
