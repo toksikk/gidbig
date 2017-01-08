@@ -33,9 +33,10 @@ var (
 )
 
 // startWebServer with the port provided
-func startWebServer(port string, ci string, cs string) {
+func startWebServer(port string, ci string, cs string, redirectURL string) {
 	discordOauthConfig.ClientID = ci
 	discordOauthConfig.ClientSecret = cs
+	discordOauthConfig.RedirectURL = redirectURL + "/discordCallback"
 	http.HandleFunc("/", handleMain)
 	http.HandleFunc("/discordLogin", handlediscordLogin)
 	http.HandleFunc("/discordCallback", handlediscordCallback)
@@ -43,7 +44,6 @@ func startWebServer(port string, ci string, cs string) {
 }
 
 func handleMain(w http.ResponseWriter, r *http.Request) {
-	discordOauthConfig.RedirectURL = "http://" + r.Host + "/discordCallback"
 	fmt.Fprintf(w, htmlIndex)
 }
 

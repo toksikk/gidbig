@@ -726,21 +726,22 @@ func deleteCommandMessage(s *discordgo.Session, channelID string, messageID stri
 
 func main() {
 	var (
-		Token      = flag.String("t", "", "Discord Authentication Token")
-		Shard      = flag.String("s", "", "Shard ID")
-		ShardCount = flag.String("c", "", "Number of shards")
-		Owner      = flag.String("o", "", "Owner ID")
-		Port       = flag.Int("p", 0, "Web server port")
-		Ci         = flag.Int("ci", 0, "ClientID")
-		Cs         = flag.String("cs", "", "ClientSecret")
-		err        error
+		Token       = flag.String("t", "", "Discord Authentication Token")
+		Shard       = flag.String("s", "", "Shard ID")
+		ShardCount  = flag.String("c", "", "Number of shards")
+		Owner       = flag.String("o", "", "Owner ID")
+		Port        = flag.Int("p", 0, "Web server port")
+		RedirectURL = flag.String("r", "", "Address where the web server will be available without slash at the end. For example: \"http://bot.example.org:12345\"")
+		Ci          = flag.Int("ci", 0, "ClientID")
+		Cs          = flag.String("cs", "", "ClientSecret")
+		err         error
 	)
 	flag.Parse()
 
 	// Start Webserver if a valid port is provided and if ClientID and ClientSecret are set
-	if *Port != 0 && *Port >= 1 && *Ci != 0 && *Cs != "" {
+	if *Port != 0 && *Port >= 1 && *Ci != 0 && *Cs != "" && *RedirectURL != "" {
 		log.Infoln("Starting web server on port " + strconv.Itoa(*Port))
-		go startWebServer(strconv.Itoa(*Port), strconv.Itoa(*Ci), *Cs)
+		go startWebServer(strconv.Itoa(*Port), strconv.Itoa(*Ci), *Cs, *RedirectURL)
 	} else {
 		log.Infoln("Required web server arguments missing or invalid. Skipping web server start.")
 	}
