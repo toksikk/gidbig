@@ -730,9 +730,20 @@ func main() {
 		Shard      = flag.String("s", "", "Shard ID")
 		ShardCount = flag.String("c", "", "Number of shards")
 		Owner      = flag.String("o", "", "Owner ID")
+		Port       = flag.Int("p", 0, "Web server port")
+		Ci         = flag.Int("ci", 0, "ClientID")
+		Cs         = flag.String("cs", "", "ClientSecret")
 		err        error
 	)
 	flag.Parse()
+
+	// Start Webserver if a valid port is provided and if ClientID and ClientSecret are set
+	if *Port != 0 && *Port >= 1 && *Ci != 0 && *Cs != "" {
+		log.Infoln("Starting web server on port " + strconv.Itoa(*Port))
+		go startWebServer(strconv.Itoa(*Port), strconv.Itoa(*Ci), *Cs)
+	} else {
+		log.Infoln("Required web server arguments missing or invalid. Skipping web server start.")
+	}
 
 	if *Owner != "" {
 		OWNER = *Owner
