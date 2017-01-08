@@ -707,8 +707,20 @@ func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 			}
 
 			go enqueuePlay(m.Author, guild, coll, sound)
+			go deleteCommandMessage(s, m.ChannelID, m.ID)
 			return
 		}
+	}
+}
+
+// Delete the message after a delay so the channel does not get cluttered
+func deleteCommandMessage(s *discordgo.Session, channelID string, messageID string) {
+	time.Sleep(30 * time.Second)
+	err := s.ChannelMessageDelete(channelID, messageID)
+	if err != nil {
+		log.WithFields(log.Fields{
+			"error": err,
+		}).Error("Failed to delete message.")
 	}
 }
 

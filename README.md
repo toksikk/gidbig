@@ -17,6 +17,6 @@ Typing only the `!command` without an argument results in a random sound of this
 The idea is to be able to have a detailed listing of available sound files in a responsive interface and a simple button to trigger the sound playback in a channel.
 
 ## Known issues
-- None that I know of.  
+- enqueuePlay is not 99% of the time "OK", enqueueing has to be redesigned threadsafe. 
 
 Please use the issue tracker.
