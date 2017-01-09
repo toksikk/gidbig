@@ -691,6 +691,7 @@ func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 	// Find the collection for the command we got
 	for _, coll := range COLLECTIONS {
 		if scontains(parts[0], coll.Commands...) {
+			go deleteCommandMessage(s, m.ChannelID, m.ID)
 
 			// If they passed a specific sound effect, find and select that (otherwise play nothing)
 			var sound *Sound
@@ -707,7 +708,6 @@ func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 			}
 
 			go enqueuePlay(m.Author, guild, coll, sound)
-			go deleteCommandMessage(s, m.ChannelID, m.ID)
 			return
 		}
 	}
