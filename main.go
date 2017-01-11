@@ -585,7 +585,7 @@ func handleBotControlMessages(s *discordgo.Session, m *discordgo.MessageCreate, 
 	}
 }
 
-func setIdleStatus(s *discordgo.Session) {
+func setIdleStatus() {
 	games := []string{
 		"Terranigma",
 		"Secret of Mana",
@@ -625,8 +625,8 @@ func setIdleStatus(s *discordgo.Session) {
 		"R-Type",
 	}
 	for {
-		s.UpdateStreamingStatus(1, "", "")
-		s.UpdateStatus(0, games[randomRange(0, len(games))])
+		discord.UpdateStreamingStatus(1, "", "")
+		discord.UpdateStatus(0, games[randomRange(0, len(games))])
 		time.Sleep(time.Duration(randomRange(5, 15)) * time.Minute)
 	}
 }
@@ -785,7 +785,7 @@ func main() {
 		return
 	}
 
-	go setIdleStatus(discord)
+	go setIdleStatus()
 	// We're running!
 	log.Info("Gidbig is ready. Quit with CTRL-C.")
 

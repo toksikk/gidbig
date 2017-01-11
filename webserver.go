@@ -128,5 +128,7 @@ func handlediscordCallback(w http.ResponseWriter, r *http.Request) {
 	session.Values["accessToken"] = token.AccessToken
 	session.Save(r, w)
 
+	dg.Close()
+
 	http.Redirect(w, r, "/", http.StatusTemporaryRedirect)
 }
