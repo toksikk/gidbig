@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"math/rand"
 	"os"
 	"os/signal"
@@ -74,218 +75,50 @@ type Sound struct {
 	buffer [][]byte
 }
 
-// AIRHORN Array of all the sounds we have
-var AIRHORN = &SoundCollection{
-	Prefix: "airhorn",
-	Commands: []string{
-		"!airhorn",
-	},
-	Sounds: []*Sound{
-		createSound("default", 1000, 250),
-		createSound("reverb", 800, 250),
-		createSound("spam", 800, 0),
-		createSound("tripletap", 800, 250),
-		createSound("fourtap", 800, 250),
-		createSound("distant", 500, 250),
-		createSound("echo", 500, 250),
-		createSound("clownfull", 250, 250),
-		createSound("clownshort", 250, 250),
-		createSound("clownspam", 250, 0),
-		createSound("highfartlong", 200, 250),
-		createSound("highfartshort", 200, 250),
-		createSound("midshort", 100, 250),
-		createSound("truck", 10, 250),
-	},
-}
-
-// BSTH collection
-var BSTH = &SoundCollection{
-	Prefix: "bsth",
-	Commands: []string{
-		"!bsth",
-	},
-	Sounds: []*Sound{
-		createSound("achso", 1, 250),
-		createSound("angeben", 1, 250),
-		createSound("aufwiedersehen", 1, 250),
-		createSound("bluemchen", 1, 250),
-		createSound("blutsprobe", 1, 250),
-		createSound("chefkoch", 1, 250),
-		createSound("danke", 1, 250),
-		createSound("eindummer", 1, 250),
-		createSound("eleganz", 1, 250),
-		createSound("fettesau", 1, 250),
-		createSound("fett", 1, 250),
-		createSound("fressen", 1, 250),
-		createSound("geraeusch", 1, 250),
-		createSound("gottseimitdir", 1, 250),
-		createSound("gruss", 1, 250),
-		createSound("gulli", 1, 250),
-		createSound("harfenkonzert", 1, 250),
-		createSound("hosen", 1, 250),
-		createSound("indiehose", 1, 250),
-		createSound("kai", 1, 250),
-		createSound("kalkleiste", 1, 250),
-		createSound("keinegrauenzellen", 1, 250),
-		createSound("kohlen", 1, 250),
-		createSound("meinspruch", 1, 250),
-		createSound("miete", 1, 250),
-		createSound("nuesse", 1, 250),
-		createSound("ohneheu", 1, 250),
-		createSound("riecher", 1, 250),
-		createSound("sauer", 1, 250),
-		createSound("schatten", 1, 250),
-		createSound("scheitel", 1, 250),
-		createSound("solingen", 1, 250),
-		createSound("unglaublich", 1, 250),
-		createSound("unmoeglich", 1, 250),
-		createSound("vortreten", 1, 250),
-		createSound("zufaellig", 1, 250),
-		createSound("arschloch", 1, 250),
-		createSound("aufstossen", 1, 250),
-		createSound("ausholen", 1, 250),
-		createSound("blaehungen", 1, 250),
-		createSound("haesslich", 1, 250),
-		createSound("horchlappen", 1, 250),
-		createSound("interesseng", 1, 250),
-		createSound("keingrips", 1, 250),
-		createSound("kriegicheineis", 1, 250),
-		createSound("lachespaeter", 1, 250),
-		createSound("machtjanix", 1, 250),
-		createSound("nichtsofett", 1, 250),
-		createSound("schweine", 1, 250),
-		createSound("unfreundlich", 1, 250),
-		createSound("verheiratet", 1, 250),
-		createSound("zulaut", 1, 250),
-	},
-}
-
-// BSTH2 collection
-var BSTH2 = &SoundCollection{
-	Prefix: "bsth2",
-	Commands: []string{
-		"!bsth2",
-	},
-	Sounds: []*Sound{
-		createSound("abendplanung", 1, 250),
-		createSound("alleine", 1, 250),
-		createSound("chefkoch", 1, 250),
-		createSound("fett", 1, 250),
-		createSound("hubschrauber", 1, 250),
-		createSound("perspektive", 1, 250),
-		createSound("platonisch", 1, 250),
-		createSound("qualle", 1, 250),
-	},
-}
-
-// KHALED collection
-var KHALED = &SoundCollection{
-	Prefix:    "another",
-	ChainWith: AIRHORN,
-	Commands: []string{
-		"!anotha",
-		"!anothaone",
-	},
-	Sounds: []*Sound{
-		createSound("one", 1, 250),
-		createSound("one_classic", 1, 250),
-		createSound("one_echo", 1, 250),
-	},
-}
-
-// CENA collection
-var CENA = &SoundCollection{
-	Prefix: "jc",
-	Commands: []string{
-		"!johncena",
-		"!cena",
-	},
-	Sounds: []*Sound{
-		createSound("airhorn", 1, 250),
-		createSound("echo", 1, 250),
-		createSound("full", 1, 250),
-		createSound("jc", 1, 250),
-		createSound("nameis", 1, 250),
-		createSound("spam", 1, 250),
-	},
-}
-
-// ETHAN collection
-var ETHAN = &SoundCollection{
-	Prefix: "ethan",
-	Commands: []string{
-		"!ethan",
-		"!eb",
-		"!ethanbradberry",
-		"!h3h3",
-	},
-	Sounds: []*Sound{
-		createSound("areyou_classic", 100, 250),
-		createSound("areyou_condensed", 100, 250),
-		createSound("areyou_crazy", 100, 250),
-		createSound("areyou_ethan", 100, 250),
-		createSound("classic", 100, 250),
-		createSound("echo", 100, 250),
-		createSound("high", 100, 250),
-		createSound("slowandlow", 100, 250),
-		createSound("cuts", 30, 250),
-		createSound("beat", 30, 250),
-		createSound("sodiepop", 1, 250),
-	},
-}
-
-// COW collection
-var COW = &SoundCollection{
-	Prefix: "cow",
-	Commands: []string{
-		"!stan",
-		"!stanislav",
-	},
-	Sounds: []*Sound{
-		createSound("herd", 10, 250),
-		createSound("moo", 10, 250),
-		createSound("x3", 1, 250),
-	},
-}
-
-// BIRTHDAY collection
-var BIRTHDAY = &SoundCollection{
-	Prefix: "birthday",
-	Commands: []string{
-		"!birthday",
-		"!bday",
-	},
-	Sounds: []*Sound{
-		createSound("horn", 50, 250),
-		createSound("horn3", 30, 250),
-		createSound("sadhorn", 25, 250),
-		createSound("weakhorn", 25, 250),
-	},
-}
-
-// WOW collection
-var WOW = &SoundCollection{
-	Prefix: "wow",
-	Commands: []string{
-		"!wowthatscool",
-		"!wtc",
-	},
-	Sounds: []*Sound{
-		createSound("thatscool", 50, 250),
-	},
-}
-
 // COLLECTIONS all collections
-var COLLECTIONS = []*SoundCollection{
-	AIRHORN,
-	KHALED,
-	CENA,
-	ETHAN,
-	COW,
-	BIRTHDAY,
-	WOW,
-	BSTH,
-	BSTH2,
+var COLLECTIONS []*SoundCollection
+
+// Create collections
+func createCollections() {
+	files, _ := ioutil.ReadDir("./audio")
+	for _, f := range files {
+		soundfile := strings.Split(strings.Replace(f.Name(), ".dca", "", -1), "_")
+		containsPrefix := false
+		containsSound := false
+
+		if len(COLLECTIONS) == 0 {
+			addNewSoundCollection(soundfile[0], soundfile[1])
+		}
+		for _, c := range COLLECTIONS {
+			if c.Prefix == soundfile[0] {
+				containsPrefix = true
+				for _, sound := range c.Sounds {
+					if sound.Name == soundfile[1] {
+						containsSound = true
+					}
+				}
+				if !containsSound {
+					c.Sounds = append(c.Sounds, createSound(soundfile[1], 1, 250))
+				}
+			}
+		}
+		if !containsPrefix {
+			addNewSoundCollection(soundfile[0], soundfile[1])
+		}
+	}
+}
+
+func addNewSoundCollection(prefix string, soundname string) {
+	var SC = &SoundCollection{
+		Prefix: prefix,
+		Commands: []string{
+			"!" + prefix,
+		},
+		Sounds: []*Sound{
+			createSound(soundname, 1, 250),
+		},
+	}
+	COLLECTIONS = append(COLLECTIONS, SC)
 }
 
 // Create a Sound struct
@@ -554,34 +387,10 @@ func utilGetMentioned(s *discordgo.Session, m *discordgo.MessageCreate) *discord
 	return nil
 }
 
-func airhornBomb(cid string, guild *discordgo.Guild, user *discordgo.User, cs string) {
-	count, _ := strconv.Atoi(cs)
-	discord.ChannelMessageSend(cid, ":ok_hand:"+strings.Repeat(":trumpet:", count))
-
-	// Cap it at something
-	if count > 100 {
-		return
-	}
-
-	play := createPlay(user, guild, AIRHORN, nil)
-	vc, err := discord.ChannelVoiceJoin(play.GuildID, play.ChannelID, true, true)
-	if err != nil {
-		return
-	}
-
-	for i := 0; i < count; i++ {
-		AIRHORN.Random().Play(vc)
-	}
-
-	vc.Disconnect()
-}
-
 // Handles bot operator messages, should be refactored (lmao)
 func handleBotControlMessages(s *discordgo.Session, m *discordgo.MessageCreate, parts []string, g *discordgo.Guild) {
 	if scontains(parts[1], "status") {
 		displayBotStats(m.ChannelID)
-	} else if scontains(parts[1], "bomb") && len(parts) >= 4 {
-		airhornBomb(m.ChannelID, g, utilGetMentioned(s, m), parts[3])
 	}
 }
 
@@ -648,6 +457,19 @@ func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 	}
 	if len(m.Content) <= 0 || (m.Content[0] != '!' && len(m.Mentions) < 1) {
 		return
+	}
+
+	if m.Content == "!list" {
+		var list string
+		for _, c := range COLLECTIONS {
+			list += "**!" + c.Prefix + "**\n"
+			for _, sounds := range c.Sounds {
+				list += sounds.Name + "\n"
+			}
+			list += "\n"
+		}
+		s.ChannelMessageSend(m.ChannelID, list)
+		go deleteCommandMessage(s, m.ChannelID, m.ID)
 	}
 
 	msg := strings.Replace(m.ContentWithMentionsReplaced(), s.State.Ready.User.Username, "username", 1)
@@ -737,6 +559,9 @@ func main() {
 		err         error
 	)
 	flag.Parse()
+
+	// create SoundCollections by scanning the audio folder
+	createCollections()
 
 	// Start Webserver if a valid port is provided and if ClientID and ClientSecret are set
 	if *Port != 0 && *Port >= 1 && *Ci != 0 && *Cs != "" && *RedirectURL != "" {
