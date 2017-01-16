@@ -468,7 +468,8 @@ func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 			}
 			list += "\n"
 		}
-		s.ChannelMessageSend(m.ChannelID, list)
+		st, _ := s.UserChannelCreate(m.Author.ID)
+		s.ChannelMessageSend(st.ID, list)
 		go deleteCommandMessage(s, m.ChannelID, m.ID)
 	}
 
