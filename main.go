@@ -82,28 +82,30 @@ var COLLECTIONS []*SoundCollection
 func createCollections() {
 	files, _ := ioutil.ReadDir("./audio")
 	for _, f := range files {
-		soundfile := strings.Split(strings.Replace(f.Name(), ".dca", "", -1), "_")
-		containsPrefix := false
-		containsSound := false
+		if strings.Contains(f.Name(), ".dca") {
+			soundfile := strings.Split(strings.Replace(f.Name(), ".dca", "", -1), "_")
+			containsPrefix := false
+			containsSound := false
 
-		if len(COLLECTIONS) == 0 {
-			addNewSoundCollection(soundfile[0], soundfile[1])
-		}
-		for _, c := range COLLECTIONS {
-			if c.Prefix == soundfile[0] {
-				containsPrefix = true
-				for _, sound := range c.Sounds {
-					if sound.Name == soundfile[1] {
-						containsSound = true
+			if len(COLLECTIONS) == 0 {
+				addNewSoundCollection(soundfile[0], soundfile[1])
+			}
+			for _, c := range COLLECTIONS {
+				if c.Prefix == soundfile[0] {
+					containsPrefix = true
+					for _, sound := range c.Sounds {
+						if sound.Name == soundfile[1] {
+							containsSound = true
+						}
+					}
+					if !containsSound {
+						c.Sounds = append(c.Sounds, createSound(soundfile[1], 1, 250))
 					}
 				}
-				if !containsSound {
-					c.Sounds = append(c.Sounds, createSound(soundfile[1], 1, 250))
-				}
 			}
-		}
-		if !containsPrefix {
-			addNewSoundCollection(soundfile[0], soundfile[1])
+			if !containsPrefix {
+				addNewSoundCollection(soundfile[0], soundfile[1])
+			}
 		}
 	}
 }

@@ -40,6 +40,7 @@ var (
 // startWebServer
 func startWebServer(port string, ci string, cs string, redirectURL string) {
 	tmpls["home.html"] = template.Must(template.ParseFiles(templateDir+"home.html", defaultLayout))
+	tmpls["internal.html"] = template.Must(template.ParseFiles(templateDir+"internal.html", defaultLayout))
 	store = sessions.NewCookieStore([]byte(cs))
 	discordOauthConfig.ClientID = ci
 	discordOauthConfig.ClientSecret = cs
@@ -59,7 +60,7 @@ func startWebServer(port string, ci string, cs string, redirectURL string) {
 func handleMain(w http.ResponseWriter, r *http.Request) {
 	session, _ := store.Get(r, "session-name")
 	if session.Values["discordUsername"] != nil {
-		fmt.Fprintf(w, "<html><body>you are logged in as %s. <a href=\"/logout\">logout</a></body></html>", session.Values["discordUsername"])
+		tmpls["internal.html"].ExecuteTemplate(w, "base", map[string]interface{}{})
 		return
 	}
 	tmpls["home.html"].ExecuteTemplate(w, "base", map[string]interface{}{})
