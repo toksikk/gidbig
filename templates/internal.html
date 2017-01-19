@@ -1,12 +1,12 @@
-{{ define "content" }}
+{{ define "sessionHandler" }}
 <script type="text/javascript">
-    function playSound() {
+    function playSound(cmd, sndnm) {
         var data = {
-            command: "!bsth",
-            soundname: "unmoeglich"
+            command: cmd,
+            soundname: sndnm
         };
         $.post("/playsound", data, function(data, success) {});
     }
 </script>
 <a href="/logout">Logout</a><br/>
-<a href="javascript:playSound()">Play sound</a> {{ end }}
+{{ end }}

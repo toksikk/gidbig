@@ -14,8 +14,9 @@ import (
 )
 
 const (
-	defaultLayout = "templates/layout.html"
-	templateDir   = "templates/"
+	header      = "templates/header.html"
+	footer      = "templates/footer.html"
+	templateDir = "templates/"
 )
 
 var (
@@ -37,10 +38,17 @@ var (
 	store *sessions.CookieStore
 )
 
+type SoundItem struct {
+	Itemcommand   string
+	Itemsoundname string
+	Itemtext      string
+}
+
 // startWebServer
 func startWebServer(port string, ci string, cs string, redirectURL string) {
-	tmpls["home.html"] = template.Must(template.ParseFiles(templateDir+"home.html", defaultLayout))
-	tmpls["internal.html"] = template.Must(template.ParseFiles(templateDir+"internal.html", defaultLayout))
+	tmpls["home.html"] = template.Must(template.ParseFiles(templateDir+"home.html", header, footer))
+	tmpls["internal.html"] = template.Must(template.ParseFiles(templateDir+"internal.html", header, footer))
+	tmpls["itemrow.html"] = template.Must(template.ParseFiles(templateDir + "itemrow.html"))
 	store = sessions.NewCookieStore([]byte(cs))
 	discordOauthConfig.ClientID = ci
 	discordOauthConfig.ClientSecret = cs
@@ -52,8 +60,6 @@ func startWebServer(port string, ci string, cs string, redirectURL string) {
 	r.HandleFunc("/discordLogin", handlediscordLogin)
 	r.HandleFunc("/discordCallback", handlediscordCallback)
 	r.HandleFunc("/playsound", handlePlaySound)
-
-	http.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("static"))))
 	http.Handle("/", r)
 	http.ListenAndServe(":"+port, nil)
 }
@@ -79,10 +85,45 @@ func handlePlaySound(w http.ResponseWriter, r *http.Request) {
 func handleMain(w http.ResponseWriter, r *http.Request) {
 	session, _ := store.Get(r, "session-name")
 	if session.Values["discordUsername"] != nil {
-		tmpls["internal.html"].ExecuteTemplate(w, "base", map[string]interface{}{})
+		err := tmpls["internal.html"].ExecuteTemplate(w, "header", map[string]interface{}{})
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
+		var si [4]SoundItem
+		cnt := 0
+		for _, sc := range COLLECTIONS {
+			for _, snd := range sc.Sounds {
+				si[cnt%4].Itemcommand = "!" + sc.Prefix
+				si[cnt%4].Itemsoundname = snd.Name
+				si[cnt%4].Itemtext = si[cnt%4].Itemcommand + " " + si[cnt%4].Itemsoundname
+				if cnt != 0 && cnt%4 == 3 {
+					err = tmpls["itemrow.html"].Execute(w, si)
+					if err != nil {
+						fmt.Println(err)
+						return
+					}
+				}
+				cnt++
+			}
+		}
+		if cnt%4 != 0 {
+			err = tmpls["itemrow.html"].Execute(w, si)
+			if err != nil {
+				fmt.Println(err)
+				return
+			}
+		}
+
+		err = tmpls["internal.html"].ExecuteTemplate(w, "footer", map[string]interface{}{})
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
 		return
 	}
-	tmpls["home.html"].ExecuteTemplate(w, "base", map[string]interface{}{})
+	tmpls["home.html"].ExecuteTemplate(w, "header", map[string]interface{}{})
+	tmpls["home.html"].ExecuteTemplate(w, "footer", map[string]interface{}{})
 }
 func handleLogout(w http.ResponseWriter, r *http.Request) {
 	cookie := &http.Cookie{

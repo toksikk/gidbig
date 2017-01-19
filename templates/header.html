@@ -1,4 +1,4 @@
-{{ define "base" }}
+{{ define "header" }}
 <html>
 
 <head>
@@ -15,6 +15,11 @@
         body {
             padding-top: 50px;
         }
+        .vcenter {
+    display: inline-block;
+    vertical-align: middle;
+    float: none;
+}
     </style>
     <meta charset="utf-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
@@ -46,17 +51,9 @@
     </nav>
 
     <div class="container">
-
-        <div class="starter-template">
+        <div class="container-fluid">
             <h1>Gidbig</h1>
-            <p class="lead">{{ template "content" . }}</p>
-        </div>
+            <p class="lead">{{ template "sessionHandler" . }}</p>
+            {{ end }}
 
-    </div>
-    <!-- /.container -->
-
-
-</body>
-
-</html>
-{{ end }}
+        
