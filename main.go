@@ -530,6 +530,24 @@ func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 	}
 
 	// Find the collection for the command we got
+	findAndPlaySound(s, m, parts, guild)
+}
+
+func findSoundAndCollection(command string, soundname string) (*Sound, *SoundCollection) {
+	for _, c := range COLLECTIONS {
+		if scontains(command, c.Commands...) {
+			for _, s := range c.Sounds {
+				if soundname == s.Name {
+					return s, c
+				}
+			}
+		}
+	}
+	return nil, nil
+}
+
+// Find sound in collection and play it or do nothing if not found
+func findAndPlaySound(s *discordgo.Session, m *discordgo.MessageCreate, parts []string, g *discordgo.Guild) {
 	for _, coll := range COLLECTIONS {
 		if scontains(parts[0], coll.Commands...) {
 			go deleteCommandMessage(s, m.ChannelID, m.ID)
@@ -548,7 +566,7 @@ func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 				}
 			}
 
-			go enqueuePlay(m.Author, guild, coll, sound)
+			go enqueuePlay(m.Author, g, coll, sound)
 			return
 		}
 	}

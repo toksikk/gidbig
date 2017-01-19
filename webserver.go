@@ -51,10 +51,29 @@ func startWebServer(port string, ci string, cs string, redirectURL string) {
 	r.HandleFunc("/logout", handleLogout)
 	r.HandleFunc("/discordLogin", handlediscordLogin)
 	r.HandleFunc("/discordCallback", handlediscordCallback)
+	r.HandleFunc("/playsound", handlePlaySound)
 
 	http.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("static"))))
 	http.Handle("/", r)
 	http.ListenAndServe(":"+port, nil)
+}
+
+func handlePlaySound(w http.ResponseWriter, r *http.Request) {
+	r.ParseForm()
+	sound, soundCollection := findSoundAndCollection(r.FormValue("command"), r.FormValue("soundname"))
+	session, _ := store.Get(r, "session-name")
+	var guild *discordgo.Guild
+	user, _ := discord.User(session.Values["discordUserID"].(string))
+	for _, g := range discord.State.Guilds {
+		for _, vs := range g.VoiceStates {
+			if vs.UserID == session.Values["discordUserID"].(string) {
+				guild = g
+			}
+		}
+	}
+	if user != nil && guild != nil && sound != nil && soundCollection != nil {
+		enqueuePlay(user, guild, soundCollection, sound)
+	}
 }
 
 func handleMain(w http.ResponseWriter, r *http.Request) {
