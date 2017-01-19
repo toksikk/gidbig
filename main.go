@@ -291,10 +291,14 @@ func enqueuePlay(user *discordgo.User, guild *discordgo.Guild, coll *SoundCollec
 
 	if exists {
 		if len(queues[guild.ID]) < maxQueueSize {
+			mutex.Lock()
 			queues[guild.ID] <- play
+			mutex.Unlock()
 		}
 	} else {
+		mutex.Lock()
 		queues[guild.ID] = make(chan *Play, maxQueueSize)
+		mutex.Unlock()
 		playSound(play, nil)
 	}
 }
