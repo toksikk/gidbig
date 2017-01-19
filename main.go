@@ -13,6 +13,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"text/tabwriter"
 	"time"
 
@@ -35,6 +36,9 @@ var (
 
 	// OWNER variable
 	OWNER string
+
+	// mutex for checking if voice connection already exists
+	mutex = &sync.Mutex{}
 )
 
 // Play represents an individual use of the !airhorn command
@@ -280,8 +284,10 @@ func enqueuePlay(user *discordgo.User, guild *discordgo.Guild, coll *SoundCollec
 	}
 
 	// Check if we already have a connection to this guild
-	//   yes, this isn't threadsafe, but its "OK" 99% of the time
+	// this should be threadsafe
+	mutex.Lock()
 	_, exists := queues[guild.ID]
+	mutex.Unlock()
 
 	if exists {
 		if len(queues[guild.ID]) < maxQueueSize {
@@ -306,7 +312,9 @@ func playSound(play *Play, vc *discordgo.VoiceConnection) (err error) {
 			log.WithFields(log.Fields{
 				"error": err,
 			}).Error("Failed to play sound")
+			mutex.Lock()
 			delete(queues, play.GuildID)
+			mutex.Unlock()
 			return err
 		}
 	}
@@ -337,7 +345,9 @@ func playSound(play *Play, vc *discordgo.VoiceConnection) (err error) {
 
 	// If the queue is empty, delete it
 	time.Sleep(time.Millisecond * time.Duration(play.Sound.PartDelay))
+	mutex.Lock()
 	delete(queues, play.GuildID)
+	mutex.Unlock()
 	vc.Disconnect()
 	return nil
 }
@@ -391,8 +401,10 @@ func utilGetMentioned(s *discordgo.Session, m *discordgo.MessageCreate) *discord
 
 // Handles bot operator messages, should be refactored (lmao)
 func handleBotControlMessages(s *discordgo.Session, m *discordgo.MessageCreate, parts []string, g *discordgo.Guild) {
-	if scontains(parts[1], "status") {
-		displayBotStats(m.ChannelID)
+	if len(parts) > 1 {
+		if scontains(parts[1], "status") {
+			displayBotStats(m.ChannelID)
+		}
 	}
 }
 
