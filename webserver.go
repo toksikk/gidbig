@@ -48,7 +48,9 @@ type SoundItem struct {
 func startWebServer(port string, ci string, cs string, redirectURL string) {
 	tmpls["home.html"] = template.Must(template.ParseFiles(templateDir+"home.html", header, footer))
 	tmpls["internal.html"] = template.Must(template.ParseFiles(templateDir+"internal.html", header, footer))
-	tmpls["itemrow.html"] = template.Must(template.ParseFiles(templateDir + "itemrow.html"))
+	tmpls["item.html"] = template.Must(template.ParseFiles(templateDir + "item.html"))
+	tmpls["itemrowstart.html"] = template.Must(template.ParseFiles(templateDir + "itemrowstart.html"))
+	tmpls["itemrowend.html"] = template.Must(template.ParseFiles(templateDir + "itemrowend.html"))
 	store = sessions.NewCookieStore([]byte(cs))
 	discordOauthConfig.ClientID = ci
 	discordOauthConfig.ClientSecret = cs
@@ -67,7 +69,7 @@ func startWebServer(port string, ci string, cs string, redirectURL string) {
 func handlePlaySound(w http.ResponseWriter, r *http.Request) {
 	r.ParseForm()
 	sound, soundCollection := findSoundAndCollection(r.FormValue("command"), r.FormValue("soundname"))
-	session, _ := store.Get(r, "session-name")
+	session, _ := store.Get(r, "gidbig-session")
 	var guild *discordgo.Guild
 	user, _ := discord.User(session.Values["discordUserID"].(string))
 	for _, g := range discord.State.Guilds {
@@ -83,35 +85,44 @@ func handlePlaySound(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleMain(w http.ResponseWriter, r *http.Request) {
-	session, _ := store.Get(r, "session-name")
+	session, _ := store.Get(r, "gidbig-session")
 	if session.Values["discordUsername"] != nil {
 		err := tmpls["internal.html"].ExecuteTemplate(w, "header", map[string]interface{}{})
 		if err != nil {
 			fmt.Println(err)
 			return
 		}
-		var si [4]SoundItem
-		cnt := 0
+
+		var si []SoundItem
 		for _, sc := range COLLECTIONS {
 			for _, snd := range sc.Sounds {
-				si[cnt%4].Itemcommand = "!" + sc.Prefix
-				si[cnt%4].Itemsoundname = snd.Name
-				si[cnt%4].Itemtext = si[cnt%4].Itemcommand + " " + si[cnt%4].Itemsoundname
-				if cnt != 0 && cnt%4 == 3 {
-					err = tmpls["itemrow.html"].Execute(w, si)
-					if err != nil {
-						fmt.Println(err)
-						return
-					}
-				}
-				cnt++
+				si = append(si, SoundItem{
+					Itemcommand:   "!" + sc.Prefix,
+					Itemsoundname: snd.Name,
+					Itemtext:      "!" + sc.Prefix + " " + snd.Name,
+				})
 			}
 		}
-		if cnt%4 != 0 {
-			err = tmpls["itemrow.html"].Execute(w, si)
+
+		for i, snd := range si {
+			if i%4 == 0 {
+				err = tmpls["itemrowstart.html"].Execute(w, nil)
+				if err != nil {
+					fmt.Println(err)
+					return
+				}
+			}
+			err = tmpls["item.html"].Execute(w, snd)
 			if err != nil {
 				fmt.Println(err)
 				return
+			}
+			if i%4 == 3 {
+				err = tmpls["itemrowend.html"].Execute(w, nil)
+				if err != nil {
+					fmt.Println(err)
+					return
+				}
 			}
 		}
 
@@ -127,7 +138,7 @@ func handleMain(w http.ResponseWriter, r *http.Request) {
 }
 func handleLogout(w http.ResponseWriter, r *http.Request) {
 	cookie := &http.Cookie{
-		Name:   "session-name",
+		Name:   "gidbig-session",
 		Value:  "",
 		Path:   "/",
 		MaxAge: -1,
@@ -140,7 +151,7 @@ func handlediscordLogin(w http.ResponseWriter, r *http.Request) {
 	rand.Read(b)
 	oauthStateString = base64.URLEncoding.EncodeToString(b)
 
-	session, _ := store.Get(r, "session-name")
+	session, _ := store.Get(r, "gidbig-session")
 	session.Values["state"] = oauthStateString
 	session.Save(r, w)
 
@@ -149,7 +160,7 @@ func handlediscordLogin(w http.ResponseWriter, r *http.Request) {
 }
 
 func handlediscordCallback(w http.ResponseWriter, r *http.Request) {
-	session, err := store.Get(r, "session-name")
+	session, err := store.Get(r, "gidbig-session")
 	if err != nil {
 		fmt.Fprintln(w, "aborted")
 		return

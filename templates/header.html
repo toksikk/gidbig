@@ -15,11 +15,12 @@
         body {
             padding-top: 50px;
         }
-        .vcenter {
-    display: inline-block;
-    vertical-align: middle;
-    float: none;
-}
+        .itembuffer {
+            margin: 1px;
+            padding: 5px;
+            border: 1px solid black;
+            background-color: #f2f2f2;
+         }
     </style>
     <meta charset="utf-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
@@ -55,5 +56,3 @@
             <h1>Gidbig</h1>
             <p class="lead">{{ template "sessionHandler" . }}</p>
             {{ end }}
-
-        

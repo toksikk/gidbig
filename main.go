@@ -39,6 +39,9 @@ var (
 
 	// mutex for checking if voice connection already exists
 	mutex = &sync.Mutex{}
+
+	// connection refresher counter
+	rcCounter int = 0
 )
 
 // Play represents an individual use of the !airhorn command
@@ -57,11 +60,10 @@ type Play struct {
 
 // SoundCollection of Sounds
 type SoundCollection struct {
-	Prefix    string
-	Commands  []string
-	Sounds    []*Sound
-	ChainWith *SoundCollection
-
+	Prefix     string
+	Commands   []string
+	Sounds     []*Sound
+	ChainWith  *SoundCollection
 	soundRange int
 }
 
@@ -351,8 +353,8 @@ func playSound(play *Play, vc *discordgo.VoiceConnection) (err error) {
 	time.Sleep(time.Millisecond * time.Duration(play.Sound.PartDelay))
 	mutex.Lock()
 	delete(queues, play.GuildID)
-	mutex.Unlock()
 	vc.Disconnect()
+	mutex.Unlock()
 	return nil
 }
 
@@ -458,7 +460,35 @@ func setIdleStatus() {
 	}
 }
 
+func checkReconnectCounter() {
+	mutex.Lock()
+	if rcCounter >= 20 {
+		reconnect()
+		rcCounter = 0
+	} else {
+		rcCounter++
+	}
+	mutex.Unlock()
+}
+
+func reconnect() {
+	err := discord.Close()
+	if err != nil {
+		log.WithFields(log.Fields{
+			"error": err,
+		}).Error("Failed to close connection.")
+		return
+	}
+	err = discord.Open()
+	if err != nil {
+		log.WithFields(log.Fields{
+			"error": err,
+		}).Fatal("Failed to create discord websocket connection")
+	}
+}
+
 func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
+	go checkReconnectCounter()
 	if m.Content == "ping" || m.Content == "pong" {
 		// If the message is "ping" reply with "Pong!"
 		if m.Content == "ping" {
