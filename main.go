@@ -464,6 +464,7 @@ func setIdleStatus() {
 func checkReconnectCounter() {
 	mutex.Lock()
 	if len(queues) > 0 {
+		mutex.Unlock()
 		return
 	}
 	if rcCounter >= 20 {
