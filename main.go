@@ -303,6 +303,7 @@ func enqueuePlay(user *discordgo.User, guild *discordgo.Guild, coll *SoundCollec
 		mutex.Unlock()
 		playSound(play, nil)
 	}
+	go checkReconnectCounter()
 }
 
 // Play a sound
@@ -472,6 +473,7 @@ func checkReconnectCounter() {
 }
 
 func reconnect() {
+	log.Infoln("Reconnecting web socket.")
 	err := discord.Close()
 	if err != nil {
 		log.WithFields(log.Fields{
@@ -488,7 +490,6 @@ func reconnect() {
 }
 
 func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
-	go checkReconnectCounter()
 	if m.Content == "ping" || m.Content == "pong" {
 		// If the message is "ping" reply with "Pong!"
 		if m.Content == "ping" {
