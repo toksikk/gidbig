@@ -1,11 +1,13 @@
 package main
 
 import (
+	"bufio"
 	"crypto/rand"
 	"encoding/base64"
 	"fmt"
 	"html/template"
 	"net/http"
+	"os"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/gorilla/mux"
@@ -38,10 +40,13 @@ var (
 	store *sessions.CookieStore
 )
 
+// SoundItem is used to represent a sound of our COLLECTIONS for html generation
 type SoundItem struct {
+	Itemprefix    string
 	Itemcommand   string
 	Itemsoundname string
 	Itemtext      string
+	Itemshorttext string
 }
 
 // startWebServer
@@ -63,6 +68,7 @@ func startWebServer(port string, ci string, cs string, redirectURL string) {
 	r.HandleFunc("/discordCallback", handlediscordCallback)
 	r.HandleFunc("/playsound", handlePlaySound)
 	http.Handle("/", r)
+	http.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("static"))))
 	http.ListenAndServe(":"+port, nil)
 }
 
@@ -96,11 +102,27 @@ func handleMain(w http.ResponseWriter, r *http.Request) {
 		var si []SoundItem
 		for _, sc := range COLLECTIONS {
 			for _, snd := range sc.Sounds {
-				si = append(si, SoundItem{
+				var newSoundItem SoundItem
+				newSoundItem = SoundItem{
+					Itemprefix:    sc.Prefix,
 					Itemcommand:   "!" + sc.Prefix,
 					Itemsoundname: snd.Name,
 					Itemtext:      "!" + sc.Prefix + " " + snd.Name,
-				})
+					Itemshorttext: "!" + sc.Prefix + " " + snd.Name,
+				}
+				file, e := os.Open(fmt.Sprintf("audio/%v_%v.txt", sc.Prefix, snd.Name))
+				if e == nil {
+					scanner := bufio.NewScanner(file)
+					scanner.Scan()
+					text := scanner.Text()
+					newSoundItem.Itemtext = text
+					if len(text) > 20 {
+						text = text[0:20]
+						text += "..."
+					}
+					newSoundItem.Itemshorttext = text
+				}
+				si = append(si, newSoundItem)
 			}
 		}
 
