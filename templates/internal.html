@@ -7,6 +7,9 @@
         };
         $.post("/playsound", data, function(data, success) {});
     }
+    $(document).ready(function(){
+        $('[data-toggle="popover"]').popover();
+    });
 </script>
 <a href="/logout">Logout</a><br/>
 {{ end }}
