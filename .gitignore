@@ -1,3 +1,5 @@
 run.bat
 run.sh
 audio/*.dca
+audio/*_*.txt
+static/img/*.jpg
