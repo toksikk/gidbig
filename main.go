@@ -303,7 +303,6 @@ func enqueuePlay(user *discordgo.User, guild *discordgo.Guild, coll *SoundCollec
 		mutex.Unlock()
 		playSound(play, nil)
 	}
-	go checkReconnectCounter()
 }
 
 // Play a sound
@@ -458,38 +457,6 @@ func setIdleStatus() {
 		discord.UpdateStreamingStatus(1, "", "")
 		discord.UpdateStatus(0, games[randomRange(0, len(games))])
 		time.Sleep(time.Duration(randomRange(5, 15)) * time.Minute)
-	}
-}
-
-func checkReconnectCounter() {
-	mutex.Lock()
-	if len(queues) > 0 {
-		mutex.Unlock()
-		return
-	}
-	if rcCounter >= 20 {
-		reconnect()
-		rcCounter = 0
-	} else {
-		rcCounter++
-	}
-	mutex.Unlock()
-}
-
-func reconnect() {
-	log.Infoln("Reconnecting web socket.")
-	err := discord.Close()
-	if err != nil {
-		log.WithFields(log.Fields{
-			"error": err,
-		}).Error("Failed to close connection.")
-		return
-	}
-	err = discord.Open()
-	if err != nil {
-		log.WithFields(log.Fields{
-			"error": err,
-		}).Fatal("Failed to create discord websocket connection")
 	}
 }
 
