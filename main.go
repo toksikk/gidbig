@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"runtime"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync"
@@ -39,9 +40,6 @@ var (
 
 	// mutex for checking if voice connection already exists
 	mutex = &sync.Mutex{}
-
-	// connection refresher counter
-	rcCounter int = 0
 )
 
 // Play represents an individual use of the !airhorn command
@@ -410,6 +408,7 @@ func handleBotControlMessages(s *discordgo.Session, m *discordgo.MessageCreate, 
 	if len(parts) > 1 {
 		if scontains(parts[1], "status") {
 			displayBotStats(m.ChannelID)
+			debug.PrintStack()
 		}
 	}
 }
