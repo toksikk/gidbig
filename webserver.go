@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"html/template"
 	"net/http"
+	_ "net/http/pprof"
 	"os"
 
 	"github.com/bwmarrin/discordgo"

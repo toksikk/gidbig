@@ -11,7 +11,6 @@ import (
 	"os"
 	"os/signal"
 	"runtime"
-	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync"
@@ -408,7 +407,6 @@ func handleBotControlMessages(s *discordgo.Session, m *discordgo.MessageCreate, 
 	if len(parts) > 1 {
 		if scontains(parts[1], "status") {
 			displayBotStats(m.ChannelID)
-			debug.PrintStack()
 		}
 	}
 }
