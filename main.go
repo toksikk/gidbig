@@ -281,6 +281,9 @@ func enqueuePlay(user *discordgo.User, guild *discordgo.Guild, coll *SoundCollec
 	if play == nil {
 		return
 	}
+	log.WithFields(log.Fields{
+		"user": user,
+	}).Info(user.Username + "triggered sound playback of " + sound.Name + " in " + coll.Prefix + " for server " + guild.Name + " in channel " + play.ChannelID)
 
 	// Check if we already have a connection to this guild
 	// this should be threadsafe
