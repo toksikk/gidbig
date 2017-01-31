@@ -308,9 +308,15 @@ func playSound(play *Play, vc *discordgo.VoiceConnection) (err error) {
 		"play": play,
 	}).Info("Playing sound")
 
+	if vc != nil {
+		if vc.GuildID != play.GuildID {
+			vc.Disconnect()
+			vc = nil
+		}
+	}
+
 	if vc == nil {
-		vc, err = discord.ChannelVoiceJoin(play.GuildID, play.ChannelID, false, false)
-		// vc.Receive = false
+		vc, err = discord.ChannelVoiceJoin(play.GuildID, play.ChannelID, false, true)
 		if err != nil {
 			log.WithFields(log.Fields{
 				"error": err,
@@ -324,7 +330,7 @@ func playSound(play *Play, vc *discordgo.VoiceConnection) (err error) {
 
 	// If we need to change channels, do that now
 	if vc.ChannelID != play.ChannelID {
-		vc.ChangeChannel(play.ChannelID, false, false)
+		vc.ChangeChannel(play.ChannelID, false, true)
 		time.Sleep(time.Millisecond * 125)
 	}
 
@@ -350,7 +356,6 @@ func playSound(play *Play, vc *discordgo.VoiceConnection) (err error) {
 	time.Sleep(time.Millisecond * time.Duration(play.Sound.PartDelay))
 	mutex.Lock()
 	delete(queues, play.GuildID)
-	vc.Disconnect()
 	mutex.Unlock()
 	return nil
 }
