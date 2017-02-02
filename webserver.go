@@ -57,6 +57,8 @@ func startWebServer(port string, ci string, cs string, redirectURL string) {
 	tmpls["item.html"] = template.Must(template.ParseFiles(templateDir + "item.html"))
 	tmpls["itemrowstart.html"] = template.Must(template.ParseFiles(templateDir + "itemrowstart.html"))
 	tmpls["itemrowend.html"] = template.Must(template.ParseFiles(templateDir + "itemrowend.html"))
+	tmpls["collwrapstart.html"] = template.Must(template.ParseFiles(templateDir + "collwrapstart.html"))
+	tmpls["collwrapend.html"] = template.Must(template.ParseFiles(templateDir + "collwrapend.html"))
 	store = sessions.NewCookieStore([]byte(cs))
 	discordOauthConfig.ClientID = ci
 	discordOauthConfig.ClientSecret = cs
@@ -89,6 +91,9 @@ func handlePlaySound(w http.ResponseWriter, r *http.Request) {
 	if user != nil && guild != nil && sound != nil && soundCollection != nil {
 		go enqueuePlay(user, guild, soundCollection, sound)
 	}
+	if user != nil && guild != nil && sound == nil && soundCollection != nil {
+		go enqueuePlay(user, guild, soundCollection, soundCollection.Random())
+	}
 }
 
 func handleMain(w http.ResponseWriter, r *http.Request) {
@@ -102,6 +107,15 @@ func handleMain(w http.ResponseWriter, r *http.Request) {
 
 		var si []SoundItem
 		for _, sc := range COLLECTIONS {
+			var newSoundItemRandom SoundItem
+			newSoundItemRandom = SoundItem{
+				Itemprefix:    sc.Prefix,
+				Itemcommand:   "!" + sc.Prefix,
+				Itemsoundname: "",
+				Itemtext:      "random",
+				Itemshorttext: "random",
+			}
+			si = append(si, newSoundItemRandom)
 			for _, snd := range sc.Sounds {
 				var newSoundItem SoundItem
 				newSoundItem = SoundItem{
@@ -127,7 +141,27 @@ func handleMain(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
+		var currentPrefix string = ""
+		var prefixChanged bool = false
 		for i, snd := range si {
+			if snd.Itemprefix != currentPrefix {
+				if i != 0 {
+					err = tmpls["collwrapend.html"].Execute(w, nil)
+					if err != nil {
+						fmt.Println(err)
+						return
+					}
+				}
+				err = tmpls["collwrapstart.html"].Execute(w, snd)
+				if err != nil {
+					fmt.Println(err)
+					return
+				}
+				currentPrefix = snd.Itemprefix
+				if i != 0 {
+					prefixChanged = true
+				}
+			}
 			if i%4 == 0 {
 				err = tmpls["itemrowstart.html"].Execute(w, nil)
 				if err != nil {
@@ -146,6 +180,14 @@ func handleMain(w http.ResponseWriter, r *http.Request) {
 					fmt.Println(err)
 					return
 				}
+			}
+			if prefixChanged {
+				err = tmpls["collwrapend.html"].Execute(w, nil)
+				if err != nil {
+					fmt.Println(err)
+					return
+				}
+				prefixChanged = false
 			}
 		}
 
