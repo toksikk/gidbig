@@ -142,15 +142,21 @@ func handleMain(w http.ResponseWriter, r *http.Request) {
 		}
 
 		var currentPrefix string = ""
-		var prefixChanged bool = false
-		for i, snd := range si {
+		var i int = 0
+		for _, snd := range si {
 			if snd.Itemprefix != currentPrefix {
 				if i != 0 {
+					err = tmpls["itemrowend.html"].Execute(w, nil)
+					if err != nil {
+						fmt.Println(err)
+						return
+					}
 					err = tmpls["collwrapend.html"].Execute(w, nil)
 					if err != nil {
 						fmt.Println(err)
 						return
 					}
+					i = 0
 				}
 				err = tmpls["collwrapstart.html"].Execute(w, snd)
 				if err != nil {
@@ -158,9 +164,6 @@ func handleMain(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 				currentPrefix = snd.Itemprefix
-				if i != 0 {
-					prefixChanged = true
-				}
 			}
 			if i%4 == 0 {
 				err = tmpls["itemrowstart.html"].Execute(w, nil)
@@ -181,14 +184,7 @@ func handleMain(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 			}
-			if prefixChanged {
-				err = tmpls["collwrapend.html"].Execute(w, nil)
-				if err != nil {
-					fmt.Println(err)
-					return
-				}
-				prefixChanged = false
-			}
+			i++
 		}
 
 		err = tmpls["internal.html"].ExecuteTemplate(w, "footer", map[string]interface{}{})
