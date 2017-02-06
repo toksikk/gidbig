@@ -10,13 +10,14 @@ Visit [https://airhorn.solutions/](https://airhorn.solutions/).
 Since there is not yet any command to request a list of available sound files, just take a look in `audio/`.  
 They are named after the scheme `command_soundname.dca` and would result in a channel command like `!command soundname` like in `!airhorn default`.  
 Typing only the `!command` without an argument results in a random sound of this command's collection.
+- Comfortable web interface to trigger sounds
+- Automatically detect all `.dca` files in `audio/`
+- Optional sound descriptions via `.txt` files in `audio/` with the same name as the soundfile
 
 ## Installation
 Coming soon.
 ## To do
-- ~~Remove hardcoded sound collections and let the bot build them himself by scanning the `audio/` folder for files.~~
-- ~~Build-in web interface to trigger sounds.  ~~
-~~The idea is to be able to have a detailed listing of available sound files in a responsive interface and a simple button to trigger the sound playback in a channel.~~
+- more web interface enhancements
 
 ## Known issues
 - none at the moment

@@ -89,22 +89,22 @@ func handlePlaySound(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if user != nil && guild != nil && sound != nil && soundCollection != nil {
-		go enqueuePlay(user, guild, soundCollection, sound)
+		if sound != nil {
+			go enqueuePlay(user, guild, soundCollection, sound)
+		} else {
+			go enqueuePlay(user, guild, soundCollection, soundCollection.Random())
+		}
+		http.Error(w, http.StatusText(200), 200)
+	} else {
+		http.Error(w, http.StatusText(500), 500)
 	}
-	if user != nil && guild != nil && sound == nil && soundCollection != nil {
-		go enqueuePlay(user, guild, soundCollection, soundCollection.Random())
-	}
+
 }
 
 func handleMain(w http.ResponseWriter, r *http.Request) {
 	session, _ := store.Get(r, "gidbig-session")
 	if session.Values["discordUsername"] != nil {
-		err := tmpls["internal.html"].ExecuteTemplate(w, "header", map[string]interface{}{})
-		if err != nil {
-			fmt.Println(err)
-			return
-		}
-
+		var prefixes []string
 		var si []SoundItem
 		for _, sc := range COLLECTIONS {
 			var newSoundItemRandom SoundItem
@@ -115,6 +115,7 @@ func handleMain(w http.ResponseWriter, r *http.Request) {
 				Itemtext:      "random",
 				Itemshorttext: "random",
 			}
+			prefixes = append(prefixes, sc.Prefix)
 			si = append(si, newSoundItemRandom)
 			for _, snd := range sc.Sounds {
 				var newSoundItem SoundItem
@@ -139,6 +140,11 @@ func handleMain(w http.ResponseWriter, r *http.Request) {
 				}
 				si = append(si, newSoundItem)
 			}
+		}
+		err := tmpls["internal.html"].ExecuteTemplate(w, "header", prefixes)
+		if err != nil {
+			fmt.Println(err)
+			return
 		}
 
 		var currentPrefix string = ""
