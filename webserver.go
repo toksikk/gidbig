@@ -88,7 +88,7 @@ func handlePlaySound(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	if user != nil && guild != nil && sound != nil && soundCollection != nil {
+	if user != nil && guild != nil && soundCollection != nil {
 		if sound != nil {
 			go enqueuePlay(user, guild, soundCollection, sound)
 		} else {
