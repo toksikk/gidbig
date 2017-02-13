@@ -20,6 +20,6 @@ Coming soon.
 - more web interface enhancements
 
 ## Known issues
-- none at the moment
+- `https://discordapp.com/api/oauth2` needs to be added to `brokenAuthHeaderProviders` in `golang.org/x/oauth2/internal/token.go` in order for oauth2 to work again.
 
 Please use the issue tracker.
