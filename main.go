@@ -364,6 +364,7 @@ func playSound(play *Play, vc *discordgo.VoiceConnection) (err error) {
 	time.Sleep(time.Millisecond * time.Duration(play.Sound.PartDelay))
 	mutex.Lock()
 	delete(queues, play.GuildID)
+	vc.Disconnect()
 	mutex.Unlock()
 	return nil
 }
