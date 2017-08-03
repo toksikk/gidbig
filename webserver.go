@@ -90,7 +90,11 @@ func handlePlaySound(w http.ResponseWriter, r *http.Request) {
 	}
 	if user != nil && guild != nil && soundCollection != nil {
 		if sound != nil {
-			go enqueuePlay(user, guild, soundCollection, sound)
+			if sound.Name == "clearqueue" && soundCollection.Prefix == "1" {
+				clearQueue()
+			} else {
+				go enqueuePlay(user, guild, soundCollection, sound)
+			}
 		} else {
 			go enqueuePlay(user, guild, soundCollection, soundCollection.Random())
 		}

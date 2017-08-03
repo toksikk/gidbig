@@ -20,6 +20,7 @@ import (
 	log "github.com/Sirupsen/logrus"
 	"github.com/bwmarrin/discordgo"
 	humanize "github.com/dustin/go-humanize"
+	"os/user"
 )
 
 var (
@@ -367,6 +368,17 @@ func playSound(play *Play, vc *discordgo.VoiceConnection) (err error) {
 	vc.Disconnect()
 	mutex.Unlock()
 	return nil
+}
+
+func clearQueue(user *discordgo.User) {
+	log.WithFields(log.Fields{
+		"user": user,
+	}).Info(user.Username + " triggered queue clearing")
+	for key, _ := range queues {
+		delete(queues, key)
+	}
+	discord.Close()
+	discord.Open()
 }
 
 func onReady(s *discordgo.Session, event *discordgo.Ready) {
