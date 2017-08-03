@@ -369,6 +369,14 @@ func playSound(play *Play, vc *discordgo.VoiceConnection) (err error) {
 	return nil
 }
 
+func clearQueue() {
+	for key, _ := range queues {
+		delete(queues, key)
+	}
+	discord.Close()
+	discord.Open()
+}
+
 func onReady(s *discordgo.Session, event *discordgo.Ready) {
 	log.Info("Received READY payload.")
 }
