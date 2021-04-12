@@ -17,9 +17,9 @@ import (
 	"text/tabwriter"
 	"time"
 
-	log "github.com/Sirupsen/logrus"
 	"github.com/bwmarrin/discordgo"
 	humanize "github.com/dustin/go-humanize"
+	log "github.com/sirupsen/logrus"
 )
 
 var (
@@ -477,7 +477,7 @@ func setIdleStatus() {
 	}
 	for {
 		discord.UpdateStreamingStatus(1, "", "")
-		discord.UpdateStatus(0, games[randomRange(0, len(games))])
+		discord.UpdateGameStatus(0, games[randomRange(0, len(games))])
 		time.Sleep(time.Duration(randomRange(5, 15)) * time.Minute)
 	}
 }
@@ -495,7 +495,7 @@ func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 		}
 
 		// Updating bot status
-		s.UpdateStatus(0, "Ping Pong with "+m.Author.Username)
+		s.UpdateGameStatus(0, "Ping Pong with "+m.Author.Username)
 	}
 	if len(m.Content) <= 0 || (m.Content[0] != '!' && len(m.Mentions) < 1) {
 		return
