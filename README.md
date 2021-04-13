@@ -1,7 +1,7 @@
 # Gidbig
 
-Gidbig is a Discord Bot in Go based on
-[Airhorn Bot by Hammer and Chisel](https://github.com/hammerandchisel/airhornbot/).  
+Gidbig is a Discord Bot in Go based on (now deprecated)
+[Airhorn Bot by Hammer and Chisel](https://github.com/discord/airhornbot/tree/golang).  
 Visit [https://airhorn.solutions/](https://airhorn.solutions/).
 
 ## Features
@@ -16,10 +16,7 @@ Typing only the `!command` without an argument results in a random sound of this
 
 ## Installation
 Coming soon.
+
 ## To do
 - more web interface enhancements
-
-## Known issues
-- `https://discordapp.com/api/oauth2` needs to be added to `brokenAuthHeaderProviders` in `golang.org/x/oauth2/internal/token.go` in order for oauth2 to work again.
-
-Please use the issue tracker.
+- add support for more than just `.dca` files, mp3 would be nice!
