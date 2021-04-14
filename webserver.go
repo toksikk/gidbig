@@ -4,15 +4,20 @@ import (
 	"bufio"
 	"crypto/rand"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"html/template"
+	"net"
 	"net/http"
 	_ "net/http/pprof"
 	"os"
+	"strconv"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/sessions"
+	"github.com/simplesurance/go-ip-anonymizer/ipanonymizer"
+	log "github.com/sirupsen/logrus"
 	"golang.org/x/oauth2"
 )
 
@@ -37,8 +42,14 @@ var (
 		TokenURL: "https://discordapp.com/api/oauth2/token",
 	}
 	tmpls = map[string]*template.Template{}
+
 	// TODO change secret
 	store *sessions.CookieStore
+
+	ipAnonymizer = ipanonymizer.NewWithMask(
+		net.CIDRMask(16, 32),
+		net.CIDRMask(64, 128),
+	)
 )
 
 // SoundItem is used to represent a sound of our COLLECTIONS for html generation
@@ -67,8 +78,8 @@ func startWebServer(port string, ci string, cs string, redirectURL string) {
 	r := mux.NewRouter()
 	r.HandleFunc("/", handleMain)
 	r.HandleFunc("/logout", handleLogout)
-	r.HandleFunc("/discordLogin", handlediscordLogin)
-	r.HandleFunc("/discordCallback", handlediscordCallback)
+	r.HandleFunc("/discordLogin", handleDiscordLogin)
+	r.HandleFunc("/discordCallback", handleDiscordCallback)
 	r.HandleFunc("/playsound", handlePlaySound)
 	http.Handle("/", r)
 	http.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("static"))))
@@ -76,6 +87,7 @@ func startWebServer(port string, ci string, cs string, redirectURL string) {
 }
 
 func handlePlaySound(w http.ResponseWriter, r *http.Request) {
+	log.Infoln("WebUI /playsound Request from " + r.RemoteAddr)
 	r.ParseForm()
 	sound, soundCollection := findSoundAndCollection(r.FormValue("command"), r.FormValue("soundname"))
 	session, _ := store.Get(r, "gidbig-session")
@@ -106,13 +118,13 @@ func handlePlaySound(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleMain(w http.ResponseWriter, r *http.Request) {
+	logWebRequests(r)
 	session, _ := store.Get(r, "gidbig-session")
 	if session.Values["discordUsername"] != nil {
 		var prefixes []string
 		var si []SoundItem
 		for _, sc := range COLLECTIONS {
-			var newSoundItemRandom SoundItem
-			newSoundItemRandom = SoundItem{
+			newSoundItemRandom := SoundItem{
 				Itemprefix:    sc.Prefix,
 				Itemcommand:   "!" + sc.Prefix,
 				Itemsoundname: "",
@@ -122,8 +134,7 @@ func handleMain(w http.ResponseWriter, r *http.Request) {
 			prefixes = append(prefixes, sc.Prefix)
 			si = append(si, newSoundItemRandom)
 			for _, snd := range sc.Sounds {
-				var newSoundItem SoundItem
-				newSoundItem = SoundItem{
+				newSoundItem := SoundItem{
 					Itemprefix:    sc.Prefix,
 					Itemcommand:   "!" + sc.Prefix,
 					Itemsoundname: snd.Name,
@@ -208,6 +219,7 @@ func handleMain(w http.ResponseWriter, r *http.Request) {
 	tmpls["home.html"].ExecuteTemplate(w, "footer", map[string]interface{}{})
 }
 func handleLogout(w http.ResponseWriter, r *http.Request) {
+	log.Infoln("WebUI /logout Request from " + r.RemoteAddr)
 	cookie := &http.Cookie{
 		Name:   "gidbig-session",
 		Value:  "",
@@ -217,7 +229,8 @@ func handleLogout(w http.ResponseWriter, r *http.Request) {
 	http.SetCookie(w, cookie)
 	http.Redirect(w, r, "/", http.StatusFound)
 }
-func handlediscordLogin(w http.ResponseWriter, r *http.Request) {
+func handleDiscordLogin(w http.ResponseWriter, r *http.Request) {
+	logWebRequests(r)
 	b := make([]byte, 16)
 	rand.Read(b)
 	oauthStateString = base64.URLEncoding.EncodeToString(b)
@@ -230,7 +243,8 @@ func handlediscordLogin(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, url, http.StatusTemporaryRedirect)
 }
 
-func handlediscordCallback(w http.ResponseWriter, r *http.Request) {
+func handleDiscordCallback(w http.ResponseWriter, r *http.Request) {
+	logWebRequests(r)
 	session, err := store.Get(r, "gidbig-session")
 	if err != nil {
 		fmt.Fprintln(w, "aborted")
@@ -274,4 +288,45 @@ func handlediscordCallback(w http.ResponseWriter, r *http.Request) {
 	dg.Close()
 
 	http.Redirect(w, r, "/", http.StatusTemporaryRedirect)
+}
+
+func parseIPPort(s string) (ip net.IP, port, space string, err error) {
+	ip = net.ParseIP(s)
+	if ip == nil {
+		var host string
+		host, port, err = net.SplitHostPort(s)
+		if err != nil {
+			return
+		}
+		if port != "" {
+			// This check only makes sense if service names are not allowed
+			if _, err = strconv.ParseUint(port, 10, 16); err != nil {
+				return
+			}
+		}
+		ip = net.ParseIP(host)
+	}
+	if ip == nil {
+		err = errors.New("invalid address format")
+	} else {
+		space = "IPv6"
+		if ip4 := ip.To4(); ip4 != nil {
+			space = "IPv4"
+			ip = ip4
+		}
+	}
+	return
+}
+
+func logWebRequests(r *http.Request) {
+	ip, port, _, err := parseIPPort(r.RemoteAddr)
+	if err != nil {
+		log.Warnln("Error parsing IP address for WebUI Request to " + r.RequestURI)
+	}
+	anonIP, err := ipAnonymizer.IPString(ip.String())
+	if err != nil {
+		log.Warnln("Could not anonymize IP address for WebUI Request to " + r.RequestURI)
+	} else {
+		log.Infoln("WebUI Request to " + r.RequestURI + " from " + anonIP + port)
+	}
 }
