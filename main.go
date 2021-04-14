@@ -418,6 +418,7 @@ func displayBotStats(cid string) {
 	discord.ChannelMessageSend(cid, buf.String())
 }
 
+// what did I start here?
 func utilGetMentioned(s *discordgo.Session, m *discordgo.MessageCreate) *discordgo.User {
 	for _, mention := range m.Mentions {
 		if mention.ID != s.State.Ready.User.ID {
