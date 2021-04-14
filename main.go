@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"encoding/binary"
-	"flag"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -20,6 +19,7 @@ import (
 	"github.com/bwmarrin/discordgo"
 	humanize "github.com/dustin/go-humanize"
 	log "github.com/sirupsen/logrus"
+	"gopkg.in/yaml.v2"
 )
 
 var (
@@ -609,33 +609,54 @@ func deleteCommandMessage(s *discordgo.Session, channelID string, messageID stri
 	}
 }
 
+type config struct {
+	Token       string `yaml:"token"`
+	Shard       string `yaml:"shard"`
+	ShardCount  string `yaml:"shardcount"`
+	Owner       string `yaml:"owner"`
+	Port        int    `yaml:"port"`
+	RedirectURL string `yaml:"redirecturl"`
+	Ci          int    `yaml:"ci"`
+	Cs          string `yaml:"cs"`
+}
+
+func loadConfigFile() *config {
+	config := &config{}
+	configFile, err := os.Open("config.yaml")
+	if err != nil {
+		log.Warningln("Could not load config file.", err)
+		return nil
+	}
+	defer configFile.Close()
+
+	d := yaml.NewDecoder(configFile)
+
+	if err := d.Decode(&config); err != nil {
+		return nil
+	}
+
+	return config
+}
+
 func main() {
+	config := loadConfigFile()
 	var (
-		Token       = flag.String("t", "", "Discord Authentication Token")
-		Shard       = flag.String("s", "", "Shard ID")
-		ShardCount  = flag.String("c", "", "Number of shards")
-		Owner       = flag.String("o", "", "Owner ID")
-		Port        = flag.Int("p", 0, "Web server port")
-		RedirectURL = flag.String("r", "", "Address where the web server will be available without slash at the end. For example: \"http://bot.example.org:12345\"")
-		Ci          = flag.Int("ci", 0, "ClientID")
-		Cs          = flag.String("cs", "", "ClientSecret")
-		err         error
+		err error
 	)
-	flag.Parse()
 
 	// create SoundCollections by scanning the audio folder
 	createCollections()
 
 	// Start Webserver if a valid port is provided and if ClientID and ClientSecret are set
-	if *Port != 0 && *Port >= 1 && *Ci != 0 && *Cs != "" && *RedirectURL != "" {
-		log.Infoln("Starting web server on port " + strconv.Itoa(*Port))
-		go startWebServer(strconv.Itoa(*Port), strconv.Itoa(*Ci), *Cs, *RedirectURL)
+	if config.Port != 0 && config.Port >= 1 && config.Ci != 0 && config.Cs != "" && config.RedirectURL != "" {
+		log.Infoln("Starting web server on port " + strconv.Itoa(config.Port))
+		go startWebServer(strconv.Itoa(config.Port), strconv.Itoa(config.Ci), config.Cs, config.RedirectURL)
 	} else {
 		log.Infoln("Required web server arguments missing or invalid. Skipping web server start.")
 	}
 
-	if *Owner != "" {
-		OWNER = *Owner
+	if config.Owner != "" {
+		OWNER = config.Owner
 	}
 
 	// Preload all the sounds
@@ -646,7 +667,7 @@ func main() {
 
 	// Create a discord session
 	log.Info("Starting discord session...")
-	discord, err = discordgo.New("Bot " + *Token)
+	discord, err = discordgo.New("Bot " + config.Token)
 	if err != nil {
 		log.WithFields(log.Fields{
 			"error": err,
@@ -655,8 +676,8 @@ func main() {
 	}
 
 	// Set sharding info
-	discord.ShardID, _ = strconv.Atoi(*Shard)
-	discord.ShardCount, _ = strconv.Atoi(*ShardCount)
+	discord.ShardID, _ = strconv.Atoi(config.Shard)
+	discord.ShardCount, _ = strconv.Atoi(config.ShardCount)
 
 	if discord.ShardCount <= 0 {
 		discord.ShardCount = 1
