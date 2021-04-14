@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/binary"
+	"flag"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -19,7 +20,6 @@ import (
 	"github.com/bwmarrin/discordgo"
 	humanize "github.com/dustin/go-humanize"
 	log "github.com/sirupsen/logrus"
-	"gopkg.in/yaml.v2"
 )
 
 var (
@@ -436,7 +436,7 @@ func handleBotControlMessages(s *discordgo.Session, m *discordgo.MessageCreate, 
 	}
 }
 
-func setIdleStatus(s *discordgo.Session) {
+func setIdleStatus() {
 	games := []string{
 		"Terranigma",
 		"Secret of Mana",
@@ -476,8 +476,8 @@ func setIdleStatus(s *discordgo.Session) {
 		"R-Type",
 	}
 	for {
-		s.UpdateStreamingStatus(1, "", "")
-		s.UpdateGameStatus(0, games[randomRange(0, len(games))])
+		discord.UpdateStreamingStatus(1, "", "")
+		discord.UpdateGameStatus(0, games[randomRange(0, len(games))])
 		time.Sleep(time.Duration(randomRange(5, 15)) * time.Minute)
 	}
 }
@@ -608,51 +608,33 @@ func deleteCommandMessage(s *discordgo.Session, channelID string, messageID stri
 	}
 }
 
-type config struct {
-	Token       string `yaml:"token"`
-	Shard       string `yaml:"shard"`
-	ShardCount  string `yaml:"shardcount"`
-	Owner       string `yaml:"owner"`
-	Port        int    `yaml:"port"`
-	RedirectURL string `yaml:"redirecturl"`
-	Ci          int    `yaml:"ci"`
-	Cs          string `yaml:"cs"`
-}
-
-func loadConfigFile() *config {
-	config := &config{}
-	configFile, err := os.Open("config.yaml")
-	if err != nil {
-		log.Warningln("Could not load config file.", err)
-		return nil
-	}
-	defer configFile.Close()
-
-	d := yaml.NewDecoder(configFile)
-
-	if err := d.Decode(&config); err != nil {
-		return nil
-	}
-
-	return config
-}
-
 func main() {
-	config := loadConfigFile()
+	var (
+		Token       = flag.String("t", "", "Discord Authentication Token")
+		Shard       = flag.String("s", "", "Shard ID")
+		ShardCount  = flag.String("c", "", "Number of shards")
+		Owner       = flag.String("o", "", "Owner ID")
+		Port        = flag.Int("p", 0, "Web server port")
+		RedirectURL = flag.String("r", "", "Address where the web server will be available without slash at the end. For example: \"http://bot.example.org:12345\"")
+		Ci          = flag.Int("ci", 0, "ClientID")
+		Cs          = flag.String("cs", "", "ClientSecret")
+		err         error
+	)
+	flag.Parse()
 
 	// create SoundCollections by scanning the audio folder
 	createCollections()
 
 	// Start Webserver if a valid port is provided and if ClientID and ClientSecret are set
-	if config.Port != 0 && config.Port >= 1 && config.Ci != 0 && config.Cs != "" && config.RedirectURL != "" {
-		log.Infoln("Starting web server on port " + strconv.Itoa(config.Port))
-		go startWebServer(strconv.Itoa(config.Port), strconv.Itoa(config.Ci), config.Cs, config.RedirectURL)
+	if *Port != 0 && *Port >= 1 && *Ci != 0 && *Cs != "" && *RedirectURL != "" {
+		log.Infoln("Starting web server on port " + strconv.Itoa(*Port))
+		go startWebServer(strconv.Itoa(*Port), strconv.Itoa(*Ci), *Cs, *RedirectURL)
 	} else {
 		log.Infoln("Required web server arguments missing or invalid. Skipping web server start.")
 	}
 
-	if config.Owner != "" {
-		OWNER = config.Owner
+	if *Owner != "" {
+		OWNER = *Owner
 	}
 
 	// Preload all the sounds
@@ -663,7 +645,7 @@ func main() {
 
 	// Create a discord session
 	log.Info("Starting discord session...")
-	discord, err := discordgo.New("Bot " + config.Token)
+	discord, err = discordgo.New("Bot " + *Token)
 	if err != nil {
 		log.WithFields(log.Fields{
 			"error": err,
@@ -672,8 +654,8 @@ func main() {
 	}
 
 	// Set sharding info
-	discord.ShardID, _ = strconv.Atoi(config.Shard)
-	discord.ShardCount, _ = strconv.Atoi(config.ShardCount)
+	discord.ShardID, _ = strconv.Atoi(*Shard)
+	discord.ShardCount, _ = strconv.Atoi(*ShardCount)
 
 	if discord.ShardCount <= 0 {
 		discord.ShardCount = 1
@@ -690,7 +672,7 @@ func main() {
 		return
 	}
 
-	go setIdleStatus(discord)
+	go setIdleStatus()
 	// We're running!
 	log.Info("Gidbig is ready. Quit with CTRL-C.")
 
