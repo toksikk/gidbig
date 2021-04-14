@@ -4,4 +4,3 @@ audio/*.dca
 audio/*_*.txt
 static/img/*.jpg
 gidbig
-go.sum
