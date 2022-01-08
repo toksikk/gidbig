@@ -1,4 +1,4 @@
-module dev.ixab.de/da/gidbig
+module github.com/toksikk/gidbig
 
 go 1.17
 

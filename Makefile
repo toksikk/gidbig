@@ -4,4 +4,4 @@ build:
 clean:
 	rm -f ./gidbig
 install:
-	go install dev.ixab.de/da/gidbig
+	go install github.com/toksikk/gidbig
