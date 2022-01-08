@@ -14,12 +14,3 @@ Typing only the `!command` without an argument results in a random sound of this
 - Automatically detect all `.dca` files in `audio/`
 - Optional sound descriptions via `.txt` files in `audio/` with the same name as the soundfile
 
-## Installation
-Coming soon.
-## To do
-- more web interface enhancements
-
-## Known issues
-- `https://discordapp.com/api/oauth2` needs to be added to `brokenAuthHeaderProviders` in `golang.org/x/oauth2/internal/token.go` in order for oauth2 to work again.
-
-Please use the issue tracker. Thank you!
