@@ -5,3 +5,4 @@ audio/*_*.txt
 static/img/*.jpg
 gidbig
 config.yaml
+bin

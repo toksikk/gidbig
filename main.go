@@ -373,7 +373,7 @@ func clearQueue(user *discordgo.User) {
 	log.WithFields(log.Fields{
 		"user": user,
 	}).Info(user.Username + " triggered queue clearing")
-	for key, _ := range queues {
+	for key := range queues {
 		delete(queues, key)
 	}
 	discord.Close()
@@ -407,6 +407,7 @@ func displayBotStats(cid string) {
 
 	w.Init(buf, 0, 4, 0, ' ', 0)
 	fmt.Fprintf(w, "```\n")
+	fmt.Fprintf(w, "Gidbig: \t%s built %s\n", version, builddate)
 	fmt.Fprintf(w, "Discordgo: \t%s\n", discordgo.VERSION)
 	fmt.Fprintf(w, "Go: \t%s\n", runtime.Version())
 	fmt.Fprintf(w, "Memory: \t%s / %s (%s total allocated)\n", humanize.Bytes(stats.Alloc), humanize.Bytes(stats.Sys), humanize.Bytes(stats.TotalAlloc))
@@ -639,6 +640,7 @@ func loadConfigFile() *config {
 }
 
 func main() {
+	Banner()
 	config := loadConfigFile()
 	var (
 		err error
