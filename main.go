@@ -556,7 +556,7 @@ func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 		return
 	}
 
-	if parts[0] == "!wttr" || parts[0] == "!wttrp" {
+	if parts[0] == "!wttr" || strings.Contains(parts[0], "!wttrp") {
 		handleWttrQuery(s, m, parts, guild)
 	}
 
@@ -604,6 +604,22 @@ func handleWttrQuery(s *discordgo.Session, m *discordgo.MessageCreate, parts []s
 				wttr, err = wttrin.WeatherForToday(query[0] + ".png" + "?" + query[1])
 			} else {
 				wttr, err = wttrin.WeatherForToday(query[0] + ".png")
+			}
+			if err != nil {
+				log.WithFields(log.Fields{
+					"error": err,
+				}).Error("wttr.in query failed")
+				s.ChannelMessageSend(m.ChannelID, err.Error())
+				return
+			}
+			s.ChannelFileSend(m.ChannelID, strings.Join(parts, "")+".png", bytes.NewReader(wttr))
+		case "!wttrp2":
+			var wttr []byte
+			var err error
+			if len(query) > 1 {
+				wttr, err = wttrin.WeatherForTodayV2(query[0] + ".png" + "?" + query[1])
+			} else {
+				wttr, err = wttrin.WeatherForTodayV2(query[0] + ".png")
 			}
 			if err != nil {
 				log.WithFields(log.Fields{
