@@ -4,8 +4,9 @@ import (
 	"io/ioutil"
 	"net"
 	"net/http"
-	"net/url"
 	"time"
+
+	log "github.com/sirupsen/logrus"
 )
 
 const (
@@ -18,7 +19,8 @@ var _httpClient *http.Client
 
 // WeatherForToday returns today's weather for given place in byte array
 func WeatherForToday(location string) (result []byte, err error) {
-	return httpGet(baseURL + url.QueryEscape(location))
+	log.Info("Querying wttr.in for " + location)
+	return httpGet(baseURL + location)
 }
 
 func httpGet(url string) (result []byte, err error) {

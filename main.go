@@ -580,17 +580,30 @@ func findSoundAndCollection(command string, soundname string) (*Sound, *SoundCol
 
 func handleWttrQuery(s *discordgo.Session, m *discordgo.MessageCreate, parts []string, g *discordgo.Guild) {
 	if len(parts) > 1 {
+		query := strings.Split(strings.Join(parts[1:], ""), "?")
 		switch parts[0] {
 		case "!wttr":
-			wttr, err := wttrin.WeatherForToday(strings.Join(parts[1:], " ") + "?format=4")
+			wttr, err := wttrin.WeatherForToday(query[0] + "?format=4")
 			if err != nil {
+				log.WithFields(log.Fields{
+					"error": err,
+				}).Error("wttr.in query failed")
 				s.ChannelMessageSend(m.ChannelID, err.Error())
 				return
 			}
 			s.ChannelMessageSend(m.ChannelID, string(wttr))
 		case "!wttrp":
-			wttr, err := wttrin.WeatherForToday(strings.Join(parts[1:], " ") + ".png")
+			var wttr []byte
+			var err error
+			if len(query) > 1 {
+				wttr, err = wttrin.WeatherForToday(query[0] + ".png" + "?" + query[1])
+			} else {
+				wttr, err = wttrin.WeatherForToday(query[0] + ".png")
+			}
 			if err != nil {
+				log.WithFields(log.Fields{
+					"error": err,
+				}).Error("wttr.in query failed")
 				s.ChannelMessageSend(m.ChannelID, err.Error())
 				return
 			}
