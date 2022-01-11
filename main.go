@@ -7,6 +7,7 @@ import (
 	"io"
 	"io/ioutil"
 	"math/rand"
+	"net/url"
 	"os"
 	"os/signal"
 	"runtime"
@@ -601,9 +602,9 @@ func handleWttrQuery(s *discordgo.Session, m *discordgo.MessageCreate, parts []s
 			var wttr []byte
 			var err error
 			if len(query) > 1 {
-				wttr, err = wttrin.WeatherForToday(query[0] + ".png" + "?" + query[1])
+				wttr, err = wttrin.WeatherForToday(url.QueryEscape(query[0]) + ".png" + "?" + query[1])
 			} else {
-				wttr, err = wttrin.WeatherForToday(query[0] + ".png?0")
+				wttr, err = wttrin.WeatherForToday(url.QueryEscape(query[0]) + ".png?0")
 			}
 			if err != nil {
 				log.WithFields(log.Fields{
@@ -617,9 +618,9 @@ func handleWttrQuery(s *discordgo.Session, m *discordgo.MessageCreate, parts []s
 			var wttr []byte
 			var err error
 			if len(query) > 1 {
-				wttr, err = wttrin.WeatherForTodayV2(query[0] + ".png" + "?" + query[1])
+				wttr, err = wttrin.WeatherForTodayV2(url.QueryEscape(query[0]) + ".png" + "?" + query[1])
 			} else {
-				wttr, err = wttrin.WeatherForTodayV2(query[0] + ".png")
+				wttr, err = wttrin.WeatherForTodayV2(url.QueryEscape(query[0]) + ".png")
 			}
 			if err != nil {
 				log.WithFields(log.Fields{
