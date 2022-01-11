@@ -18,16 +18,19 @@ const (
 
 var _httpClient *http.Client
 
-// WeatherForToday returns weather for given place in byte array
-func WeatherForToday(location string) (result []byte, err error) {
+func getWeather(baseURL string, location string) (result []byte, err error) {
 	log.Info("Querying wttr.in for " + location)
 	return httpGet(baseURL + location)
 }
 
+// WeatherForToday returns weather for given place in byte array
+func WeatherForToday(location string) (result []byte, err error) {
+	return getWeather(baseURL, location)
+}
+
 // WeatherForTodayV2 returns weather for given place in byte array
 func WeatherForTodayV2(location string) (result []byte, err error) {
-	log.Info("Querying wttr.in for " + location)
-	return httpGet(baseURLv2 + location)
+	return getWeather(baseURLv2, location)
 }
 
 func httpGet(url string) (result []byte, err error) {
