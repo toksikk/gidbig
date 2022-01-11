@@ -1,26 +1,45 @@
-package main
+package gidbig
 
 import (
 	"fmt"
+	"io"
 	"runtime/debug"
+	"strings"
 )
 
-var version = ""
-var builddate = ""
+var Version = ""
+var Builddate = ""
 
 // Banner Print Version on stdout
-func Banner() {
-	if version == "" {
+func Banner(w io.Writer) {
+	if Version == "" {
 		if build, ok := debug.ReadBuildInfo(); ok {
-			version = build.Main.Version
+			Version = build.Main.Version
 		}
 	}
-	fmt.Printf("\n       _     _ _     _       \n")
-	fmt.Printf("      (_)   | | |   (_)      \n")
-	fmt.Printf("  ____ _  _ | | | _  _  ____ \n")
-	fmt.Printf(" / _  | |/ || | || \\| |/ _  |\n")
-	fmt.Printf("( ( | | ( (_| | |_) ) ( ( | |\n")
-	fmt.Printf(" \\_|| |_|\\____|____/|_|\\_|| | %s\n", version)
-	fmt.Printf("(_____|               (_____|\n\n")
+	banner := []string{
+		"\n       _     _ _     _       \n",
+		"      (_)   | | |   (_)      \n",
+		"  ____ _  _ | | | _  _  ____ \n",
+		" / _  | |/ || | || \\| |/ _  |\n",
+		"( ( | | ( (_| | |_) ) ( ( | |\n",
+		" \\_|| |_|\\____|____/|_|\\_|| | %s\n",
+		"(_____|               (_____|\n\n",
+	}
 
+	for _, v := range banner {
+		if !strings.Contains(v, "%s") {
+			if w == nil {
+				fmt.Printf(v)
+			} else {
+				fmt.Fprint(w, v)
+			}
+		} else {
+			if w == nil {
+				fmt.Printf(v, Version)
+			} else {
+				fmt.Fprintf(w, v, Version)
+			}
+		}
+	}
 }

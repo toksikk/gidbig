@@ -1,4 +1,4 @@
-package main
+package gidbig
 
 import (
 	"bufio"
@@ -9,7 +9,6 @@ import (
 	"html/template"
 	"net"
 	"net/http"
-	_ "net/http/pprof"
 	"os"
 	"strconv"
 
@@ -62,7 +61,7 @@ type SoundItem struct {
 }
 
 // startWebServer
-func startWebServer(port string, ci string, cs string, redirectURL string) {
+func startWebServer(config *Config) {
 	tmpls["home.html"] = template.Must(template.ParseFiles(templateDir+"home.html", header, footer))
 	tmpls["internal.html"] = template.Must(template.ParseFiles(templateDir+"internal.html", header, footer))
 	tmpls["item.html"] = template.Must(template.ParseFiles(templateDir + "item.html"))
@@ -70,10 +69,10 @@ func startWebServer(port string, ci string, cs string, redirectURL string) {
 	tmpls["itemrowend.html"] = template.Must(template.ParseFiles(templateDir + "itemrowend.html"))
 	tmpls["collwrapstart.html"] = template.Must(template.ParseFiles(templateDir + "collwrapstart.html"))
 	tmpls["collwrapend.html"] = template.Must(template.ParseFiles(templateDir + "collwrapend.html"))
-	store = sessions.NewCookieStore([]byte(cs))
-	discordOauthConfig.ClientID = ci
-	discordOauthConfig.ClientSecret = cs
-	discordOauthConfig.RedirectURL = redirectURL + "/discordCallback"
+	store = sessions.NewCookieStore([]byte(config.Cs))
+	discordOauthConfig.ClientID = strconv.Itoa(config.Ci)
+	discordOauthConfig.ClientSecret = config.Cs
+	discordOauthConfig.RedirectURL = config.RedirectURL + "/discordCallback"
 
 	r := mux.NewRouter()
 	r.HandleFunc("/", handleMain)
@@ -83,7 +82,7 @@ func startWebServer(port string, ci string, cs string, redirectURL string) {
 	r.HandleFunc("/playsound", handlePlaySound)
 	http.Handle("/", r)
 	http.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("static"))))
-	http.ListenAndServe(":"+port, nil)
+	http.ListenAndServe(":"+strconv.Itoa(config.Port), nil)
 }
 
 func handlePlaySound(w http.ResponseWriter, r *http.Request) {
@@ -92,8 +91,8 @@ func handlePlaySound(w http.ResponseWriter, r *http.Request) {
 	sound, soundCollection := findSoundAndCollection(r.FormValue("command"), r.FormValue("soundname"))
 	session, _ := store.Get(r, "gidbig-session")
 	var guild *discordgo.Guild
-	user, _ := discord.User(session.Values["discordUserID"].(string))
-	for _, g := range discord.State.Guilds {
+	user, _ := Discord.User(session.Values["discordUserID"].(string))
+	for _, g := range Discord.State.Guilds {
 		for _, vs := range g.VoiceStates {
 			if vs.UserID == session.Values["discordUserID"].(string) {
 				guild = g

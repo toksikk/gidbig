@@ -1,6 +1,6 @@
 VERSION=`git describe --tags`
 BUILDDATE=`date +%FT%T%z`
-LDFLAGS=-ldflags="-X 'main.version=${VERSION}' -X 'main.builddate=${BUILDDATE}'"
+LDFLAGS=-ldflags="-X 'github.com/toksikk/gidbig.Version=${VERSION}' -X 'github.com/toksikk/gidbig.Builddate=${BUILDDATE}'"
 
 PLATFORMS := linux/amd64 linux/arm64 linux/386 linux/arm darwin/amd64
 
@@ -14,7 +14,7 @@ help:  ## 🤔 Show help messages
 
 build: ## 🚧 Build for local arch
 	mkdir -p ./bin
-	go build -o ./bin/gidbig ${LDFLAGS} ./*.go
+	go build -o ./bin/gidbig ${LDFLAGS} ./cmd/*.go
 
 clean: ## 🧹 Remove previously build binaries
 	rm -rf ./bin
@@ -24,4 +24,4 @@ pre-release:
 
 release: pre-release $(PLATFORMS) ## 📦 Build for GitHub release
 $(PLATFORMS):
-	GOOS=$(os) GOARCH=$(arch) go build -o ./bin/release/gidbig-$(os)-$(arch) ./*.go
+	GOOS=$(os) GOARCH=$(arch) go build -o ./bin/release/gidbig-$(os)-$(arch) ./cmd/*.go

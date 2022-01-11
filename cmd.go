@@ -1,4 +1,4 @@
-package main
+package gidbig
 
 import (
 	"bytes"
@@ -26,7 +26,7 @@ import (
 
 var (
 	// discordgo session
-	discord *discordgo.Session
+	Discord *discordgo.Session
 
 	// Map of Guild id's to *Play channels, used for queuing and rate-limiting guilds
 	queues = make(map[string]chan *Play)
@@ -223,7 +223,7 @@ func (s *Sound) Play(vc *discordgo.VoiceConnection) {
 func getCurrentVoiceChannel(user *discordgo.User, guild *discordgo.Guild) *discordgo.Channel {
 	for _, vs := range guild.VoiceStates {
 		if vs.UserID == user.ID {
-			channel, _ := discord.State.Channel(vs.ChannelID)
+			channel, _ := Discord.State.Channel(vs.ChannelID)
 			return channel
 		}
 	}
@@ -326,7 +326,7 @@ func playSound(play *Play, vc *discordgo.VoiceConnection) (err error) {
 	}
 
 	if vc == nil {
-		vc, err = discord.ChannelVoiceJoin(play.GuildID, play.ChannelID, false, true)
+		vc, err = Discord.ChannelVoiceJoin(play.GuildID, play.ChannelID, false, true)
 		if err != nil {
 			log.WithFields(log.Fields{
 				"error": err,
@@ -378,8 +378,8 @@ func clearQueue(user *discordgo.User) {
 	for key := range queues {
 		delete(queues, key)
 	}
-	discord.Close()
-	discord.Open()
+	Discord.Close()
+	Discord.Open()
 }
 
 func onReady(s *discordgo.Session, event *discordgo.Ready) {
@@ -400,7 +400,7 @@ func displayBotStats(cid string) {
 	runtime.ReadMemStats(&stats)
 
 	users := 0
-	for _, guild := range discord.State.Ready.Guilds {
+	for _, guild := range Discord.State.Ready.Guilds {
 		users += len(guild.Members)
 	}
 
@@ -409,16 +409,16 @@ func displayBotStats(cid string) {
 
 	w.Init(buf, 0, 4, 0, ' ', 0)
 	fmt.Fprintf(w, "```\n")
-	fmt.Fprintf(w, "Gidbig: \t%s\n", version)
+	fmt.Fprintf(w, "Gidbig: \t%s\n", Version)
 	fmt.Fprintf(w, "Discordgo: \t%s\n", discordgo.VERSION)
 	fmt.Fprintf(w, "Go: \t%s\n", runtime.Version())
 	fmt.Fprintf(w, "Memory: \t%s / %s (%s total allocated)\n", humanize.Bytes(stats.Alloc), humanize.Bytes(stats.Sys), humanize.Bytes(stats.TotalAlloc))
 	fmt.Fprintf(w, "Tasks: \t%d\n", runtime.NumGoroutine())
-	fmt.Fprintf(w, "Servers: \t%d\n", len(discord.State.Ready.Guilds))
+	fmt.Fprintf(w, "Servers: \t%d\n", len(Discord.State.Ready.Guilds))
 	fmt.Fprintf(w, "Users: \t%d\n", users)
 	fmt.Fprintf(w, "```\n")
 	w.Flush()
-	discord.ChannelMessageSend(cid, buf.String())
+	Discord.ChannelMessageSend(cid, buf.String())
 }
 
 // what did I start here?
@@ -480,8 +480,8 @@ func setIdleStatus() {
 		"R-Type",
 	}
 	for {
-		discord.UpdateStreamingStatus(1, "", "")
-		discord.UpdateGameStatus(0, games[randomRange(0, len(games))])
+		Discord.UpdateStreamingStatus(1, "", "")
+		Discord.UpdateGameStatus(0, games[randomRange(0, len(games))])
 		time.Sleep(time.Duration(randomRange(5, 15)) * time.Minute)
 	}
 }
@@ -522,7 +522,7 @@ func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 	msg := strings.Replace(m.ContentWithMentionsReplaced(), s.State.Ready.User.Username, "username", 1)
 	parts := strings.Split(strings.ToLower(msg), " ")
 
-	channel, _ := discord.State.Channel(m.ChannelID)
+	channel, _ := Discord.State.Channel(m.ChannelID)
 	if channel == nil {
 		log.WithFields(log.Fields{
 			"channel": m.ChannelID,
@@ -531,7 +531,7 @@ func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 		return
 	}
 
-	guild, _ := discord.State.Guild(channel.GuildID)
+	guild, _ := Discord.State.Guild(channel.GuildID)
 	if guild == nil {
 		log.WithFields(log.Fields{
 			"guild":   channel.GuildID,
@@ -566,8 +566,11 @@ func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 }
 
 func notifyOwner(message string) {
-	st, _ := discord.UserChannelCreate(OWNER)
-	discord.ChannelMessageSend(st.ID, message)
+	st, err := Discord.UserChannelCreate(OWNER)
+	if err != nil {
+		return
+	}
+	Discord.ChannelMessageSend(st.ID, message)
 }
 
 func findSoundAndCollection(command string, soundname string) (*Sound, *SoundCollection) {
@@ -672,7 +675,7 @@ func deleteCommandMessage(s *discordgo.Session, channelID string, messageID stri
 	}
 }
 
-type config struct {
+type Config struct {
 	Token       string `yaml:"token"`
 	Shard       string `yaml:"shard"`
 	ShardCount  string `yaml:"shardcount"`
@@ -683,8 +686,8 @@ type config struct {
 	Cs          string `yaml:"cs"`
 }
 
-func loadConfigFile() *config {
-	config := &config{}
+func loadConfigFile() *Config {
+	config := &Config{}
 	configFile, err := os.Open("config.yaml")
 	if err != nil {
 		log.Warningln("Could not load config file.", err)
@@ -701,8 +704,9 @@ func loadConfigFile() *config {
 	return config
 }
 
-func main() {
-	Banner()
+// StartGidbig obviously
+func StartGidbig() {
+	Banner(nil)
 	config := loadConfigFile()
 	var (
 		err error
@@ -714,7 +718,7 @@ func main() {
 	// Start Webserver if a valid port is provided and if ClientID and ClientSecret are set
 	if config.Port != 0 && config.Port >= 1 && config.Ci != 0 && config.Cs != "" && config.RedirectURL != "" {
 		log.Infoln("Starting web server on port " + strconv.Itoa(config.Port))
-		go startWebServer(strconv.Itoa(config.Port), strconv.Itoa(config.Ci), config.Cs, config.RedirectURL)
+		go startWebServer(config)
 	} else {
 		log.Infoln("Required web server arguments missing or invalid. Skipping web server start.")
 	}
@@ -731,7 +735,7 @@ func main() {
 
 	// Create a discord session
 	log.Info("Starting discord session...")
-	discord, err = discordgo.New("Bot " + config.Token)
+	Discord, err = discordgo.New("Bot " + config.Token)
 	if err != nil {
 		log.WithFields(log.Fields{
 			"error": err,
@@ -740,17 +744,17 @@ func main() {
 	}
 
 	// Set sharding info
-	discord.ShardID, _ = strconv.Atoi(config.Shard)
-	discord.ShardCount, _ = strconv.Atoi(config.ShardCount)
+	Discord.ShardID, _ = strconv.Atoi(config.Shard)
+	Discord.ShardCount, _ = strconv.Atoi(config.ShardCount)
 
-	if discord.ShardCount <= 0 {
-		discord.ShardCount = 1
+	if Discord.ShardCount <= 0 {
+		Discord.ShardCount = 1
 	}
 
-	discord.AddHandler(onReady)
-	discord.AddHandler(onMessageCreate)
+	Discord.AddHandler(onReady)
+	Discord.AddHandler(onMessageCreate)
 
-	err = discord.Open()
+	err = Discord.Open()
 	if err != nil {
 		log.WithFields(log.Fields{
 			"error": err,
@@ -762,7 +766,9 @@ func main() {
 	// We're running!
 	log.Info("Gidbig is ready. Quit with CTRL-C.")
 
-	go notifyOwner("I just started.")
+	banner := new(bytes.Buffer)
+	Banner(banner)
+	notifyOwner("```I just started!\n" + banner.String() + "```")
 
 	// Wait for a signal to quit
 	c := make(chan os.Signal, 1)
