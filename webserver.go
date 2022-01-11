@@ -81,7 +81,7 @@ func startWebServer(config *Config) {
 	r.HandleFunc("/discordCallback", handleDiscordCallback)
 	r.HandleFunc("/playsound", handlePlaySound)
 	http.Handle("/", r)
-	http.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("static"))))
+	http.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("web/static"))))
 	http.ListenAndServe(":"+strconv.Itoa(config.Port), nil)
 }
 
