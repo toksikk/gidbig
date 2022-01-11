@@ -18,8 +18,8 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	humanize "github.com/dustin/go-humanize"
-	wttrin "github.com/meinside/wttr.in-go"
 	log "github.com/sirupsen/logrus"
+	"github.com/toksikk/gidbig/pkg/wttrin"
 	"gopkg.in/yaml.v2"
 )
 
@@ -580,12 +580,12 @@ func findSoundAndCollection(command string, soundname string) (*Sound, *SoundCol
 
 func handleWttrQuery(s *discordgo.Session, m *discordgo.MessageCreate, parts []string, g *discordgo.Guild) {
 	if len(parts) > 1 {
-		wttr, err := wttrin.WeatherTextForToday(parts[1])
+		wttr, err := wttrin.WeatherTextForToday(strings.Join(parts[1:], "+"))
 		if err != nil {
 			s.ChannelMessageSend(m.ChannelID, err.Error())
 			return
 		}
-		s.ChannelMessageSend(m.ChannelID, strings.Join([]string{"```", wttr, "```"}, "\n"))
+		s.ChannelMessageSend(m.ChannelID, wttr)
 	}
 }
 
