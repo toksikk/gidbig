@@ -16,12 +16,12 @@ const (
 
 var _httpClient *http.Client
 
-// WeatherTextForToday returns today's weather for given place in single line plain text
-func WeatherTextForToday(location string) (result string, err error) {
-	return httpGet(baseURL + url.QueryEscape(location) + "?format=4")
+// WeatherForToday returns today's weather for given place in byte array
+func WeatherForToday(location string) (result []byte, err error) {
+	return httpGet(baseURL + url.QueryEscape(location))
 }
 
-func httpGet(url string) (result string, err error) {
+func httpGet(url string) (result []byte, err error) {
 	if _httpClient == nil {
 		_httpClient = &http.Client{
 			Transport: &http.Transport{
@@ -53,10 +53,10 @@ func httpGet(url string) (result string, err error) {
 		if err == nil {
 			var body []byte
 			if body, err = ioutil.ReadAll(resp.Body); err == nil {
-				return string(body), nil
+				return body, nil
 			}
 		}
 	}
 
-	return "", err
+	return make([]byte, 0), err
 }

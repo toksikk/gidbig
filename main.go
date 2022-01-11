@@ -556,7 +556,7 @@ func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 		return
 	}
 
-	if parts[0] == "!wttr" {
+	if parts[0] == "!wttr" || parts[0] == "!wttrp" {
 		handleWttrQuery(s, m, parts, guild)
 	}
 
@@ -580,12 +580,23 @@ func findSoundAndCollection(command string, soundname string) (*Sound, *SoundCol
 
 func handleWttrQuery(s *discordgo.Session, m *discordgo.MessageCreate, parts []string, g *discordgo.Guild) {
 	if len(parts) > 1 {
-		wttr, err := wttrin.WeatherTextForToday(strings.Join(parts[1:], "+"))
-		if err != nil {
-			s.ChannelMessageSend(m.ChannelID, err.Error())
-			return
+		switch parts[0] {
+		case "!wttr":
+			wttr, err := wttrin.WeatherForToday(strings.Join(parts[1:], " ") + "?format=4")
+			if err != nil {
+				s.ChannelMessageSend(m.ChannelID, err.Error())
+				return
+			}
+			s.ChannelMessageSend(m.ChannelID, string(wttr))
+		case "!wttrp":
+			wttr, err := wttrin.WeatherForToday(strings.Join(parts[1:], " ") + ".png")
+			if err != nil {
+				s.ChannelMessageSend(m.ChannelID, err.Error())
+				return
+			}
+			s.ChannelFileSend(m.ChannelID, strings.Join(parts, "")+".png", bytes.NewReader(wttr))
 		}
-		s.ChannelMessageSend(m.ChannelID, wttr)
+
 	}
 }
 
