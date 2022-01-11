@@ -21,9 +21,9 @@ import (
 )
 
 const (
-	header      = "web/templates/header.html"
-	footer      = "web/templates/footer.html"
-	templateDir = "web/templates/"
+	header      string = "web/templates/header.html"
+	footer      string = "web/templates/footer.html"
+	templateDir string = "web/templates/"
 )
 
 var (

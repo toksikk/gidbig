@@ -174,7 +174,7 @@ func (s *Sound) Load(c *SoundCollection) error {
 	file, err := os.Open(path)
 
 	if err != nil {
-		fmt.Println("error opening dca file :", err)
+		log.Error("error opening dca file :", err)
 		return err
 	}
 
@@ -190,7 +190,7 @@ func (s *Sound) Load(c *SoundCollection) error {
 		}
 
 		if err != nil {
-			fmt.Println("error reading from dca file :", err)
+			log.Error("error reading from dca file :", err)
 			return err
 		}
 
@@ -200,7 +200,7 @@ func (s *Sound) Load(c *SoundCollection) error {
 
 		// Should not be any end of file errors
 		if err != nil {
-			fmt.Println("error reading from dca file :", err)
+			log.Error("error reading from dca file :", err)
 			return err
 		}
 

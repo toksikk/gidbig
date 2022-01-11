@@ -5,8 +5,6 @@ import (
 	"net"
 	"net/http"
 	"time"
-
-	log "github.com/sirupsen/logrus"
 )
 
 const (
@@ -19,7 +17,6 @@ const (
 var _httpClient *http.Client
 
 func getWeather(baseURL string, location string) (result []byte, err error) {
-	log.Info("Querying wttr.in for " + location)
 	return httpGet(baseURL + location)
 }
 
