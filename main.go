@@ -564,6 +564,11 @@ func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 	findAndPlaySound(s, m, parts, guild)
 }
 
+func notifyOwner(message string) {
+	st, _ := discord.UserChannelCreate(OWNER)
+	discord.ChannelMessageSend(st.ID, message)
+}
+
 func findSoundAndCollection(command string, soundname string) (*Sound, *SoundCollection) {
 	for _, c := range COLLECTIONS {
 		if scontains(command, c.Commands...) {
@@ -739,6 +744,8 @@ func main() {
 	go setIdleStatus()
 	// We're running!
 	log.Info("Gidbig is ready. Quit with CTRL-C.")
+
+	go notifyOwner("I just started.")
 
 	// Wait for a signal to quit
 	c := make(chan os.Signal, 1)
