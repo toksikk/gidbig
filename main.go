@@ -18,6 +18,7 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	humanize "github.com/dustin/go-humanize"
+	wttrin "github.com/meinside/wttr.in-go"
 	log "github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v2"
 )
@@ -407,7 +408,7 @@ func displayBotStats(cid string) {
 
 	w.Init(buf, 0, 4, 0, ' ', 0)
 	fmt.Fprintf(w, "```\n")
-	fmt.Fprintf(w, "Gidbig: \t%s built %s\n", version, builddate)
+	fmt.Fprintf(w, "Gidbig: \t%s\n", version)
 	fmt.Fprintf(w, "Discordgo: \t%s\n", discordgo.VERSION)
 	fmt.Fprintf(w, "Go: \t%s\n", runtime.Version())
 	fmt.Fprintf(w, "Memory: \t%s / %s (%s total allocated)\n", humanize.Bytes(stats.Alloc), humanize.Bytes(stats.Sys), humanize.Bytes(stats.TotalAlloc))
@@ -555,6 +556,10 @@ func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 		return
 	}
 
+	if parts[0] == "!wttr" {
+		handleWttrQuery(s, m, parts, guild)
+	}
+
 	// Find the collection for the command we got
 	findAndPlaySound(s, m, parts, guild)
 }
@@ -571,6 +576,17 @@ func findSoundAndCollection(command string, soundname string) (*Sound, *SoundCol
 		}
 	}
 	return nil, nil
+}
+
+func handleWttrQuery(s *discordgo.Session, m *discordgo.MessageCreate, parts []string, g *discordgo.Guild) {
+	if len(parts) > 1 {
+		wttr, err := wttrin.WeatherTextForToday(parts[1])
+		if err != nil {
+			s.ChannelMessageSend(m.ChannelID, err.Error())
+			return
+		}
+		s.ChannelMessageSend(m.ChannelID, strings.Join([]string{"```", wttr, "```"}, "\n"))
+	}
 }
 
 // Find sound in collection and play it or do nothing if not found
