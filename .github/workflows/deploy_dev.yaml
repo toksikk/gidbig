@@ -1,0 +1,23 @@
+
+name: Deploy on dev for testing
+
+on:
+  push:
+    branches:
+    - dev
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Deploy
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+
+    - name: Dispatch Deploy Repo
+      uses: peter-evans/repository-dispatch@v1.1.3
+      with:
+        token: ${{ secrets.DEPLOY_REPO_ACCESS_TOKEN }}
+        repository: toksikk/deploy-gidbig
+        event-type: deploy
