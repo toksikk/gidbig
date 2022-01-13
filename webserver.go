@@ -51,15 +51,6 @@ var (
 	)
 )
 
-// SoundItem is used to represent a sound of our COLLECTIONS for html generation
-type SoundItem struct {
-	Itemprefix    string
-	Itemcommand   string
-	Itemsoundname string
-	Itemtext      string
-	Itemshorttext string
-}
-
 // startWebServer
 func startWebServer(config *Config) {
 	tmpls["home.html"] = template.Must(template.ParseFiles(templateDir+"home.html", header, footer))
