@@ -13,3 +13,4 @@ Typing only the `!command` without an argument results in a random sound of this
 - Comfortable web interface to trigger sounds
 - Automatically detect all `.dca` files in `audio/`
 - Optional sound descriptions via `.txt` files in `audio/` with the same name as the soundfile
+- Get weather information from https://wttr.in/ with `!wttr <location>` or `!wttrp <location>` as picture
