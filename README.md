@@ -1,4 +1,4 @@
-# Gidbig
+# Gidbig 🤖
 
 Gidbig is a Discord Bot in Go based on
 [Airhorn Bot by Hammer and Chisel](https://github.com/discord/airhornbot/tree/golang).  
