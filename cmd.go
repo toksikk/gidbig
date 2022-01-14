@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
-	"math/rand"
 	"net/url"
 	"os"
 	"os/signal"
@@ -20,14 +19,24 @@ import (
 	"github.com/bwmarrin/discordgo"
 	humanize "github.com/dustin/go-humanize"
 	log "github.com/sirupsen/logrus"
+	"github.com/toksikk/gidbig/pkg/status"
+	"github.com/toksikk/gidbig/pkg/util"
 	"github.com/toksikk/gidbig/pkg/wttrin"
 	"gopkg.in/yaml.v2"
 )
 
 var (
 	// discordgo session
-	Discord *discordgo.Session
+	discord *discordgo.Session
 
+	// Config struct to pass around
+	cfg *Config
+
+	// mutex for checking if voice connection already exists
+	mutex = &sync.Mutex{}
+)
+
+var (
 	// Map of Guild id's to *Play channels, used for queuing and rate-limiting guilds
 	queues = make(map[string]chan *Play)
 
@@ -35,16 +44,10 @@ var (
 	bitrate = 128
 	// maxQueueSize Sound encoding settings
 	maxQueueSize = 6
-
-	// OWNER variable
-	OWNER string
-
-	// mutex for checking if voice connection already exists
-	mutex = &sync.Mutex{}
 )
 
 // COLLECTIONS all collections
-var COLLECTIONS []*SoundCollection
+var COLLECTIONS []*soundCollection
 
 // Create collections
 func createCollections() {
@@ -79,12 +82,12 @@ func createCollections() {
 }
 
 func addNewSoundCollection(prefix string, soundname string) {
-	var SC = &SoundCollection{
+	var SC = &soundCollection{
 		Prefix: prefix,
 		Commands: []string{
 			"!" + prefix,
 		},
-		Sounds: []*Sound{
+		Sounds: []*soundClip{
 			createSound(soundname, 1, 250),
 		},
 	}
@@ -92,8 +95,8 @@ func addNewSoundCollection(prefix string, soundname string) {
 }
 
 // Create a Sound struct
-func createSound(Name string, Weight int, PartDelay int) *Sound {
-	return &Sound{
+func createSound(Name string, Weight int, PartDelay int) *soundClip {
+	return &soundClip{
 		Name:      Name,
 		Weight:    Weight,
 		PartDelay: PartDelay,
@@ -102,7 +105,7 @@ func createSound(Name string, Weight int, PartDelay int) *Sound {
 }
 
 // Load soundcollection
-func (sc *SoundCollection) Load() {
+func (sc *soundCollection) Load() {
 	for _, sound := range sc.Sounds {
 		sc.soundRange += sound.Weight
 		sound.Load(sc)
@@ -110,10 +113,10 @@ func (sc *SoundCollection) Load() {
 }
 
 // Random select sound
-func (sc *SoundCollection) Random() *Sound {
+func (sc *soundCollection) Random() *soundClip {
 	var (
 		i      int
-		number = randomRange(0, sc.soundRange)
+		number = util.RandomRange(0, sc.soundRange)
 	)
 
 	for _, sound := range sc.Sounds {
@@ -131,7 +134,7 @@ func (sc *SoundCollection) Random() *Sound {
 // If you would like to create your own DCA files, please use:
 // https://github.com/nstafie/dca-rs
 // eg: dca-rs --raw -i <input wav file> > <output file>
-func (s *Sound) Load(c *SoundCollection) error {
+func (s *soundClip) Load(c *soundCollection) error {
 	path := fmt.Sprintf("audio/%v_%v.dca", c.Prefix, s.Name)
 
 	file, err := os.Open(path)
@@ -173,7 +176,7 @@ func (s *Sound) Load(c *SoundCollection) error {
 }
 
 // Play plays this sound over the specified VoiceConnection
-func (s *Sound) Play(vc *discordgo.VoiceConnection) {
+func (s *soundClip) Play(vc *discordgo.VoiceConnection) {
 	vc.Speaking(true)
 	defer vc.Speaking(false)
 
@@ -186,21 +189,15 @@ func (s *Sound) Play(vc *discordgo.VoiceConnection) {
 func getCurrentVoiceChannel(user *discordgo.User, guild *discordgo.Guild) *discordgo.Channel {
 	for _, vs := range guild.VoiceStates {
 		if vs.UserID == user.ID {
-			channel, _ := Discord.State.Channel(vs.ChannelID)
+			channel, _ := discord.State.Channel(vs.ChannelID)
 			return channel
 		}
 	}
 	return nil
 }
 
-// Returns a random integer between min and max
-func randomRange(min, max int) int {
-	rand.Seed(time.Now().UTC().UnixNano())
-	return rand.Intn(max-min) + min
-}
-
 // Prepares a play
-func createPlay(user *discordgo.User, guild *discordgo.Guild, coll *SoundCollection, sound *Sound) *Play {
+func createPlay(user *discordgo.User, guild *discordgo.Guild, coll *soundCollection, sound *soundClip) *Play {
 	// Grab the users voice channel
 	channel := getCurrentVoiceChannel(user, guild)
 	if channel == nil {
@@ -241,7 +238,7 @@ func createPlay(user *discordgo.User, guild *discordgo.Guild, coll *SoundCollect
 }
 
 // Prepares and enqueues a play into the ratelimit/buffer guild queue
-func enqueuePlay(user *discordgo.User, guild *discordgo.Guild, coll *SoundCollection, sound *Sound) {
+func enqueuePlay(user *discordgo.User, guild *discordgo.Guild, coll *soundCollection, sound *soundClip) {
 	play := createPlay(user, guild, coll, sound)
 	if play == nil {
 		return
@@ -289,7 +286,7 @@ func playSound(play *Play, vc *discordgo.VoiceConnection) (err error) {
 	}
 
 	if vc == nil {
-		vc, err = Discord.ChannelVoiceJoin(play.GuildID, play.ChannelID, false, true)
+		vc, err = discord.ChannelVoiceJoin(play.GuildID, play.ChannelID, false, true)
 		if err != nil {
 			log.WithFields(log.Fields{
 				"error": err,
@@ -352,7 +349,7 @@ func displayBotStats(cid string) {
 	runtime.ReadMemStats(&stats)
 
 	users := 0
-	for _, guild := range Discord.State.Ready.Guilds {
+	for _, guild := range discord.State.Ready.Guilds {
 		users += len(guild.Members)
 	}
 
@@ -366,11 +363,11 @@ func displayBotStats(cid string) {
 	fmt.Fprintf(w, "Go: \t%s\n", runtime.Version())
 	fmt.Fprintf(w, "Memory: \t%s / %s (%s total allocated)\n", humanize.Bytes(stats.Alloc), humanize.Bytes(stats.Sys), humanize.Bytes(stats.TotalAlloc))
 	fmt.Fprintf(w, "Tasks: \t%d\n", runtime.NumGoroutine())
-	fmt.Fprintf(w, "Servers: \t%d\n", len(Discord.State.Ready.Guilds))
+	fmt.Fprintf(w, "Servers: \t%d\n", len(discord.State.Ready.Guilds))
 	fmt.Fprintf(w, "Users: \t%d\n", users)
 	fmt.Fprintf(w, "```\n")
 	w.Flush()
-	Discord.ChannelMessageSend(cid, buf.String())
+	discord.ChannelMessageSend(cid, buf.String())
 }
 
 // what did I start here?
@@ -389,52 +386,6 @@ func handleBotControlMessages(s *discordgo.Session, m *discordgo.MessageCreate, 
 		if scontains(parts[1], "status") {
 			displayBotStats(m.ChannelID)
 		}
-	}
-}
-
-func setIdleStatus() {
-	games := []string{
-		"Terranigma",
-		"Secret of Mana",
-		"Quake III Arena",
-		"Duke Nukem 3D",
-		"Monkey Island 2: LeChuck's Revenge",
-		"Turtles in Time",
-		"Unreal Tournament",
-		"Half-Life",
-		"Half-Life 2",
-		"Warcraft II",
-		"Starcraft",
-		"Diablo",
-		"Diablo II",
-		"A Link to the Past",
-		"Ocarina of Time",
-		"Star Fox",
-		"Tetris",
-		"Pokémon Red",
-		"Pokémon Blue",
-		"Die Siedler II",
-		"Day of the Tentacle",
-		"Maniac Mansion",
-		"Prince of Persia",
-		"Super Mario Kart",
-		"Pac-Man",
-		"Frogger",
-		"Donkey Kong",
-		"Donkey Kong Country",
-		"Asteroids",
-		"Doom",
-		"Breakout",
-		"Street Fighter II",
-		"Wolfenstein 3D",
-		"Mega Man",
-		"Myst",
-		"R-Type",
-	}
-	for {
-		Discord.UpdateStreamingStatus(1, "", "")
-		Discord.UpdateGameStatus(0, games[randomRange(0, len(games))])
-		time.Sleep(time.Duration(randomRange(5, 15)) * time.Minute)
 	}
 }
 
@@ -474,7 +425,7 @@ func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 	msg := strings.Replace(m.ContentWithMentionsReplaced(), s.State.Ready.User.Username, "username", 1)
 	parts := strings.Split(strings.ToLower(msg), " ")
 
-	channel, _ := Discord.State.Channel(m.ChannelID)
+	channel, _ := discord.State.Channel(m.ChannelID)
 	if channel == nil {
 		log.WithFields(log.Fields{
 			"channel": m.ChannelID,
@@ -483,7 +434,7 @@ func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 		return
 	}
 
-	guild, _ := Discord.State.Guild(channel.GuildID)
+	guild, _ := discord.State.Guild(channel.GuildID)
 	if guild == nil {
 		log.WithFields(log.Fields{
 			"guild":   channel.GuildID,
@@ -494,7 +445,7 @@ func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 	}
 
 	// If this is a mention, it should come from the owner (otherwise we don't care)
-	if len(m.Mentions) > 0 && m.Author.ID == OWNER && len(parts) > 0 {
+	if len(m.Mentions) > 0 && m.Author.ID == cfg.Owner && len(parts) > 0 {
 		mentioned := false
 		for _, mention := range m.Mentions {
 			mentioned = (mention.ID == s.State.Ready.User.ID)
@@ -518,14 +469,14 @@ func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 }
 
 func notifyOwner(message string) {
-	st, err := Discord.UserChannelCreate(OWNER)
+	st, err := discord.UserChannelCreate(cfg.Owner)
 	if err != nil {
 		return
 	}
-	Discord.ChannelMessageSend(st.ID, message)
+	discord.ChannelMessageSend(st.ID, message)
 }
 
-func findSoundAndCollection(command string, soundname string) (*Sound, *SoundCollection) {
+func findSoundAndCollection(command string, soundname string) (*soundClip, *soundCollection) {
 	for _, c := range COLLECTIONS {
 		if scontains(command, c.Commands...) {
 			for _, s := range c.Sounds {
@@ -597,7 +548,7 @@ func findAndPlaySound(s *discordgo.Session, m *discordgo.MessageCreate, parts []
 			go deleteCommandMessage(s, m.ChannelID, m.ID)
 
 			// If they passed a specific sound effect, find and select that (otherwise play nothing)
-			var sound *Sound
+			var sound *soundClip
 			if len(parts) > 1 {
 				for _, s := range coll.Sounds {
 					if parts[1] == s.Name {
@@ -648,7 +599,7 @@ func loadConfigFile() *Config {
 // StartGidbig obviously
 func StartGidbig() {
 	Banner(nil)
-	config := loadConfigFile()
+	cfg = loadConfigFile()
 	var (
 		err error
 	)
@@ -657,15 +608,11 @@ func StartGidbig() {
 	createCollections()
 
 	// Start Webserver if a valid port is provided and if ClientID and ClientSecret are set
-	if config.Port != 0 && config.Port >= 1 && config.Ci != 0 && config.Cs != "" && config.RedirectURL != "" {
-		log.Infoln("Starting web server on port " + strconv.Itoa(config.Port))
-		go startWebServer(config)
+	if cfg.Port != 0 && cfg.Port >= 1 && cfg.Ci != 0 && cfg.Cs != "" && cfg.RedirectURL != "" {
+		log.Infoln("Starting web server on port " + strconv.Itoa(cfg.Port))
+		go startWebServer(cfg)
 	} else {
 		log.Infoln("Required web server arguments missing or invalid. Skipping web server start.")
-	}
-
-	if config.Owner != "" {
-		OWNER = config.Owner
 	}
 
 	// Preload all the sounds
@@ -676,7 +623,7 @@ func StartGidbig() {
 
 	// Create a discord session
 	log.Info("Starting discord session...")
-	Discord, err = discordgo.New("Bot " + config.Token)
+	discord, err = discordgo.New("Bot " + cfg.Token)
 	if err != nil {
 		log.WithFields(log.Fields{
 			"error": err,
@@ -685,17 +632,17 @@ func StartGidbig() {
 	}
 
 	// Set sharding info
-	Discord.ShardID, _ = strconv.Atoi(config.Shard)
-	Discord.ShardCount, _ = strconv.Atoi(config.ShardCount)
+	discord.ShardID, _ = strconv.Atoi(cfg.Shard)
+	discord.ShardCount, _ = strconv.Atoi(cfg.ShardCount)
 
-	if Discord.ShardCount <= 0 {
-		Discord.ShardCount = 1
+	if discord.ShardCount <= 0 {
+		discord.ShardCount = 1
 	}
 
-	Discord.AddHandler(onReady)
-	Discord.AddHandler(onMessageCreate)
+	discord.AddHandler(onReady)
+	discord.AddHandler(onMessageCreate)
 
-	err = Discord.Open()
+	err = discord.Open()
 	if err != nil {
 		log.WithFields(log.Fields{
 			"error": err,
@@ -703,7 +650,9 @@ func StartGidbig() {
 		return
 	}
 
-	go setIdleStatus()
+	//pkg callings
+	go status.Start(discord)
+
 	// We're running!
 	log.Info("Gidbig is ready. Quit with CTRL-C.")
 

@@ -82,8 +82,8 @@ func handlePlaySound(w http.ResponseWriter, r *http.Request) {
 	sound, soundCollection := findSoundAndCollection(r.FormValue("command"), r.FormValue("soundname"))
 	session, _ := store.Get(r, "gidbig-session")
 	var guild *discordgo.Guild
-	user, _ := Discord.User(session.Values["discordUserID"].(string))
-	for _, g := range Discord.State.Guilds {
+	user, _ := discord.User(session.Values["discordUserID"].(string))
+	for _, g := range discord.State.Guilds {
 		for _, vs := range g.VoiceStates {
 			if vs.UserID == session.Values["discordUserID"].(string) {
 				guild = g
@@ -108,9 +108,9 @@ func handleMain(w http.ResponseWriter, r *http.Request) {
 	session, _ := store.Get(r, "gidbig-session")
 	if session.Values["discordUsername"] != nil {
 		var prefixes []string
-		var si []SoundItem
+		var si []soundItem
 		for _, sc := range COLLECTIONS {
-			newSoundItemRandom := SoundItem{
+			newSoundItemRandom := soundItem{
 				Itemprefix:    sc.Prefix,
 				Itemcommand:   "!" + sc.Prefix,
 				Itemsoundname: "",
@@ -120,7 +120,7 @@ func handleMain(w http.ResponseWriter, r *http.Request) {
 			prefixes = append(prefixes, sc.Prefix)
 			si = append(si, newSoundItemRandom)
 			for _, snd := range sc.Sounds {
-				newSoundItem := SoundItem{
+				newSoundItem := soundItem{
 					Itemprefix:    sc.Prefix,
 					Itemcommand:   "!" + sc.Prefix,
 					Itemsoundname: snd.Name,

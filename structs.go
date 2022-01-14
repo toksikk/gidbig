@@ -1,8 +1,8 @@
 package gidbig
 
 // FROM webserver.go
-// SoundItem is used to represent a sound of our COLLECTIONS for html generation
-type SoundItem struct {
+// soundItem is used to represent a sound of our COLLECTIONS for html generation
+type soundItem struct {
 	Itemprefix    string
 	Itemcommand   string
 	Itemsoundname string
@@ -27,7 +27,7 @@ type Play struct {
 	GuildID   string
 	ChannelID string
 	UserID    string
-	Sound     *Sound
+	Sound     *soundClip
 
 	// The next play to occur after this, only used for chaining sounds like anotha
 	Next *Play
@@ -36,17 +36,17 @@ type Play struct {
 	Forced bool
 }
 
-// SoundCollection of Sounds
-type SoundCollection struct {
+// soundCollection of sound clips
+type soundCollection struct {
 	Prefix     string
 	Commands   []string
-	Sounds     []*Sound
-	ChainWith  *SoundCollection
+	Sounds     []*soundClip
+	ChainWith  *soundCollection
 	soundRange int
 }
 
-// Sound represents a sound clip
-type Sound struct {
+// soundClip represents a sound clip
+type soundClip struct {
 	Name string
 
 	// Weight adjust how likely it is this song will play, higher = more likely
