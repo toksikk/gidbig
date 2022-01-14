@@ -20,13 +20,13 @@ func getWeather(baseURL string, location string) (result []byte, err error) {
 	return httpGet(baseURL + location)
 }
 
-// WeatherForToday returns weather for given place in byte array
-func WeatherForToday(location string) (result []byte, err error) {
+// Weather returns weather for given place in byte array
+func Weather(location string) (result []byte, err error) {
 	return getWeather(baseURL, location)
 }
 
-// WeatherForTodayV2 returns weather for given place in byte array
-func WeatherForTodayV2(location string) (result []byte, err error) {
+// WeatherV2 returns weather for given place in byte array
+func WeatherV2(location string) (result []byte, err error) {
 	return getWeather(baseURLv2, location)
 }
 
