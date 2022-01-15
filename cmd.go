@@ -19,10 +19,10 @@ import (
 	"github.com/bwmarrin/discordgo"
 	humanize "github.com/dustin/go-humanize"
 	log "github.com/sirupsen/logrus"
+	"github.com/toksikk/gidbig/pkg/cfg"
 	"github.com/toksikk/gidbig/pkg/status"
 	"github.com/toksikk/gidbig/pkg/util"
 	"github.com/toksikk/gidbig/pkg/wttrin"
-	"gopkg.in/yaml.v2"
 )
 
 var (
@@ -30,7 +30,7 @@ var (
 	discord *discordgo.Session
 
 	// Config struct to pass around
-	cfg *Config
+	conf cfg.Config
 
 	// mutex for checking if voice connection already exists
 	mutex = &sync.Mutex{}
@@ -435,7 +435,7 @@ func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 	}
 
 	// If this is a mention, it should come from the owner (otherwise we don't care)
-	if len(m.Mentions) > 0 && m.Author.ID == cfg.Owner && len(parts) > 0 {
+	if len(m.Mentions) > 0 && m.Author.ID == conf.Owner && len(parts) > 0 {
 		mentioned := false
 		for _, mention := range m.Mentions {
 			mentioned = (mention.ID == s.State.Ready.User.ID)
@@ -459,7 +459,8 @@ func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 }
 
 func notifyOwner(message string) {
-	st, err := discord.UserChannelCreate(cfg.Owner)
+	// FIXME
+	st, err := discord.UserChannelCreate(conf.Owner)
 	if err != nil {
 		return
 	}
@@ -568,39 +569,20 @@ func deleteCommandMessage(s *discordgo.Session, channelID string, messageID stri
 	}
 }
 
-func loadConfigFile() *Config {
-	config := &Config{}
-	configFile, err := os.Open("config.yaml")
-	if err != nil {
-		log.Warningln("Could not load config file.", err)
-		return nil
-	}
-	defer configFile.Close()
-
-	d := yaml.NewDecoder(configFile)
-
-	if err := d.Decode(&config); err != nil {
-		return nil
-	}
-
-	return config
-}
-
 // StartGidbig obviously
 func StartGidbig() {
 	Banner(nil)
-	cfg = loadConfigFile()
-	var (
-		err error
-	)
+	conf = cfg.LoadConfigFile()
+
+	var err error
 
 	// create SoundCollections by scanning the audio folder
 	createCollections()
 
 	// Start Webserver if a valid port is provided and if ClientID and ClientSecret are set
-	if cfg.Port != 0 && cfg.Port >= 1 && cfg.Ci != 0 && cfg.Cs != "" && cfg.RedirectURL != "" {
-		log.Infoln("Starting web server on port " + strconv.Itoa(cfg.Port))
-		go startWebServer(cfg)
+	if conf.Port != 0 && conf.Port >= 1 && conf.Ci != 0 && conf.Cs != "" && conf.RedirectURL != "" {
+		log.Infoln("Starting web server on port " + strconv.Itoa(conf.Port))
+		go startWebServer(conf)
 	} else {
 		log.Infoln("Required web server arguments missing or invalid. Skipping web server start.")
 	}
@@ -613,7 +595,7 @@ func StartGidbig() {
 
 	// Create a discord session
 	log.Info("Starting discord session...")
-	discord, err = discordgo.New("Bot " + cfg.Token)
+	discord, err = discordgo.New("Bot " + conf.Token)
 	if err != nil {
 		log.WithFields(log.Fields{
 			"error": err,
@@ -622,8 +604,8 @@ func StartGidbig() {
 	}
 
 	// Set sharding info
-	discord.ShardID, _ = strconv.Atoi(cfg.Shard)
-	discord.ShardCount, _ = strconv.Atoi(cfg.ShardCount)
+	discord.ShardID, _ = strconv.Atoi(conf.Shard)
+	discord.ShardCount, _ = strconv.Atoi(conf.ShardCount)
 
 	if discord.ShardCount <= 0 {
 		discord.ShardCount = 1

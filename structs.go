@@ -10,18 +10,6 @@ type soundItem struct {
 	Itemshorttext string
 }
 
-// FROM cmd.go
-type Config struct {
-	Token       string `yaml:"token"`
-	Shard       string `yaml:"shard"`
-	ShardCount  string `yaml:"shardcount"`
-	Owner       string `yaml:"owner"`
-	Port        int    `yaml:"port"`
-	RedirectURL string `yaml:"redirecturl"`
-	Ci          int    `yaml:"ci"`
-	Cs          string `yaml:"cs"`
-}
-
 // Play represents an individual use of the !airhorn command
 type Play struct {
 	GuildID   string
