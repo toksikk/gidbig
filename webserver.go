@@ -53,7 +53,7 @@ var (
 )
 
 // startWebServer
-func startWebServer(config cfg.Config) {
+func startWebServer(config *cfg.Config) {
 	tmpls["home.html"] = template.Must(template.ParseFiles(templateDir+"home.html", header, footer))
 	tmpls["internal.html"] = template.Must(template.ParseFiles(templateDir+"internal.html", header, footer))
 	tmpls["item.html"] = template.Must(template.ParseFiles(templateDir + "item.html"))

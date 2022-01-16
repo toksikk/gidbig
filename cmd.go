@@ -30,7 +30,7 @@ var (
 	discord *discordgo.Session
 
 	// Config struct to pass around
-	conf cfg.Config
+	conf *cfg.Config
 
 	// mutex for checking if voice connection already exists
 	mutex = &sync.Mutex{}

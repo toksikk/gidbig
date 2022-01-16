@@ -18,8 +18,8 @@ type Config struct {
 	Cs          string `yaml:"cs"`
 }
 
-func LoadConfigFile() Config {
-	config := Config{}
+func LoadConfigFile() *Config {
+	config := &Config{}
 	configFile, err := os.Open("config.yaml")
 	if err != nil {
 		log.Warningln("Could not load config file.", err)
