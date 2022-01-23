@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
-	"net/url"
 	"os"
 	"os/signal"
 	"runtime"
@@ -22,7 +21,6 @@ import (
 	"github.com/toksikk/gidbig/pkg/cfg"
 	"github.com/toksikk/gidbig/pkg/gbploader"
 	"github.com/toksikk/gidbig/pkg/util"
-	"github.com/toksikk/gidbig/pkg/wttrin"
 )
 
 var (
@@ -450,10 +448,6 @@ func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 		return
 	}
 
-	if parts[0] == "!wttr" || strings.Contains(parts[0], "!wttrp") {
-		handleWttrQuery(s, m, parts, guild)
-	}
-
 	// Find the collection for the command we got
 	findAndPlaySound(s, m, parts, guild)
 }
@@ -479,57 +473,6 @@ func findSoundAndCollection(command string, soundname string) (*soundClip, *soun
 		}
 	}
 	return nil, nil
-}
-
-func handleWttrQuery(s *discordgo.Session, m *discordgo.MessageCreate, parts []string, g *discordgo.Guild) {
-	if len(parts) > 1 {
-		query := strings.Split(strings.Join(parts[1:], ""), "?")
-		switch parts[0] {
-		case "!wttr":
-			wttr, err := wttrin.Weather(query[0] + "?format=4")
-			if err != nil {
-				log.WithFields(log.Fields{
-					"error": err,
-				}).Error("wttr.in query failed")
-				s.ChannelMessageSend(m.ChannelID, err.Error())
-				return
-			}
-			s.ChannelMessageSend(m.ChannelID, string(wttr))
-		case "!wttrp":
-			var wttr []byte
-			var err error
-			if len(query) > 1 {
-				wttr, err = wttrin.Weather(url.QueryEscape(query[0]) + ".png" + "?" + query[1])
-			} else {
-				wttr, err = wttrin.Weather(url.QueryEscape(query[0]) + ".png?0")
-			}
-			if err != nil {
-				log.WithFields(log.Fields{
-					"error": err,
-				}).Error("wttr.in query failed")
-				s.ChannelMessageSend(m.ChannelID, err.Error())
-				return
-			}
-			s.ChannelFileSend(m.ChannelID, strings.Join(parts, "")+".png", bytes.NewReader(wttr))
-		case "!wttrp2":
-			var wttr []byte
-			var err error
-			if len(query) > 1 {
-				wttr, err = wttrin.WeatherV2(url.QueryEscape(query[0]) + ".png" + "?" + query[1])
-			} else {
-				wttr, err = wttrin.WeatherV2(url.QueryEscape(query[0]) + ".png")
-			}
-			if err != nil {
-				log.WithFields(log.Fields{
-					"error": err,
-				}).Error("wttr.in query failed")
-				s.ChannelMessageSend(m.ChannelID, err.Error())
-				return
-			}
-			s.ChannelFileSend(m.ChannelID, strings.Join(parts, "")+".png", bytes.NewReader(wttr))
-		}
-
-	}
 }
 
 // Find sound in collection and play it or do nothing if not found
