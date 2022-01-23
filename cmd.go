@@ -21,6 +21,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/toksikk/gidbig/pkg/cfg"
 	"github.com/toksikk/gidbig/pkg/coffee"
+	"github.com/toksikk/gidbig/pkg/gbploader"
 	"github.com/toksikk/gidbig/pkg/status"
 	"github.com/toksikk/gidbig/pkg/util"
 	"github.com/toksikk/gidbig/pkg/wttrin"
@@ -623,6 +624,8 @@ func StartGidbig() {
 		}).Fatal("Failed to create discord websocket connection")
 		return
 	}
+
+	gbploader.LoadPlugins(discord)
 
 	//pkg callings
 	go status.Start(discord)
