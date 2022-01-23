@@ -20,7 +20,6 @@ import (
 	humanize "github.com/dustin/go-humanize"
 	log "github.com/sirupsen/logrus"
 	"github.com/toksikk/gidbig/pkg/cfg"
-	"github.com/toksikk/gidbig/pkg/coffee"
 	"github.com/toksikk/gidbig/pkg/gbploader"
 	"github.com/toksikk/gidbig/pkg/status"
 	"github.com/toksikk/gidbig/pkg/util"
@@ -615,7 +614,6 @@ func StartGidbig() {
 
 	discord.AddHandler(onReady)
 	discord.AddHandler(onMessageCreate)
-	discord.AddHandler(coffee.OnMessageCreate)
 
 	err = discord.Open()
 	if err != nil {
