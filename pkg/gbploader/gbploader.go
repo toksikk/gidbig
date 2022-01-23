@@ -22,25 +22,25 @@ func LoadPlugins(discord *discordgo.Session) {
 		plugin, err := plugin.Open(v)
 		if err != nil {
 			log.Warn(err)
-			break
+			continue
 		}
 
 		startFunc, err := plugin.Lookup("Start")
 		if err != nil {
 			log.Warn(err)
-			break
+			continue
 		}
 
 		pluginName, err := plugin.Lookup("PluginName")
 		if err != nil {
 			log.Warn(err)
-			break
+			continue
 		}
 
 		pluginVersion, err := plugin.Lookup("PluginVersion")
 		if err != nil {
 			log.Warn(err)
-			break
+			continue
 		}
 
 		log.Infof("Loading plugin %s %s...", *pluginName.(*string), *pluginVersion.(*string))
