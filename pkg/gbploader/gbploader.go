@@ -12,11 +12,19 @@ var pluginStarter interface {
 	Start(*discordgo.Session)
 }
 
+var loadedPlugins map[string]string
+
+func GetLoadedPlugins() *map[string]string {
+	return &loadedPlugins
+}
+
 func LoadPlugins(discord *discordgo.Session) {
 	plugins, err := filepath.Glob("./plugins/*.so")
 	if err != nil {
 		log.Warn(err)
 	}
+
+	loadedPlugins = make(map[string]string)
 
 	for _, v := range plugins {
 		plugin, err := plugin.Open(v)
@@ -44,6 +52,8 @@ func LoadPlugins(discord *discordgo.Session) {
 		}
 
 		log.Infof("Loading plugin %s %s...", *pluginName.(*string), *pluginVersion.(*string))
+
+		loadedPlugins[*pluginName.(*string)] = *pluginVersion.(*string)
 
 		startFunc.(func(*discordgo.Session))(discord)
 	}

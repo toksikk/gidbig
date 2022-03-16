@@ -514,7 +514,7 @@ func deleteCommandMessage(s *discordgo.Session, channelID string, messageID stri
 
 // StartGidbig obviously
 func StartGidbig() {
-	Banner(nil)
+	Banner(nil, *gbploader.GetLoadedPlugins())
 	conf = cfg.LoadConfigFile()
 
 	var err error
@@ -571,7 +571,7 @@ func StartGidbig() {
 	log.Info("Gidbig is ready. Quit with CTRL-C.")
 
 	banner := new(bytes.Buffer)
-	Banner(banner)
+	Banner(banner, *gbploader.GetLoadedPlugins())
 	notifyOwner("```I just started!\n" + banner.String() + "```")
 
 	// Wait for a signal to quit
