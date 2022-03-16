@@ -30,11 +30,6 @@ jobs:
       - name: Run build
         run: make build
 
-      - name: Run vet & lint
-        run: |
-          go vet .
-          golint .
-
   deploy:
     name: Deploy
     needs: build
