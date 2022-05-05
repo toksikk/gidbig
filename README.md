@@ -16,3 +16,4 @@ Typing only the `!command` without an argument results in a random sound of this
   * [gbp-coffee](https://github.com/toksikk/gbp-coffee/)
   * [gbp-gamerstatus](https://github.com/toksikk/gbp-gamerstatus/)
   * [gbp-wttrin](https://github.com/toksikk/gbp-wttrin/)
+  * [gbp-leetoclock](https://github.com/toksikk/gbp-leetoclock/)
