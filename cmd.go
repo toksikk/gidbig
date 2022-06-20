@@ -360,6 +360,8 @@ func displayBotStats(cid string) {
 	fmt.Fprintf(w, "Discordgo: \t%s\n", discordgo.VERSION)
 	fmt.Fprintf(w, "Go: \t%s\n", runtime.Version())
 	fmt.Fprintf(w, "Memory: \t%s / %s (%s total allocated)\n", humanize.Bytes(stats.Alloc), humanize.Bytes(stats.Sys), humanize.Bytes(stats.TotalAlloc))
+	fmt.Fprintf(w, "Live Memory Objects: \t%s (Malloc: %s - Frees: %s)\n", humanize.Bytes(stats.Mallocs-stats.Frees), humanize.Bytes(stats.Mallocs), humanize.Bytes(stats.Frees))
+	fmt.Fprintf(w, "Pointer Lookups: \t%d\n", stats.Lookups)
 	fmt.Fprintf(w, "Tasks: \t%d\n", runtime.NumGoroutine())
 	fmt.Fprintf(w, "Servers: \t%d\n", len(discord.State.Ready.Guilds))
 	fmt.Fprintf(w, "Users: \t%d\n", users)
