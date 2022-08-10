@@ -24,4 +24,4 @@ pre-release:
 
 release: pre-release $(PLATFORMS) ## 📦 Build for GitHub release
 $(PLATFORMS):
-	GOOS=$(os) GOARCH=$(arch) go build -o ./bin/release/gidbig-$(os)-$(arch) ./cmd/*.go
+	GOOS=$(os) GOARCH=$(arch) go build -o ./bin/release/gidbig-$(os)-$(arch) ${LDFLAGS} ./cmd/*.go
