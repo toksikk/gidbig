@@ -1,10 +1,12 @@
-FROM golang:1.17-alpine
+FROM golang:1.19-alpine
 
-WORKDIR /go/src/gidbig
-COPY . .
-RUN go get -d -v .
-RUN go install -v .
+RUN mkdir -p /gidbig
+
+WORKDIR /gidbig
+COPY ./audio ./audio
+COPY ./bin/release/gidbig-linux-amd64 ./gidbig
+COPY ./web ./web
 
 EXPOSE 8080
 
-CMD [ "gidbig" ]
+ENTRYPOINT [ "./gidbig" ]

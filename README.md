@@ -17,3 +17,14 @@ Typing only the `!command` without an argument results in a random sound of this
   * [gbp-gamerstatus](https://github.com/toksikk/gbp-gamerstatus/)
   * [gbp-wttrin](https://github.com/toksikk/gbp-wttrin/)
   * [gbp-leetoclock](https://github.com/toksikk/gbp-leetoclock/)
+
+## Building Docker image
+
+From the root directory of this repo run the following commands.
+
+```bash
+make docker
+
+# run container with mounted config.yaml file
+docker run -it --mount type=bind,source=$(pwd)/config.yaml,target=/gidbig/config.yaml gidbig:$(git describe --tags)
+```
