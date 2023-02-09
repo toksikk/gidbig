@@ -11,7 +11,7 @@ import (
 	"github.com/bwmarrin/discordgo"
 	hclog "github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/go-plugin"
-	"github.com/hashicorp/go-plugin/examples/basic/shared"
+	"github.com/toksikk/gidbig/pkg/gbploader/shared"
 )
 
 var loadedGBPlugins map[string]string

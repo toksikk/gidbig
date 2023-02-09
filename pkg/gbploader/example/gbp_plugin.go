@@ -5,7 +5,7 @@ import (
 
 	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/go-plugin"
-	"github.com/hashicorp/go-plugin/examples/basic/shared"
+	"github.com/toksikk/gidbig/pkg/gbploader/shared"
 )
 
 // Here is a real implementation of Greeter
