@@ -7,14 +7,14 @@ import (
 	"strings"
 )
 
-var Version = ""
-var Builddate = ""
+var version = ""
+var builddate = "" // nolint:unused
 
 // Banner Print Version on stdout
 func Banner(w io.Writer, loadedPlugins map[string]string) {
-	if Version == "" {
+	if version == "" {
 		if build, ok := debug.ReadBuildInfo(); ok {
-			Version = build.Main.Version
+			version = build.Main.Version
 		}
 	}
 	banner := []string{
@@ -35,15 +35,15 @@ func Banner(w io.Writer, loadedPlugins map[string]string) {
 	for _, v := range banner {
 		if !strings.Contains(v, "%s") {
 			if w == nil {
-				fmt.Printf(v)
+				fmt.Print(v)
 			} else {
 				fmt.Fprint(w, v)
 			}
 		} else {
 			if w == nil {
-				fmt.Printf(v, Version)
+				fmt.Printf(v, version)
 			} else {
-				fmt.Fprintf(w, v, Version)
+				fmt.Fprintf(w, v, version)
 			}
 		}
 	}

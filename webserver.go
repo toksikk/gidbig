@@ -2,6 +2,7 @@ package gidbig
 
 import (
 	"bufio"
+	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"errors"
@@ -74,12 +75,18 @@ func startWebServer(config *cfg.Config) {
 	r.HandleFunc("/playsound", handlePlaySound)
 	http.Handle("/", r)
 	http.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("web/static"))))
-	http.ListenAndServe(":"+strconv.Itoa(config.Port), nil)
+	err := http.ListenAndServe(":"+strconv.Itoa(config.Port), nil)
+	if err != nil {
+		log.Fatal("could not start webserver: ", err)
+	}
 }
 
 func handlePlaySound(w http.ResponseWriter, r *http.Request) {
 	log.Infoln("WebUI /playsound Request from " + r.RemoteAddr)
-	r.ParseForm()
+	err := r.ParseForm()
+	if err != nil {
+		log.Error("could not ParseForm: ", err)
+	}
 	sound, soundCollection := findSoundAndCollection(r.FormValue("command"), r.FormValue("soundname"))
 	session, _ := store.Get(r, "gidbig-session")
 	var guild *discordgo.Guild
@@ -202,8 +209,14 @@ func handleMain(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	tmpls["home.html"].ExecuteTemplate(w, "header", map[string]interface{}{})
-	tmpls["home.html"].ExecuteTemplate(w, "footer", map[string]interface{}{})
+	err := tmpls["home.html"].ExecuteTemplate(w, "header", map[string]interface{}{})
+	if err != nil {
+		log.Error("unable to execute template: ", err)
+	}
+	err = tmpls["home.html"].ExecuteTemplate(w, "footer", map[string]interface{}{})
+	if err != nil {
+		log.Error("unable to execute template: ", err)
+	}
 }
 func handleLogout(w http.ResponseWriter, r *http.Request) {
 	log.Infoln("WebUI /logout Request from " + r.RemoteAddr)
@@ -219,12 +232,18 @@ func handleLogout(w http.ResponseWriter, r *http.Request) {
 func handleDiscordLogin(w http.ResponseWriter, r *http.Request) {
 	logWebRequests(r)
 	b := make([]byte, 16)
-	rand.Read(b)
+	_, err := rand.Read(b)
+	if err != nil {
+		log.Error("unable to Read: ", err)
+	}
 	oauthStateString = base64.URLEncoding.EncodeToString(b)
 
 	session, _ := store.Get(r, "gidbig-session")
 	session.Values["state"] = oauthStateString
-	session.Save(r, w)
+	err = session.Save(r, w)
+	if err != nil {
+		log.Error("unable to Save: ", err)
+	}
 
 	url := discordOauthConfig.AuthCodeURL(oauthStateString)
 	http.Redirect(w, r, url, http.StatusTemporaryRedirect)
@@ -249,7 +268,7 @@ func handleDiscordCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token, err := discordOauthConfig.Exchange(oauth2.NoContext, r.FormValue("code"))
+	token, err := discordOauthConfig.Exchange(context.Background(), r.FormValue("code"))
 	if err != nil {
 		fmt.Fprintln(w, "Code exchange (could not get token) failed with ", err)
 		return
@@ -270,7 +289,10 @@ func handleDiscordCallback(w http.ResponseWriter, r *http.Request) {
 	session.Values["discordUserID"] = user.ID
 	session.Values["discordUsername"] = user.Username
 	session.Values["accessToken"] = token.AccessToken
-	session.Save(r, w)
+	err = session.Save(r, w)
+	if err != nil {
+		log.Error("unable to Save: ", err)
+	}
 
 	dg.Close()
 

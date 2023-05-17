@@ -8,16 +8,18 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-var pluginStarter interface {
+var pluginStarter interface { // nolint:unused
 	Start(*discordgo.Session)
 }
 
 var loadedPlugins map[string]string
 
+// GetLoadedPlugins returns loaded plugins as string array
 func GetLoadedPlugins() *map[string]string {
 	return &loadedPlugins
 }
 
+// LoadPlugins from plugins directory
 func LoadPlugins(discord *discordgo.Session) {
 	plugins, err := filepath.Glob("./plugins/*.so")
 	if err != nil {

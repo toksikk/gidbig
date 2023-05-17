@@ -26,9 +26,13 @@ jobs:
         run: |
           go version
           go get -u golang.org/x/lint/golint
+          export PATH=${PATH}:$(go env GOPATH)/bin
 
       - name: Run build
         run: make build
+
+      - name: Lint
+        uses: golangci/golangci-lint-action@v3
 
   deploy:
     name: Deploy

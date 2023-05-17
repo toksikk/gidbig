@@ -5,13 +5,13 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"os/signal"
 	"runtime"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"text/tabwriter"
 	"time"
 
@@ -39,7 +39,8 @@ var (
 	queues = make(map[string]chan *Play)
 
 	// bitrate Sound encoding settings
-	bitrate = 128
+	// bitrate = 128
+
 	// maxQueueSize Sound encoding settings
 	maxQueueSize = 6
 )
@@ -49,7 +50,7 @@ var COLLECTIONS []*soundCollection
 
 // Create collections
 func createCollections() {
-	files, _ := ioutil.ReadDir("./audio")
+	files, _ := os.ReadDir("./audio")
 	for _, f := range files {
 		if strings.Contains(f.Name(), ".dca") {
 			soundfile := strings.Split(strings.Replace(f.Name(), ".dca", "", -1), "_")
@@ -106,7 +107,10 @@ func createSound(Name string, Weight int, PartDelay int) *soundClip {
 func (sc *soundCollection) Load() {
 	for _, sound := range sc.Sounds {
 		sc.soundRange += sound.Weight
-		sound.Load(sc)
+		err := sound.Load(sc)
+		if err != nil {
+			log.Error("error adding sound to soundCollection: ", err)
+		}
 	}
 }
 
@@ -175,8 +179,16 @@ func (s *soundClip) Load(c *soundCollection) error {
 
 // Play plays this sound over the specified VoiceConnection
 func (s *soundClip) Play(vc *discordgo.VoiceConnection) {
-	vc.Speaking(true)
-	defer vc.Speaking(false)
+	err := vc.Speaking(true)
+	if err != nil {
+		log.Error("error setting setting speaking to true")
+	}
+	defer func() {
+		err := vc.Speaking(false)
+		if err != nil {
+			log.Error("error setting setting speaking to false")
+		}
+	}()
 
 	for _, buff := range s.buffer {
 		vc.OpusSend <- buff
@@ -266,7 +278,10 @@ func enqueuePlay(user *discordgo.User, guild *discordgo.Guild, coll *soundCollec
 		mutex.Lock()
 		queues[guild.ID] = make(chan *Play, maxQueueSize)
 		mutex.Unlock()
-		playSound(play, nil)
+		err := playSound(play, nil)
+		if err != nil {
+			log.Error("could not playSound: ", err)
+		}
 	}
 }
 
@@ -278,7 +293,10 @@ func playSound(play *Play, vc *discordgo.VoiceConnection) (err error) {
 
 	if vc != nil {
 		if vc.GuildID != play.GuildID {
-			vc.Disconnect()
+			err := vc.Disconnect()
+			if err != nil {
+				log.Error("could not disconnect voice connection: ", err)
+			}
 			vc = nil
 		}
 	}
@@ -298,7 +316,10 @@ func playSound(play *Play, vc *discordgo.VoiceConnection) (err error) {
 
 	// If we need to change channels, do that now
 	if vc.ChannelID != play.ChannelID {
-		vc.ChangeChannel(play.ChannelID, false, true)
+		err := vc.ChangeChannel(play.ChannelID, false, true)
+		if err != nil {
+			log.Error("could not change voice channel: ", err)
+		}
 		time.Sleep(time.Millisecond * 125)
 	}
 
@@ -310,13 +331,19 @@ func playSound(play *Play, vc *discordgo.VoiceConnection) (err error) {
 
 	// If this is chained, play the chained sound
 	if play.Next != nil {
-		playSound(play.Next, vc)
+		err := playSound(play.Next, vc)
+		if err != nil {
+			log.Error("could not playSound: ", err)
+		}
 	}
 
 	// If there is another song in the queue, recurse and play that
 	if len(queues[play.GuildID]) > 0 {
 		play = <-queues[play.GuildID]
-		playSound(play, vc)
+		err := playSound(play, vc)
+		if err != nil {
+			log.Error("could not playSound: ", err)
+		}
 		return nil
 	}
 
@@ -324,7 +351,11 @@ func playSound(play *Play, vc *discordgo.VoiceConnection) (err error) {
 	time.Sleep(time.Millisecond * time.Duration(play.Sound.PartDelay))
 	mutex.Lock()
 	delete(queues, play.GuildID)
-	vc.Disconnect()
+	err = vc.Disconnect()
+	if err != nil {
+		log.Error("could not disconnect voice connection: ", err)
+		return err
+	}
 	mutex.Unlock()
 	return nil
 }
@@ -356,7 +387,7 @@ func displayBotStats(cid string) {
 
 	w.Init(buf, 0, 4, 0, ' ', 0)
 	fmt.Fprintf(w, "```\n")
-	fmt.Fprintf(w, "Gidbig: \t%s\n", Version)
+	fmt.Fprintf(w, "Gidbig: \t%s\n", version)
 	fmt.Fprintf(w, "Discordgo: \t%s\n", discordgo.VERSION)
 	fmt.Fprintf(w, "Go: \t%s\n", runtime.Version())
 	fmt.Fprintf(w, "Memory: \t%s (Alloc) / %s (Sys) (TotalAlloc: %s)\n", humanize.Bytes(stats.Alloc), humanize.Bytes(stats.Sys), humanize.Bytes(stats.TotalAlloc))
@@ -370,7 +401,10 @@ func displayBotStats(cid string) {
 	fmt.Fprintf(w, "Users: \t%d\n", users)
 	fmt.Fprintf(w, "```\n")
 	w.Flush()
-	discord.ChannelMessageSend(cid, buf.String())
+	msg, err := discord.ChannelMessageSend(cid, buf.String())
+	if err != nil {
+		log.Error("could not send channel message: ", msg, err)
+	}
 }
 
 // Handles bot operator messages, should be refactored (lmao)
@@ -386,16 +420,25 @@ func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 	if m.Content == "ping" || m.Content == "pong" {
 		// If the message is "ping" reply with "Pong!"
 		if m.Content == "ping" {
-			s.ChannelMessageSend(m.ChannelID, "Pong!")
+			msg, err := s.ChannelMessageSend(m.ChannelID, "Pong!")
+			if err != nil {
+				log.Error("could not send channel message: ", msg, err)
+			}
 		}
 
 		// If the message is "pong" reply with "Ping!"
 		if m.Content == "pong" {
-			s.ChannelMessageSend(m.ChannelID, "Ping!")
+			msg, err := s.ChannelMessageSend(m.ChannelID, "Ping!")
+			if err != nil {
+				log.Error("could not send channel message: ", msg, err)
+			}
 		}
 
 		// Updating bot status
-		s.UpdateGameStatus(0, "Ping Pong with "+m.Author.Username)
+		err := s.UpdateGameStatus(0, "Ping Pong with "+m.Author.Username)
+		if err != nil {
+			log.Error("could not set game status: ", err)
+		}
 	}
 	if len(m.Content) <= 0 || (m.Content[0] != '!' && len(m.Mentions) < 1) {
 		return
@@ -411,7 +454,10 @@ func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 			list += "\n"
 		}
 		st, _ := s.UserChannelCreate(m.Author.ID)
-		s.ChannelMessageSend(st.ID, list)
+		msg, err := s.ChannelMessageSend(st.ID, list)
+		if err != nil {
+			log.Error("could not send channel message: ", msg, err)
+		}
 		go deleteCommandMessage(s, m.ChannelID, m.ID)
 	}
 
@@ -463,7 +509,10 @@ func notifyOwner(message string) {
 	if err != nil {
 		return
 	}
-	discord.ChannelMessageSend(st.ID, message)
+	msg, err := discord.ChannelMessageSend(st.ID, message)
+	if err != nil {
+		log.Error("could not send channel message: ", msg, err)
+	}
 }
 
 func findSoundAndCollection(command string, soundname string) (*soundClip, *soundCollection) {
@@ -581,6 +630,6 @@ func StartGidbig() {
 
 	// Wait for a signal to quit
 	c := make(chan os.Signal, 1)
-	signal.Notify(c, os.Interrupt, os.Kill)
+	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
 	<-c
 }

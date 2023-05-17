@@ -7,6 +7,7 @@ import (
 	"gopkg.in/yaml.v2"
 )
 
+// Config struct with all parameters
 type Config struct {
 	Token       string `yaml:"token"`
 	Shard       string `yaml:"shard"`
@@ -18,6 +19,7 @@ type Config struct {
 	Cs          string `yaml:"cs"`
 }
 
+// LoadConfigFile config.yaml and creates a Config struct
 func LoadConfigFile() *Config {
 	config := &Config{}
 	configFile, err := os.Open("config.yaml")
@@ -29,6 +31,7 @@ func LoadConfigFile() *Config {
 	d := yaml.NewDecoder(configFile)
 
 	if err := d.Decode(&config); err != nil {
+		log.Error("could not decode config: ", err)
 	}
 
 	return config
