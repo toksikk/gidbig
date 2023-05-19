@@ -1,6 +1,6 @@
 VERSION=`git describe --tags`
 BUILDDATE=`date +%FT%T%z`
-LDFLAGS=-ldflags="-X 'github.com/toksikk/gidbig.Version=${VERSION}' -X 'github.com/toksikk/gidbig.Builddate=${BUILDDATE}'"
+LDFLAGS=-ldflags="-X 'github.com/toksikk/gidbig.version=${VERSION}' -X 'github.com/toksikk/gidbig.builddate=${BUILDDATE}'"
 
 PLATFORMS := linux/amd64 linux/arm64 linux/386 linux/arm darwin/amd64
 
