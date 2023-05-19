@@ -9,7 +9,7 @@ import (
 )
 
 var version = ""
-var builddate = "" // nolint:unused
+var builddate = ""
 
 // Banner Print Version on stdout
 func Banner(w io.Writer, loadedPlugins map[string][2]string) {
