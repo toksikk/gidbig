@@ -33,15 +33,17 @@ func Banner(w io.Writer, loadedPlugins map[string][2]string) {
 		"%s %s (%s)\n",
 	}
 
+	withoutWriter := w == nil
+
 	for _, v := range banner {
 		if !strings.Contains(v, "%s") {
-			if w == nil {
+			if withoutWriter {
 				fmt.Print(v)
 			} else {
 				fmt.Fprint(w, v)
 			}
 		} else {
-			if w == nil {
+			if withoutWriter {
 				fmt.Printf(v, version, builddate)
 			} else {
 				fmt.Fprintf(w, v, version, builddate)
@@ -55,12 +57,16 @@ func Banner(w io.Writer, loadedPlugins map[string][2]string) {
 	}
 	sort.Strings(pluginNames)
 
+	if withoutWriter {
+		fmt.Printf(bannerLoadedPlugins[0])
+	} else {
+		fmt.Fprintf(w, bannerLoadedPlugins[0])
+	}
+
 	for _, v := range pluginNames {
-		if w == nil {
-			fmt.Printf(bannerLoadedPlugins[0])
+		if withoutWriter {
 			fmt.Printf(bannerLoadedPlugins[1], v, loadedPlugins[v][0], loadedPlugins[v][1])
 		} else {
-			fmt.Fprintf(w, bannerLoadedPlugins[0])
 			fmt.Fprintf(w, bannerLoadedPlugins[1], v, loadedPlugins[v][0], loadedPlugins[v][1])
 		}
 	}
