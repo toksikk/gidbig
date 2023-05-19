@@ -30,7 +30,7 @@ func Banner(w io.Writer, loadedPlugins map[string][2]string) {
 
 	bannerLoadedPlugins := []string{
 		"\nLoaded Plugins: \n",
-		"%s %s\n",
+		"%s %s (%s)\n",
 	}
 
 	for _, v := range banner {
