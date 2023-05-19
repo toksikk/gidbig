@@ -49,19 +49,19 @@ func Banner(w io.Writer, loadedPlugins map[string][2]string) {
 		}
 	}
 
-	sort.Strings(bannerLoadedPlugins)
+	var pluginNames []string
+	for k := range loadedPlugins {
+		pluginNames = append(pluginNames, k)
+	}
+	sort.Strings(pluginNames)
 
-	if len(loadedPlugins) > 0 {
+	for _, v := range pluginNames {
 		if w == nil {
 			fmt.Printf(bannerLoadedPlugins[0])
-			for k, v := range loadedPlugins {
-				fmt.Printf(bannerLoadedPlugins[1], k, v[0], v[1])
-			}
+			fmt.Printf(bannerLoadedPlugins[1], v, loadedPlugins[v][0], loadedPlugins[v][1])
 		} else {
 			fmt.Fprintf(w, bannerLoadedPlugins[0])
-			for k, v := range loadedPlugins {
-				fmt.Fprintf(w, bannerLoadedPlugins[1], k, v[0], v[1])
-			}
+			fmt.Fprintf(w, bannerLoadedPlugins[1], v, loadedPlugins[v][0], loadedPlugins[v][1])
 		}
 	}
 }
