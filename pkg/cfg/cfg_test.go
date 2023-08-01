@@ -15,15 +15,15 @@ func TestLoadFile(t *testing.T) {
 
 	// Write some fake YAML to the file
 	if _, err := f.WriteString(`
-	token: mytoken
-	shard: myshard
-	shardcount: 4
-	owner: me
-	port: 8080
-	redirecturl: http://localhost:8080/callback
-	ci: 42
-	cs: mysecretstring
-	`); err != nil {
+token: mytoken
+shard: myshard
+shardcount: 4
+owner: me
+port: 8080
+redirecturl: http://localhost:8080/callback
+ci: 42
+cs: mysecretstring
+`); err != nil {
 		t.Fatal(err)
 	}
 
