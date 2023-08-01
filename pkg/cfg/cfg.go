@@ -19,10 +19,16 @@ type Config struct {
 	Cs          string `yaml:"cs"`
 }
 
+const s = "config.yaml"
+
 // LoadConfigFile config.yaml and creates a Config struct
 func LoadConfigFile() *Config {
+	return loadFile(s)
+}
+
+func loadFile(cf string) *Config {
 	config := &Config{}
-	configFile, err := os.Open("config.yaml")
+	configFile, err := os.Open(cf)
 	if err != nil {
 		log.Warningln("Could not load config file.", err)
 	}
