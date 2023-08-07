@@ -33,16 +33,3 @@ jobs:
 
       - name: Lint
         uses: golangci/golangci-lint-action@v3
-
-  deploy:
-    name: Deploy
-    needs: build
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Dispatch Deploy Repo
-        uses: peter-evans/repository-dispatch@v2.1.1
-        with:
-          token: ${{ secrets.DEPLOY_REPO_ACCESS_TOKEN }}
-          repository: toksikk/deploy-gidbig
-          event-type: deploy
