@@ -6,4 +6,5 @@ static/img/*.jpg
 gidbig
 config.yaml
 bin
-plugins/*.so
+plugins/*
+!plugins/README.md
