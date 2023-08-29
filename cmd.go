@@ -571,6 +571,11 @@ func StartGidbig() {
 	Banner(nil, *gbploader.GetLoadedPlugins())
 	conf = cfg.LoadConfigFile()
 
+	// set logrus level to debug if env var is set
+	if os.Getenv("DEBUG") != "" {
+		log.SetLevel(log.DebugLevel)
+	}
+
 	var err error
 
 	// create SoundCollections by scanning the audio folder
