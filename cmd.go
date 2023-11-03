@@ -631,7 +631,9 @@ func StartGidbig() {
 
 	banner := new(bytes.Buffer)
 	Banner(banner, *gbploader.GetLoadedPlugins())
-	notifyOwner("```I just started!\n" + banner.String() + "```")
+	if conf.DevMode {
+		notifyOwner("```I just started!\n" + banner.String() + "```")
+	}
 
 	// Wait for a signal to quit
 	c := make(chan os.Signal, 1)

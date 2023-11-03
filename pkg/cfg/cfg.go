@@ -17,6 +17,7 @@ type Config struct {
 	RedirectURL string `yaml:"redirecturl"`
 	Ci          int    `yaml:"ci"`
 	Cs          string `yaml:"cs"`
+	DevMode     bool   `yaml:"devMode"`
 }
 
 const s = "config.yaml"
