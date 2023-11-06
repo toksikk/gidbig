@@ -631,7 +631,7 @@ func StartGidbig() {
 
 	banner := new(bytes.Buffer)
 	Banner(banner, *gbploader.GetLoadedPlugins())
-	if conf.DevMode {
+	if !conf.DevMode {
 		notifyOwner("```I just started!\n" + banner.String() + "```")
 	}
 
