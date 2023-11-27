@@ -8,7 +8,6 @@ require (
 	github.com/gorilla/mux v1.8.0
 	github.com/gorilla/sessions v1.2.1
 	github.com/simplesurance/go-ip-anonymizer v0.0.0-20200429124537-35a880f8e87d
-	github.com/sirupsen/logrus v1.9.3
 	golang.org/x/oauth2 v0.11.0
 	gopkg.in/yaml.v3 v3.0.1
 )

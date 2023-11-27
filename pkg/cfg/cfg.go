@@ -1,9 +1,9 @@
 package cfg
 
 import (
+	"log/slog"
 	"os"
 
-	log "github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v3"
 )
 
@@ -31,14 +31,14 @@ func loadFile(cf string) *Config {
 	config := &Config{}
 	configFile, err := os.Open(cf)
 	if err != nil {
-		log.Warningln("Could not load config file.", err)
+		slog.Warn("Could not load config file.", "error", err)
 	}
 	defer configFile.Close()
 
 	d := yaml.NewDecoder(configFile)
 
 	if err := d.Decode(&config); err != nil {
-		log.Error("could not decode config: ", err)
+		slog.Error("could not decode config.", "error", err)
 	}
 
 	return config
