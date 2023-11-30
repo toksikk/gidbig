@@ -8,10 +8,10 @@ require (
 	github.com/gorilla/mux v1.8.1
 	github.com/gorilla/sessions v1.2.2
 	github.com/simplesurance/go-ip-anonymizer v0.0.0-20200429124537-35a880f8e87d
-	github.com/toksikk/gbp-eso v0.0.0-20231130184756-7a291afa95aa
+	github.com/toksikk/gbp-eso v0.2.0
 	github.com/toksikk/gbp-leetoclock v0.4.4
-	github.com/toksikk/gbp-stoll v0.0.0-20231130184730-256739403f29
-	github.com/toksikk/gbp-wttrin v0.1.2-0.20231130185041-33d0362c24da
+	github.com/toksikk/gbp-stoll v0.2.0
+	github.com/toksikk/gbp-wttrin v1.1.0
 	golang.org/x/oauth2 v0.15.0
 	gopkg.in/yaml.v3 v3.0.1
 )
@@ -29,7 +29,7 @@ require (
 	github.com/golang/protobuf v1.5.3 // indirect
 	github.com/gorilla/securecookie v1.1.2 // indirect
 	github.com/gorilla/websocket v1.5.1 // indirect
-	github.com/toksikk/gbp-coffee v0.0.0-20231130185010-31ec6e535b0b
+	github.com/toksikk/gbp-coffee v0.0.1
 	github.com/toksikk/gbp-gamerstatus v0.1.4
 	golang.org/x/crypto v0.16.0 // indirect
 	golang.org/x/net v0.19.0 // indirect
