@@ -548,7 +548,6 @@ func deleteCommandMessage(s *discordgo.Session, channelID string, messageID stri
 
 // StartGidbig obviously
 func StartGidbig() {
-	Banner(nil, *gbploader.GetLoadedPlugins())
 	conf = cfg.LoadConfigFile()
 
 	// set log level to debug if env var is set
@@ -612,6 +611,7 @@ func StartGidbig() {
 	gbploader.LoadPlugins(discord)
 
 	// We're running!
+	Banner(nil, *gbploader.GetLoadedPlugins())
 	slog.Info("Gidbig is ready. Quit with CTRL-C.")
 
 	banner := new(bytes.Buffer)

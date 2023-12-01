@@ -3,6 +3,7 @@ package gidbig
 import (
 	"fmt"
 	"io"
+	"log/slog"
 	"runtime/debug"
 	"sort"
 	"strings"
@@ -70,4 +71,5 @@ func Banner(w io.Writer, loadedPlugins map[string][2]string) {
 			fmt.Fprintf(w, bannerLoadedPlugins[1], v, loadedPlugins[v][0], loadedPlugins[v][1])
 		}
 	}
+	slog.Info("GIDBIG", "version", version, "built", builddate)
 }
