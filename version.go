@@ -12,6 +12,11 @@ import (
 var version = ""
 var builddate = ""
 
+// LogVersion print version to log
+func LogVersion() {
+	slog.Info("Gidbig", "version", version, "built", builddate)
+}
+
 // Banner Print Version on stdout
 func Banner(w io.Writer, loadedPlugins map[string][2]string) {
 	if version == "" {
@@ -35,10 +40,6 @@ func Banner(w io.Writer, loadedPlugins map[string][2]string) {
 	}
 
 	withoutWriter := w == nil
-
-	if withoutWriter {
-		slog.Info("GIDBIG", "version", version, "built", builddate)
-	}
 
 	for _, v := range banner {
 		if !strings.Contains(v, "%s") {

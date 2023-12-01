@@ -548,6 +548,7 @@ func deleteCommandMessage(s *discordgo.Session, channelID string, messageID stri
 
 // StartGidbig obviously
 func StartGidbig() {
+	LogVersion()
 	conf = cfg.LoadConfigFile()
 
 	// set log level to debug if env var is set
