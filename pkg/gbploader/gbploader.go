@@ -26,102 +26,48 @@ func GetLoadedPlugins() *map[string][2]string {
 	return &loadedPlugins
 }
 
+func loadLibraryPlugin(pluginImportPath string, pluginName string, pluginStartFunction *func(discord *discordgo.Session), discord *discordgo.Session, buildInfo *debug.BuildInfo) {
+	if buildInfo != nil {
+		for _, dep := range buildInfo.Deps {
+			if dep.Path == pluginImportPath {
+				if _, alreadyLoaded := loadedPlugins[pluginName]; alreadyLoaded {
+					slog.Info("Plugin already loaded. Skipping...", "plugin", pluginName)
+					continue
+				}
+				slog.Info("Loading built-in plugin.", "plugin", pluginName, "version", dep.Version)
+				addPluginToLoadedPlugins(pluginName, dep.Version, "compiled into Gidbig")
+			}
+		}
+	} else {
+		if _, alreadyLoaded := loadedPlugins[pluginName]; alreadyLoaded {
+			slog.Info("Loading built-in plugin.", "plugin", pluginName, "version", "unknown version")
+			addPluginToLoadedPlugins(pluginName, "unknown version", "compiled into Gidbig")
+		}
+	}
+	(*pluginStartFunction)(discord)
+	slog.Info("Loaded built-in plugin.", "plugin", pluginName)
+}
+
 func loadLibraryPlugins(discord *discordgo.Session) {
 	buildInfo, ok := debug.ReadBuildInfo()
 	if !ok {
 		slog.Warn("Could not read build info.")
 	}
 
-	if ok {
-		for _, dep := range buildInfo.Deps {
-			if dep.Path == "github.com/toksikk/gbp-coffee" {
-				if _, alreadyLoaded := loadedPlugins[gbp_coffee.PluginName]; alreadyLoaded {
-					slog.Info("Plugin already loaded from binary. Skipping...", "plugin", gbp_coffee.PluginName)
-					continue
-				}
-				slog.Info("Loading built-in plugin.", "plugin", gbp_coffee.PluginName, "version", dep.Version)
-				addPluginToLoadedPlugins(gbp_coffee.PluginName, dep.Version, "compiled into Gidbig")
-			}
-			if dep.Path == "github.com/toksikk/gbp-gamerstatus" {
-				if _, alreadyLoaded := loadedPlugins[gbp_gamerstatus.PluginName]; alreadyLoaded {
-					slog.Info("Plugin already loaded from binary. Skipping...", "plugin", gbp_gamerstatus.PluginName)
-					continue
-				}
-				slog.Info("Loading built-in plugin.", "plugin", gbp_gamerstatus.PluginName, "version", dep.Version)
-				addPluginToLoadedPlugins(gbp_gamerstatus.PluginName, dep.Version, "compiled into Gidbig")
-			}
-			if dep.Path == "github.com/toksikk/gbp-wttrin" {
-				if _, alreadyLoaded := loadedPlugins[gbp_wttrin.PluginName]; alreadyLoaded {
-					slog.Info("Plugin already loaded from binary. Skipping...", "plugin", gbp_wttrin.PluginName)
-					continue
-				}
-				slog.Info("Loading built-in plugin.", "plugin", gbp_wttrin.PluginName, "version", dep.Version)
-				addPluginToLoadedPlugins(gbp_wttrin.PluginName, dep.Version, "compiled into Gidbig")
-			}
-			if dep.Path == "github.com/toksikk/gbp-leetoclock" {
-				if _, alreadyLoaded := loadedPlugins[gbp_leetoclock.PluginName]; alreadyLoaded {
-					slog.Info("Plugin already loaded from binary. Skipping...", "plugin", gbp_leetoclock.PluginName)
-					continue
-				}
-				slog.Info("Loading built-in plugin.", "plugin", gbp_leetoclock.PluginName, "version", dep.Version)
-				addPluginToLoadedPlugins(gbp_leetoclock.PluginName, dep.Version, "compiled into Gidbig")
-			}
-			if dep.Path == "github.com/toksikk/gbp-eso" {
-				if _, alreadyLoaded := loadedPlugins[gbp_eso.PluginName]; alreadyLoaded {
-					slog.Info("Plugin already loaded from binary. Skipping...", "plugin", gbp_eso.PluginName)
-					continue
-				}
-				slog.Info("Loading built-in plugin.", "plugin", gbp_eso.PluginName, "version", dep.Version)
-				addPluginToLoadedPlugins(gbp_eso.PluginName, dep.Version, "compiled into Gidbig")
-			}
-			if dep.Path == "github.com/toksikk/gbp-stoll" {
-				if _, alreadyLoaded := loadedPlugins[gbp_stoll.PluginName]; alreadyLoaded {
-					slog.Info("Plugin already loaded from binary. Skipping...", "plugin", gbp_stoll.PluginName)
-					continue
-				}
-				slog.Info("Loading built-in plugin.", "plugin", gbp_stoll.PluginName, "version", dep.Version)
-				addPluginToLoadedPlugins(gbp_stoll.PluginName, dep.Version, "compiled into Gidbig")
-			}
-		}
-	} else {
-		if _, alreadyLoaded := loadedPlugins[gbp_coffee.PluginName]; alreadyLoaded {
-			addPluginToLoadedPlugins(gbp_coffee.PluginName, "unknown version", "compiled into Gidbig")
-		}
-		if _, alreadyLoaded := loadedPlugins[gbp_gamerstatus.PluginName]; alreadyLoaded {
-			addPluginToLoadedPlugins(gbp_gamerstatus.PluginName, "unknown version", "compiled into Gidbig")
-		}
-		if _, alreadyLoaded := loadedPlugins[gbp_wttrin.PluginName]; alreadyLoaded {
-			addPluginToLoadedPlugins(gbp_wttrin.PluginName, "unknown version", "compiled into Gidbig")
-		}
-		if _, alreadyLoaded := loadedPlugins[gbp_leetoclock.PluginName]; alreadyLoaded {
-			addPluginToLoadedPlugins(gbp_leetoclock.PluginName, "unknown version", "compiled into Gidbig")
-		}
-		if _, alreadyLoaded := loadedPlugins[gbp_eso.PluginName]; alreadyLoaded {
-			addPluginToLoadedPlugins(gbp_eso.PluginName, "unknown version", "compiled into Gidbig")
-		}
-		if _, alreadyLoaded := loadedPlugins[gbp_stoll.PluginName]; alreadyLoaded {
-			addPluginToLoadedPlugins(gbp_stoll.PluginName, "unknown version", "compiled into Gidbig")
-		}
-	}
+	slog.Info("Loading built-in plugins...")
 
-	if _, alreadyLoaded := loadedPlugins[gbp_coffee.PluginName]; alreadyLoaded {
-		gbp_coffee.Start(discord)
-	}
-	if _, alreadyLoaded := loadedPlugins[gbp_gamerstatus.PluginName]; alreadyLoaded {
-		gbp_gamerstatus.Start(discord)
-	}
-	if _, alreadyLoaded := loadedPlugins[gbp_wttrin.PluginName]; alreadyLoaded {
-		gbp_wttrin.Start(discord)
-	}
-	if _, alreadyLoaded := loadedPlugins[gbp_leetoclock.PluginName]; alreadyLoaded {
-		gbp_leetoclock.Start(discord)
-	}
-	if _, alreadyLoaded := loadedPlugins[gbp_eso.PluginName]; alreadyLoaded {
-		gbp_eso.Start(discord)
-	}
-	if _, alreadyLoaded := loadedPlugins[gbp_stoll.PluginName]; alreadyLoaded {
-		gbp_stoll.Start(discord)
-	}
+	coffeeStart := gbp_coffee.Start
+	loadLibraryPlugin("github.com/toksikk/gbp-coffee", gbp_coffee.PluginName, &coffeeStart, discord, buildInfo)
+	gamerstatusStart := gbp_gamerstatus.Start
+	loadLibraryPlugin("github.com/toksikk/gbp-gamerstatus", gbp_gamerstatus.PluginName, &gamerstatusStart, discord, buildInfo)
+	leetoclockStart := gbp_leetoclock.Start
+	loadLibraryPlugin("github.com/toksikk/gbp-leetoclock", gbp_leetoclock.PluginName, &leetoclockStart, discord, buildInfo)
+	stollStart := gbp_stoll.Start
+	loadLibraryPlugin("github.com/toksikk/gbp-stoll", gbp_stoll.PluginName, &stollStart, discord, buildInfo)
+	wttrinStart := gbp_wttrin.Start
+	loadLibraryPlugin("github.com/toksikk/gbp-wttrin", gbp_wttrin.PluginName, &wttrinStart, discord, buildInfo)
+	esoStart := gbp_eso.Start
+	loadLibraryPlugin("github.com/toksikk/gbp-eso", gbp_eso.PluginName, &esoStart, discord, buildInfo)
 }
 
 func addPluginToLoadedPlugins(pluginName string, pluginVersion string, pluginBuilddate string) {
