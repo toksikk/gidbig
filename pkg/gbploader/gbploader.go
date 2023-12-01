@@ -71,6 +71,9 @@ func loadLibraryPlugins(discord *discordgo.Session) {
 	gbp_coffee.Start(discord)
 	gbp_gamerstatus.Start(discord)
 	gbp_wttrin.Start(discord)
+	gbp_leetoclock.Start(discord)
+	gbp_eso.Start(discord)
+	gbp_stoll.Start(discord)
 }
 
 func addPluginToLoadedPlugins(pluginName string, pluginVersion string, pluginBuilddate string) {
