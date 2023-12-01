@@ -36,6 +36,10 @@ func Banner(w io.Writer, loadedPlugins map[string][2]string) {
 
 	withoutWriter := w == nil
 
+	if withoutWriter {
+		slog.Info("GIDBIG", "version", version, "built", builddate)
+	}
+
 	for _, v := range banner {
 		if !strings.Contains(v, "%s") {
 			if withoutWriter {
@@ -71,5 +75,4 @@ func Banner(w io.Writer, loadedPlugins map[string][2]string) {
 			fmt.Fprintf(w, bannerLoadedPlugins[1], v, loadedPlugins[v][0], loadedPlugins[v][1])
 		}
 	}
-	slog.Info("GIDBIG", "version", version, "built", builddate)
 }
