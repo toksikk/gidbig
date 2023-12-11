@@ -48,8 +48,8 @@ github.com/toksikk/gbp-leetoclock v0.4.4 h1:yuT30f9wrjB3NsjaLDFP8mAeBwhW+tzkQyKq
 github.com/toksikk/gbp-leetoclock v0.4.4/go.mod h1:I992wJnjLoUJkGNKUS1ISFxXbmqF2xHiplkOw98X548=
 github.com/toksikk/gbp-stoll v0.2.0 h1:f93zkTxqruFQeCOMTmHzNS8dlADpkMIK/cr277VQFwI=
 github.com/toksikk/gbp-stoll v0.2.0/go.mod h1:Zipvvk2VSHEdv3vrCg+Pyuu/+Xr1fdmyooDdNaYuS2M=
-github.com/toksikk/gbp-wttrin v1.3.1-0.20231206131305-1c48c4868df6 h1:IrC09A0vkt4VAS4aPYa3Uw54QDI8Ae1m/iNrlMn98fA=
-github.com/toksikk/gbp-wttrin v1.3.1-0.20231206131305-1c48c4868df6/go.mod h1:GTvheVG0EcRYTADg9JHSa92m/6q6GxQ/2cR7rLgJ1j4=
+github.com/toksikk/gbp-wttrin v1.3.1-0.20231211093547-e7e44c9433a0 h1:A7sSzy8mCLsaEVJsf/93QHTANfH0fdLKaKIGGUK9eIA=
+github.com/toksikk/gbp-wttrin v1.3.1-0.20231211093547-e7e44c9433a0/go.mod h1:GTvheVG0EcRYTADg9JHSa92m/6q6GxQ/2cR7rLgJ1j4=
 github.com/yuin/goldmark v1.4.13/go.mod h1:6yULJ656Px+3vBD8DxQVa3kxgyrAnzto9xy5taEt/CY=
 golang.org/x/crypto v0.0.0-20190308221718-c2843e01d9a2/go.mod h1:djNgcEr1/C05ACkg1iLfiJU5Ep61QUkGW8qpdssI0+w=
 golang.org/x/crypto v0.0.0-20210421170649-83a5a9bb288b/go.mod h1:T9bdIzuCu7OtxOm1hfPfRQxPLYneinmdGuTeoZ9dtd4=
