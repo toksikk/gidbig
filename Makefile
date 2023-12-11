@@ -20,6 +20,14 @@ build: ## 🚧 Build for local arch
 	mkdir -p ./bin
 	go build -o ./bin/gidbig ${LDFLAGS} ./cmd/*.go
 
+build_with_local_plugins: ## 🚧 Build local arch with local plugin import paths
+	# if you want to use this target, add a file ./plugins/local_plugin_paths.txt with the following replacement state for each plugin one per line:
+	# github.com/user/repo=/path/to/local/repo
+	@[ -f ./plugins/local_plugin_paths.txt ] || (echo "No ./plugins/local_plugin_paths.txt found" && exit 1)
+	for plugin in `cat ./plugins/local_plugin_paths.txt`; do go mod edit -replace $${plugin}; done
+	$(MAKE) build
+	for plugin in `cat ./plugins/local_plugin_paths.txt`; do go mod edit -dropreplace $${plugin%%=*}; done
+
 clean: ## 🧹 Remove previously build binaries
 	rm -rf ./bin
 
