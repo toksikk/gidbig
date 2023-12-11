@@ -13,7 +13,6 @@ import (
 	"strings"
 	"sync"
 	"syscall"
-	"text/tabwriter"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
@@ -371,28 +370,54 @@ func displayBotStats(cid string) {
 		users += len(guild.Members)
 	}
 
-	w := &tabwriter.Writer{}
-	buf := &bytes.Buffer{}
+	statusMessage := fmt.Sprintf(`Gidbig: %s
+Discordgo: %s
+Go: %s
 
-	w.Init(buf, 0, 4, 0, ' ', 0)
-	fmt.Fprintf(w, "```\n")
-	fmt.Fprintf(w, "Gidbig: \t%s\n", version)
-	fmt.Fprintf(w, "Discordgo: \t%s\n", discordgo.VERSION)
-	fmt.Fprintf(w, "Go: \t%s\n", runtime.Version())
-	fmt.Fprintf(w, "Memory: \t%s (Alloc) / %s (Sys) (TotalAlloc: %s)\n", humanize.Bytes(stats.Alloc), humanize.Bytes(stats.Sys), humanize.Bytes(stats.TotalAlloc))
-	fmt.Fprintf(w, "Live Memory Objects: \t%s (Malloc: %s - Frees: %s)\n", humanize.Bytes(stats.Mallocs-stats.Frees), humanize.Bytes(stats.Mallocs), humanize.Bytes(stats.Frees))
-	fmt.Fprintf(w, "Heap: \tAlloc: %s, InUse: %s, Sys: %s\n", humanize.Bytes(stats.HeapAlloc), humanize.Bytes(stats.HeapInuse), humanize.Bytes(stats.HeapSys))
-	fmt.Fprintf(w, "Heap Returnable: \t%s (HeapIdle: %s - HeapReleased: %s)\n", humanize.Bytes(stats.HeapIdle-stats.HeapReleased), humanize.Bytes(stats.HeapIdle), humanize.Bytes(stats.HeapReleased))
-	fmt.Fprintf(w, "Stack: \tInUse: %s, Sys: %s\n", humanize.Bytes(stats.StackInuse), humanize.Bytes(stats.StackSys))
-	fmt.Fprintf(w, "Pointer Lookups: \t%d\n", stats.Lookups)
-	fmt.Fprintf(w, "Tasks: \t%d\n", runtime.NumGoroutine())
-	fmt.Fprintf(w, "Servers: \t%d\n", len(discord.State.Ready.Guilds))
-	fmt.Fprintf(w, "Users: \t%d\n", users)
-	fmt.Fprintf(w, "```\n")
-	w.Flush()
-	msg, err := discord.ChannelMessageSend(cid, buf.String())
+Memory:
+  Alloc: %s
+  Sys: %s
+  TotalAlloc: %s
+
+Live Memory Objects:
+  Malloc: %s
+  Frees: %s
+
+Heap:
+  Alloc: %s
+  InUse: %s
+  Sys: %s
+
+Heap Returnable:
+  HeapIdle: %s
+  HeapReleased: %s
+
+Stack:
+  InUse: %s
+  Sys: %s
+
+Pointer Lookups: %d
+Tasks: %d
+Servers: %d
+Users: %d
+Plugins: %d
+
+Loaded Plugins:
+`, version, discordgo.VERSION, runtime.Version(),
+		humanize.Bytes(stats.Alloc), humanize.Bytes(stats.Sys), humanize.Bytes(stats.TotalAlloc),
+		humanize.Bytes(stats.Mallocs), humanize.Bytes(stats.Frees),
+		humanize.Bytes(stats.HeapAlloc), humanize.Bytes(stats.HeapInuse), humanize.Bytes(stats.HeapSys),
+		humanize.Bytes(stats.HeapIdle), humanize.Bytes(stats.HeapReleased),
+		humanize.Bytes(stats.StackInuse), humanize.Bytes(stats.StackSys),
+		stats.Lookups, runtime.NumGoroutine(), len(discord.State.Ready.Guilds), users, len(*gbploader.GetLoadedPlugins()))
+
+	for n, p := range *gbploader.GetLoadedPlugins() {
+		statusMessage += fmt.Sprintf("%s %s\n", n, p[0])
+	}
+
+	_, err := discord.ChannelMessageSend(cid, "```"+statusMessage+"```")
 	if err != nil {
-		slog.Error("could not send channel message", "message", msg, "error", err)
+		slog.Error("could not send channel message", "error", err)
 	}
 }
 
