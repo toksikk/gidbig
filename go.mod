@@ -11,7 +11,7 @@ require (
 	github.com/toksikk/gbp-eso v0.2.0
 	github.com/toksikk/gbp-leetoclock v0.4.4
 	github.com/toksikk/gbp-stoll v0.2.0
-	github.com/toksikk/gbp-wttrin v1.3.1-0.20231211093547-e7e44c9433a0
+	github.com/toksikk/gbp-wttrin v1.3.1-0.20231211120339-27cbf10ac120
 	golang.org/x/oauth2 v0.15.0
 	gopkg.in/yaml.v3 v3.0.1
 )
