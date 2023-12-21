@@ -19,7 +19,7 @@ require (
 require (
 	github.com/jinzhu/inflection v1.0.0 // indirect
 	github.com/jinzhu/now v1.1.5 // indirect
-	github.com/mattn/go-sqlite3 v1.14.18 // indirect
+	github.com/mattn/go-sqlite3 v1.14.19 // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect
 	gorm.io/driver/sqlite v1.5.4 // indirect
 	gorm.io/gorm v1.25.5 // indirect
@@ -31,7 +31,7 @@ require (
 	github.com/gorilla/websocket v1.5.1 // indirect
 	github.com/toksikk/gbp-coffee v0.0.1
 	github.com/toksikk/gbp-gamerstatus v0.1.4
-	golang.org/x/crypto v0.16.0 // indirect
+	golang.org/x/crypto v0.17.0 // indirect
 	golang.org/x/net v0.19.0 // indirect
 	golang.org/x/sys v0.15.0 // indirect
 	google.golang.org/appengine v1.6.8 // indirect
