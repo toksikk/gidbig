@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"html/template"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -17,7 +18,6 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/gorilla/sessions"
 	"github.com/simplesurance/go-ip-anonymizer/ipanonymizer"
-	log "github.com/sirupsen/logrus"
 	"github.com/toksikk/gidbig/pkg/cfg"
 	"golang.org/x/oauth2"
 )
@@ -77,15 +77,17 @@ func startWebServer(config *cfg.Config) {
 	http.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("web/static"))))
 	err := http.ListenAndServe(":"+strconv.Itoa(config.Port), nil)
 	if err != nil {
-		log.Fatal("could not start webserver: ", err)
+		slog.Error("could not start webserver", "error", err)
+		os.Exit(1)
 	}
 }
 
 func handlePlaySound(w http.ResponseWriter, r *http.Request) {
-	log.Infoln("WebUI /playsound Request from " + r.RemoteAddr)
+	slog.Info("WebUI /playsound Request", "Requesting IP", r.RemoteAddr)
 	err := r.ParseForm()
 	if err != nil {
-		log.Error("could not ParseForm: ", err)
+		slog.Error("could not ParseForm", "error", err)
+		return
 	}
 	sound, soundCollection := findSoundAndCollection(r.FormValue("command"), r.FormValue("soundname"))
 	session, _ := store.Get(r, "gidbig-session")
@@ -211,15 +213,17 @@ func handleMain(w http.ResponseWriter, r *http.Request) {
 	}
 	err := tmpls["home.html"].ExecuteTemplate(w, "header", map[string]interface{}{})
 	if err != nil {
-		log.Error("unable to execute template: ", err)
+		slog.Error("unable to execute template", "error", err)
+		return
 	}
 	err = tmpls["home.html"].ExecuteTemplate(w, "footer", map[string]interface{}{})
 	if err != nil {
-		log.Error("unable to execute template: ", err)
+		slog.Error("unable to execute template", "error", err)
+		return
 	}
 }
 func handleLogout(w http.ResponseWriter, r *http.Request) {
-	log.Infoln("WebUI /logout Request from " + r.RemoteAddr)
+	slog.Info("WebUI /logout Request", "Requesting IP", r.RemoteAddr)
 	cookie := &http.Cookie{
 		Name:   "gidbig-session",
 		Value:  "",
@@ -234,7 +238,8 @@ func handleDiscordLogin(w http.ResponseWriter, r *http.Request) {
 	b := make([]byte, 16)
 	_, err := rand.Read(b)
 	if err != nil {
-		log.Error("unable to Read: ", err)
+		slog.Error("unable to Read", "error", err)
+		return
 	}
 	oauthStateString = base64.URLEncoding.EncodeToString(b)
 
@@ -242,7 +247,7 @@ func handleDiscordLogin(w http.ResponseWriter, r *http.Request) {
 	session.Values["state"] = oauthStateString
 	err = session.Save(r, w)
 	if err != nil {
-		log.Error("unable to Save: ", err)
+		slog.Error("unable to Save", "error", err)
 	}
 
 	url := discordOauthConfig.AuthCodeURL(oauthStateString)
@@ -291,7 +296,8 @@ func handleDiscordCallback(w http.ResponseWriter, r *http.Request) {
 	session.Values["accessToken"] = token.AccessToken
 	err = session.Save(r, w)
 	if err != nil {
-		log.Error("unable to Save: ", err)
+		slog.Error("unable to Save", "error", err)
+		return
 	}
 
 	dg.Close()
@@ -330,12 +336,13 @@ func parseIPPort(s string) (ip net.IP, port, space string, err error) {
 func logWebRequests(r *http.Request) {
 	ip, port, _, err := parseIPPort(r.RemoteAddr)
 	if err != nil {
-		log.Warnln("Error parsing IP address for WebUI Request to " + r.RequestURI)
+		slog.Warn("Error parsing IP address for WebUI Request ", "Request URI", r.RequestURI)
+		return
 	}
 	anonIP, err := ipAnonymizer.IPString(ip.String())
 	if err != nil {
-		log.Warnln("Could not anonymize IP address for WebUI Request to " + r.RequestURI)
+		slog.Warn("Could not anonymize IP address for WebUI Request ", "Request URI", r.RequestURI)
 	} else {
-		log.Infoln("WebUI Request to " + r.RequestURI + " from " + anonIP + port)
+		slog.Info("WebUI Request", "Request URI", r.RequestURI, "Requesting IP / Port", anonIP+port)
 	}
 }

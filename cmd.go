@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"os/signal"
 	"runtime"
@@ -12,12 +13,10 @@ import (
 	"strings"
 	"sync"
 	"syscall"
-	"text/tabwriter"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
 	humanize "github.com/dustin/go-humanize"
-	log "github.com/sirupsen/logrus"
 	"github.com/toksikk/gidbig/pkg/cfg"
 	"github.com/toksikk/gidbig/pkg/gbploader"
 	"github.com/toksikk/gidbig/pkg/util"
@@ -109,7 +108,7 @@ func (sc *soundCollection) Load() {
 		sc.soundRange += sound.Weight
 		err := sound.Load(sc)
 		if err != nil {
-			log.Error("error adding sound to soundCollection: ", err)
+			slog.Error("error adding sound to soundCollection", "Error", err)
 		}
 	}
 }
@@ -142,7 +141,7 @@ func (s *soundClip) Load(c *soundCollection) error {
 	file, err := os.Open(path)
 
 	if err != nil {
-		log.Error("error opening dca file :", err)
+		slog.Error("error opening dca file", "error", err)
 		return err
 	}
 
@@ -158,7 +157,7 @@ func (s *soundClip) Load(c *soundCollection) error {
 		}
 
 		if err != nil {
-			log.Error("error reading from dca file :", err)
+			slog.Error("error reading from dca file", "error", err)
 			return err
 		}
 
@@ -168,7 +167,7 @@ func (s *soundClip) Load(c *soundCollection) error {
 
 		// Should not be any end of file errors
 		if err != nil {
-			log.Error("error reading from dca file :", err)
+			slog.Error("error reading from dca file", "error", err)
 			return err
 		}
 
@@ -181,12 +180,12 @@ func (s *soundClip) Load(c *soundCollection) error {
 func (s *soundClip) Play(vc *discordgo.VoiceConnection) {
 	err := vc.Speaking(true)
 	if err != nil {
-		log.Error("error setting setting speaking to true")
+		slog.Error("error setting setting speaking to true")
 	}
 	defer func() {
 		err := vc.Speaking(false)
 		if err != nil {
-			log.Error("error setting setting speaking to false")
+			slog.Error("error setting setting speaking to false")
 		}
 	}()
 
@@ -211,10 +210,7 @@ func createPlay(user *discordgo.User, guild *discordgo.Guild, coll *soundCollect
 	// Grab the users voice channel
 	channel := getCurrentVoiceChannel(user, guild)
 	if channel == nil {
-		log.WithFields(log.Fields{
-			"user":  user.ID,
-			"guild": guild.ID,
-		}).Warning("Failed to find channel to play sound in")
+		slog.Warn("Failed to find channel to play sound in", "user", user.ID, "guild", guild.ID)
 		return nil
 	}
 
@@ -254,13 +250,9 @@ func enqueuePlay(user *discordgo.User, guild *discordgo.Guild, coll *soundCollec
 		return
 	}
 	if sound != nil {
-		log.WithFields(log.Fields{
-			"user": user,
-		}).Info(user.Username + " triggered sound playback of !" + coll.Prefix + " " + sound.Name + " for server " + guild.Name + " in channel " + play.ChannelID)
+		slog.Info("Playing sound", "username", user.Username, "prefix", coll.Prefix, "soundname", sound.Name, "server", guild.Name, "channel", play.ChannelID)
 	} else {
-		log.WithFields(log.Fields{
-			"user": user,
-		}).Info(user.Username + " triggered sound playback of !" + coll.Prefix + " for server " + guild.Name + " in channel " + play.ChannelID)
+		slog.Info("Playing random sound", "username", user.Username, "prefix", coll.Prefix, "soundname", sound.Name, "server", guild.Name, "channel", play.ChannelID)
 	}
 	// Check if we already have a connection to this guild
 	// this should be threadsafe
@@ -280,22 +272,20 @@ func enqueuePlay(user *discordgo.User, guild *discordgo.Guild, coll *soundCollec
 		mutex.Unlock()
 		err := playSound(play, nil)
 		if err != nil {
-			log.Error("could not playSound: ", err)
+			slog.Error("could not playSound", "error", err)
 		}
 	}
 }
 
 // Play a sound
 func playSound(play *Play, vc *discordgo.VoiceConnection) (err error) {
-	log.WithFields(log.Fields{
-		"play": play,
-	}).Info("Playing sound")
+	slog.Info("Playing sound", "play", play)
 
 	if vc != nil {
 		if vc.GuildID != play.GuildID {
 			err := vc.Disconnect()
 			if err != nil {
-				log.Error("could not disconnect voice connection: ", err)
+				slog.Error("could not disconnect voice connection", "error", err)
 			}
 			vc = nil
 		}
@@ -304,9 +294,7 @@ func playSound(play *Play, vc *discordgo.VoiceConnection) (err error) {
 	if vc == nil {
 		vc, err = discord.ChannelVoiceJoin(play.GuildID, play.ChannelID, false, true)
 		if err != nil {
-			log.WithFields(log.Fields{
-				"error": err,
-			}).Error("Failed to play sound")
+			slog.Error("Failed to play sound", "error", err)
 			mutex.Lock()
 			delete(queues, play.GuildID)
 			mutex.Unlock()
@@ -318,7 +306,7 @@ func playSound(play *Play, vc *discordgo.VoiceConnection) (err error) {
 	if vc.ChannelID != play.ChannelID {
 		err := vc.ChangeChannel(play.ChannelID, false, true)
 		if err != nil {
-			log.Error("could not change voice channel: ", err)
+			slog.Error("could not change voice channel", "error", err)
 		}
 		time.Sleep(time.Millisecond * 125)
 	}
@@ -333,7 +321,7 @@ func playSound(play *Play, vc *discordgo.VoiceConnection) (err error) {
 	if play.Next != nil {
 		err := playSound(play.Next, vc)
 		if err != nil {
-			log.Error("could not playSound: ", err)
+			slog.Error("could not playSound", "error", err)
 		}
 	}
 
@@ -342,7 +330,7 @@ func playSound(play *Play, vc *discordgo.VoiceConnection) (err error) {
 		play = <-queues[play.GuildID]
 		err := playSound(play, vc)
 		if err != nil {
-			log.Error("could not playSound: ", err)
+			slog.Error("could not playSound", "error", err)
 		}
 		return nil
 	}
@@ -353,7 +341,7 @@ func playSound(play *Play, vc *discordgo.VoiceConnection) (err error) {
 	delete(queues, play.GuildID)
 	err = vc.Disconnect()
 	if err != nil {
-		log.Error("could not disconnect voice connection: ", err)
+		slog.Error("could not disconnect voice connection", "error", err)
 		return err
 	}
 	mutex.Unlock()
@@ -361,7 +349,7 @@ func playSound(play *Play, vc *discordgo.VoiceConnection) (err error) {
 }
 
 func onReady(s *discordgo.Session, event *discordgo.Ready) {
-	log.Info("Received READY payload.")
+	slog.Info("Received READY payload.")
 }
 
 func scontains(key string, options ...string) bool {
@@ -382,28 +370,54 @@ func displayBotStats(cid string) {
 		users += len(guild.Members)
 	}
 
-	w := &tabwriter.Writer{}
-	buf := &bytes.Buffer{}
+	statusMessage := fmt.Sprintf(`Gidbig: %s
+Discordgo: %s
+Go: %s
 
-	w.Init(buf, 0, 4, 0, ' ', 0)
-	fmt.Fprintf(w, "```\n")
-	fmt.Fprintf(w, "Gidbig: \t%s\n", version)
-	fmt.Fprintf(w, "Discordgo: \t%s\n", discordgo.VERSION)
-	fmt.Fprintf(w, "Go: \t%s\n", runtime.Version())
-	fmt.Fprintf(w, "Memory: \t%s (Alloc) / %s (Sys) (TotalAlloc: %s)\n", humanize.Bytes(stats.Alloc), humanize.Bytes(stats.Sys), humanize.Bytes(stats.TotalAlloc))
-	fmt.Fprintf(w, "Live Memory Objects: \t%s (Malloc: %s - Frees: %s)\n", humanize.Bytes(stats.Mallocs-stats.Frees), humanize.Bytes(stats.Mallocs), humanize.Bytes(stats.Frees))
-	fmt.Fprintf(w, "Heap: \tAlloc: %s, InUse: %s, Sys: %s\n", humanize.Bytes(stats.HeapAlloc), humanize.Bytes(stats.HeapInuse), humanize.Bytes(stats.HeapSys))
-	fmt.Fprintf(w, "Heap Returnable: \t%s (HeapIdle: %s - HeapReleased: %s)\n", humanize.Bytes(stats.HeapIdle-stats.HeapReleased), humanize.Bytes(stats.HeapIdle), humanize.Bytes(stats.HeapReleased))
-	fmt.Fprintf(w, "Stack: \tInUse: %s, Sys: %s\n", humanize.Bytes(stats.StackInuse), humanize.Bytes(stats.StackSys))
-	fmt.Fprintf(w, "Pointer Lookups: \t%d\n", stats.Lookups)
-	fmt.Fprintf(w, "Tasks: \t%d\n", runtime.NumGoroutine())
-	fmt.Fprintf(w, "Servers: \t%d\n", len(discord.State.Ready.Guilds))
-	fmt.Fprintf(w, "Users: \t%d\n", users)
-	fmt.Fprintf(w, "```\n")
-	w.Flush()
-	msg, err := discord.ChannelMessageSend(cid, buf.String())
+Memory:
+  Alloc: %s
+  Sys: %s
+  TotalAlloc: %s
+
+Live Memory Objects:
+  Malloc: %s
+  Frees: %s
+
+Heap:
+  Alloc: %s
+  InUse: %s
+  Sys: %s
+
+Heap Returnable:
+  HeapIdle: %s
+  HeapReleased: %s
+
+Stack:
+  InUse: %s
+  Sys: %s
+
+Pointer Lookups: %d
+Tasks: %d
+Servers: %d
+Users: %d
+Plugins: %d
+
+Loaded Plugins:
+`, version, discordgo.VERSION, runtime.Version(),
+		humanize.Bytes(stats.Alloc), humanize.Bytes(stats.Sys), humanize.Bytes(stats.TotalAlloc),
+		humanize.Bytes(stats.Mallocs), humanize.Bytes(stats.Frees),
+		humanize.Bytes(stats.HeapAlloc), humanize.Bytes(stats.HeapInuse), humanize.Bytes(stats.HeapSys),
+		humanize.Bytes(stats.HeapIdle), humanize.Bytes(stats.HeapReleased),
+		humanize.Bytes(stats.StackInuse), humanize.Bytes(stats.StackSys),
+		stats.Lookups, runtime.NumGoroutine(), len(discord.State.Ready.Guilds), users, len(*gbploader.GetLoadedPlugins()))
+
+	for n, p := range *gbploader.GetLoadedPlugins() {
+		statusMessage += fmt.Sprintf("%s %s\n", n, p[0])
+	}
+
+	_, err := discord.ChannelMessageSend(cid, "```"+statusMessage+"```")
 	if err != nil {
-		log.Error("could not send channel message: ", msg, err)
+		slog.Error("could not send channel message", "error", err)
 	}
 }
 
@@ -422,7 +436,7 @@ func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 		if m.Content == "ping" {
 			msg, err := s.ChannelMessageSend(m.ChannelID, "Pong!")
 			if err != nil {
-				log.Error("could not send channel message: ", msg, err)
+				slog.Error("could not send channel message", "message", msg, "error", err)
 			}
 		}
 
@@ -430,14 +444,14 @@ func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 		if m.Content == "pong" {
 			msg, err := s.ChannelMessageSend(m.ChannelID, "Ping!")
 			if err != nil {
-				log.Error("could not send channel message: ", msg, err)
+				slog.Error("could not send channel message", "message", msg, "error", err)
 			}
 		}
 
 		// Updating bot status
 		err := s.UpdateGameStatus(0, "Ping Pong with "+m.Author.Username)
 		if err != nil {
-			log.Error("could not set game status: ", err)
+			slog.Error("could not set game status", "error", err)
 		}
 	}
 	if len(m.Content) <= 0 || (m.Content[0] != '!' && len(m.Mentions) < 1) {
@@ -456,7 +470,7 @@ func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 		st, _ := s.UserChannelCreate(m.Author.ID)
 		msg, err := s.ChannelMessageSend(st.ID, list)
 		if err != nil {
-			log.Error("could not send channel message: ", msg, err)
+			slog.Error("could not send channel message", "message", msg, "error", err)
 		}
 		go deleteCommandMessage(s, m.ChannelID, m.ID)
 	}
@@ -466,20 +480,13 @@ func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 	channel, _ := discord.State.Channel(m.ChannelID)
 	if channel == nil {
-		log.WithFields(log.Fields{
-			"channel": m.ChannelID,
-			"message": m.ID,
-		}).Warning("Failed to grab channel")
+		slog.Warn("Failed to grab channel", "channel", m.ChannelID, "message", m.ID)
 		return
 	}
 
 	guild, _ := discord.State.Guild(channel.GuildID)
 	if guild == nil {
-		log.WithFields(log.Fields{
-			"guild":   channel.GuildID,
-			"channel": channel,
-			"message": m.ID,
-		}).Warning("Failed to grab guild")
+		slog.Warn("Failed to grab guild", "guild", channel.GuildID, "channel", channel, "message", m.ID)
 		return
 	}
 
@@ -511,7 +518,7 @@ func notifyOwner(message string) {
 	}
 	msg, err := discord.ChannelMessageSend(st.ID, message)
 	if err != nil {
-		log.Error("could not send channel message: ", msg, err)
+		slog.Error("could not send channel message", "message", msg, "error", err)
 	}
 }
 
@@ -560,16 +567,26 @@ func deleteCommandMessage(s *discordgo.Session, channelID string, messageID stri
 	time.Sleep(30 * time.Second)
 	err := s.ChannelMessageDelete(channelID, messageID)
 	if err != nil {
-		log.WithFields(log.Fields{
-			"error": err,
-		}).Error("Failed to delete message.")
+		slog.Error("Failed to delete message", "error", err)
 	}
 }
 
 // StartGidbig obviously
 func StartGidbig() {
-	Banner(nil, *gbploader.GetLoadedPlugins())
+	LogVersion()
 	conf = cfg.LoadConfigFile()
+
+	// set log level to debug if env var is set
+	if os.Getenv("DEBUG") != "" {
+		logLevel := new(slog.LevelVar)
+		logLevel.Set(slog.LevelDebug)
+
+		logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+			Level: logLevel,
+		}))
+
+		slog.SetDefault(logger)
+	}
 
 	var err error
 
@@ -578,25 +595,24 @@ func StartGidbig() {
 
 	// Start Webserver if a valid port is provided and if ClientID and ClientSecret are set
 	if conf.Port != 0 && conf.Port >= 1 && conf.Ci != 0 && conf.Cs != "" && conf.RedirectURL != "" {
-		log.Infoln("Starting web server on port " + strconv.Itoa(conf.Port))
+		slog.Info("Starting web server", "port", conf.Port)
 		go startWebServer(conf)
 	} else {
-		log.Infoln("Required web server arguments missing or invalid. Skipping web server start.")
+		slog.Info("Required web server arguments missing or invalid. Skipping web server start.")
 	}
 
 	// Preload all the sounds
-	log.Info("Preloading sounds...")
+	slog.Info("Preloading sounds...")
 	for _, coll := range COLLECTIONS {
 		coll.Load()
 	}
 
 	// Create a discord session
-	log.Info("Starting discord session...")
+	slog.Info("Starting discord session...")
 	discord, err = discordgo.New("Bot " + conf.Token)
 	if err != nil {
-		log.WithFields(log.Fields{
-			"error": err,
-		}).Fatal("Failed to create discord session")
+		slog.Error("Failed to create discord session", "error", err)
+		os.Exit(1)
 		return
 	}
 
@@ -613,20 +629,22 @@ func StartGidbig() {
 
 	err = discord.Open()
 	if err != nil {
-		log.WithFields(log.Fields{
-			"error": err,
-		}).Fatal("Failed to create discord websocket connection")
+		slog.Error("Failed to create discord websocket connection", "error", err)
+		os.Exit(1)
 		return
 	}
 
 	gbploader.LoadPlugins(discord)
 
 	// We're running!
-	log.Info("Gidbig is ready. Quit with CTRL-C.")
+	Banner(nil, *gbploader.GetLoadedPlugins())
+	slog.Info("Gidbig is ready. Quit with CTRL-C.")
 
 	banner := new(bytes.Buffer)
 	Banner(banner, *gbploader.GetLoadedPlugins())
-	notifyOwner("```I just started!\n" + banner.String() + "```")
+	if !conf.DevMode {
+		notifyOwner("```I just started!\n" + banner.String() + "```")
+	}
 
 	// Wait for a signal to quit
 	c := make(chan os.Signal, 1)

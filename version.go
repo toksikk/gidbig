@@ -3,6 +3,7 @@ package gidbig
 import (
 	"fmt"
 	"io"
+	"log/slog"
 	"runtime/debug"
 	"sort"
 	"strings"
@@ -10,6 +11,11 @@ import (
 
 var version = ""
 var builddate = ""
+
+// LogVersion print version to log
+func LogVersion() {
+	slog.Info("Gidbig", "version", version, "built", builddate)
+}
 
 // Banner Print Version on stdout
 func Banner(w io.Writer, loadedPlugins map[string][2]string) {

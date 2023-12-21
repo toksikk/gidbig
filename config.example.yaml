@@ -6,3 +6,4 @@ port: 8080
 redirecturl: "https://bot.example.org:1337"
 ci: 0
 cs: ""
+devMode: true
