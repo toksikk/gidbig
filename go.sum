@@ -40,6 +40,8 @@ github.com/stretchr/testify v1.7.0 h1:nwc3DEeHmmLAfoZucVR881uASk0Mfjw8xYJ99tb5Cc
 github.com/stretchr/testify v1.7.0/go.mod h1:6Fq8oRcR53rry900zMqJjRRixrwX3KX962/h/Wwjteg=
 github.com/toksikk/gbp-coffee v0.0.1 h1:SdYGL4m//c/dDW2krwgfTrwKYFLScqwJvndkP8V05xw=
 github.com/toksikk/gbp-coffee v0.0.1/go.mod h1:zlNcfTtVCsmIUWSZkyrOpSm672fJilW+FDXtPI+Mcng=
+github.com/toksikk/gbp-coffee v0.0.2 h1:Cgq9R3Oyy3tBhe8jEL1ts4bpuCyCGxWb/V7VBrCeu5E=
+github.com/toksikk/gbp-coffee v0.0.2/go.mod h1:IIGNUBecnVamhktkxdN3TycLltpks/KWyPXtB/dEHjs=
 github.com/toksikk/gbp-eso v0.2.0 h1:+xDmVIpt2JOvhKtGqomxcIRywimp5inK6vllvUgAP10=
 github.com/toksikk/gbp-eso v0.2.0/go.mod h1:SfU+8sihnn34BFRskTfHLqovHRNpg09SSxWG/64Zgvc=
 github.com/toksikk/gbp-gamerstatus v0.1.4 h1:40pdj7ESmAdUEiG2gtu8o9BEfWa3fMPYPlfbpvl1S08=

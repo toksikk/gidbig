@@ -29,7 +29,7 @@ require (
 	github.com/golang/protobuf v1.5.3 // indirect
 	github.com/gorilla/securecookie v1.1.2 // indirect
 	github.com/gorilla/websocket v1.5.1 // indirect
-	github.com/toksikk/gbp-coffee v0.0.1
+	github.com/toksikk/gbp-coffee v0.0.2
 	github.com/toksikk/gbp-gamerstatus v0.1.4
 	golang.org/x/crypto v0.17.0 // indirect
 	golang.org/x/net v0.19.0 // indirect
