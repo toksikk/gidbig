@@ -1,38 +1,38 @@
 name: Build and Deploy
 
 on:
-  push:
-    branches:
-      - master
-  pull_request:
-    branches:
-      - master
-  workflow_dispatch:
+    push:
+        branches:
+            - master
+    pull_request:
+        branches:
+            - master
+    workflow_dispatch:
 
 jobs:
-  build:
-    name: Build
-    runs-on: ubuntu-latest
+    build:
+        name: Build
+        runs-on: ubuntu-latest
 
-    steps:
-      - uses: actions/checkout@v4
+        steps:
+            - uses: actions/checkout@v4
 
-      - name: Determine Go version from go.mod
-        run: echo "GO_VERSION=$(grep "go 1." go.mod | cut -d " " -f 2)" >> $GITHUB_ENV
+            - name: Determine Go version from go.mod
+              run: echo "GO_VERSION=$(grep "go 1." go.mod | cut -d " " -f 2)" >> $GITHUB_ENV
 
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: ${{ env.GO_VERSION }}
+            - name: Setup Go
+              uses: actions/setup-go@v5
+              with:
+                  go-version: ${{ env.GO_VERSION }}
 
-      - name: Install dependencies
-        run: |
-          go version
-          go get -u golang.org/x/lint/golint
-          export PATH=${PATH}:$(go env GOPATH)/bin
+            - name: Install dependencies
+              run: |
+                  go version
+                  go get -u golang.org/x/lint/golint
+                  export PATH=${PATH}:$(go env GOPATH)/bin
 
-      - name: Run build
-        run: make build
+            - name: Run build
+              run: make build
 
-      - name: Lint
-        uses: golangci/golangci-lint-action@v3
+            - name: Lint
+              uses: golangci/golangci-lint-action@v3
