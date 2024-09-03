@@ -18,7 +18,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/gorilla/sessions"
 	"github.com/simplesurance/go-ip-anonymizer/ipanonymizer"
-	"github.com/toksikk/gidbig/pkg/cfg"
+	"github.com/toksikk/gidbig/internal/cfg"
 	"golang.org/x/oauth2"
 )
 

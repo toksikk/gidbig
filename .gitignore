@@ -3,7 +3,7 @@ run.sh
 audio/*.dca
 audio/*_*.txt
 static/img/*.jpg
-gidbig
+./gidbig
 config.yaml
 bin
 plugins/*

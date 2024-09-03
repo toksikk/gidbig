@@ -1,6 +1,6 @@
 VERSION=`git describe --tags`
 BUILDDATE=`date +%FT%T%z`
-LDFLAGS=-ldflags="-X 'github.com/toksikk/gidbig.version=${VERSION}' -X 'github.com/toksikk/gidbig.builddate=${BUILDDATE}'"
+LDFLAGS=-ldflags="-X 'github.com/toksikk/gidbig/internal/core.version=${VERSION}' -X 'github.com/toksikk/gidbig/internal/core.builddate=${BUILDDATE}'"
 
 PLATFORMS := linux/amd64 linux/arm64 linux/386 linux/arm darwin/amd64
 
@@ -18,7 +18,7 @@ update: ## 🔄 Update dependencies
 
 build: ## 🚧 Build for local arch
 	mkdir -p ./bin
-	go build -o ./bin/gidbig ${LDFLAGS} ./cmd/*.go
+	go build -o ./bin/gidbig ${LDFLAGS} ./cmd/gidbig/*.go
 
 build_with_local_plugins: ## 🚧 Build local arch with local plugin import paths
 	# if you want to use this target, add a file ./plugins/local_plugin_paths.txt with the following replacement state for each plugin one per line:
@@ -36,10 +36,10 @@ pre-release:
 
 release: pre-release $(PLATFORMS) ## 📦 Build for GitHub release
 $(PLATFORMS):
-	GOOS=$(os) GOARCH=$(arch) go build -o ./bin/release/gidbig-$(os)-$(arch) ${LDFLAGS} ./cmd/*.go
+	GOOS=$(os) GOARCH=$(arch) go build -o ./bin/release/gidbig-$(os)-$(arch) ${LDFLAGS} ./cmd/gidbig/*.go
 
 docker: ## 🐳 Build Docker image
-	GOOS=linux GOARCH=amd64 go build -o ./bin/release/gidbig-linux-amd64 ${LDFLAGS} ./cmd/*.go
+	GOOS=linux GOARCH=amd64 go build -o ./bin/release/gidbig-linux-amd64 ${LDFLAGS} ./cmd/gidbig/*.go
 	docker build -t gidbig:${VERSION} .
 
 test: ## 🧪 Run tests

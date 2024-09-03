@@ -17,9 +17,9 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	humanize "github.com/dustin/go-humanize"
-	"github.com/toksikk/gidbig/pkg/cfg"
-	"github.com/toksikk/gidbig/pkg/gbploader"
-	"github.com/toksikk/gidbig/pkg/util"
+	"github.com/toksikk/gidbig/internal/cfg"
+	"github.com/toksikk/gidbig/internal/gbploader"
+	"github.com/toksikk/gidbig/internal/util"
 )
 
 var (
