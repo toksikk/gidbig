@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"runtime"
 	"runtime/debug"
 	"sort"
 	"strings"
@@ -40,6 +41,8 @@ func Banner(w io.Writer, loadedPlugins map[string][2]string) {
 	}
 
 	withoutWriter := w == nil
+
+	builddate += " using " + runtime.Version()
 
 	for _, v := range banner {
 		if !strings.Contains(v, "%s") {
