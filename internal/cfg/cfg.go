@@ -9,15 +9,21 @@ import (
 
 // Config struct with all parameters
 type Config struct {
-	Token       string `yaml:"token"`
-	Shard       string `yaml:"shard"`
-	ShardCount  string `yaml:"shardcount"`
-	Owner       string `yaml:"owner"`
-	Port        int    `yaml:"port"`
-	RedirectURL string `yaml:"redirecturl"`
-	Ci          int    `yaml:"ci"`
-	Cs          string `yaml:"cs"`
-	DevMode     bool   `yaml:"devMode"`
+	Discord struct {
+		Token      string `yaml:"token"`
+		OwnerID    string `yaml:"owner_id,omitempty"`
+		ShardID    int    `yaml:"shard_id,omitempty" default:"0"`
+		ShardCount int    `yaml:"shard_count,omitempty" default:"0"`
+	} `yaml:"discord"`
+	Web struct {
+		Oauth struct {
+			ClientID     string `yaml:"client_id"`
+			ClientSecret string `yaml:"client_secret"`
+			RedirectURI  string `yaml:"redirect_uri"`
+		} `yaml:"oauth"`
+		Port int `yaml:"port,omitempty" default:"8080"`
+	} `yaml:"web"`
+	DevMode bool `yaml:"dev_mode,omitempty" default:"false"`
 }
 
 const s = "config.yaml"

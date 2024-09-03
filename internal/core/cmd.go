@@ -9,7 +9,6 @@ import (
 	"os"
 	"os/signal"
 	"runtime"
-	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -491,7 +490,7 @@ func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 	}
 
 	// If this is a mention, it should come from the owner (otherwise we don't care)
-	if len(m.Mentions) > 0 && m.Author.ID == conf.Owner && len(parts) > 0 {
+	if len(m.Mentions) > 0 && m.Author.ID == conf.Discord.OwnerID && len(parts) > 0 {
 		mentioned := false
 		for _, mention := range m.Mentions {
 			mentioned = (mention.ID == s.State.Ready.User.ID)
@@ -511,8 +510,9 @@ func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 }
 
 func notifyOwner(message string) {
+	fmt.Println("notifyOwner called")
 	// FIXME
-	st, err := discord.UserChannelCreate(conf.Owner)
+	st, err := discord.UserChannelCreate(conf.Discord.OwnerID)
 	if err != nil {
 		return
 	}
@@ -594,8 +594,8 @@ func StartGidbig() {
 	createCollections()
 
 	// Start Webserver if a valid port is provided and if ClientID and ClientSecret are set
-	if conf.Port != 0 && conf.Port >= 1 && conf.Ci != 0 && conf.Cs != "" && conf.RedirectURL != "" {
-		slog.Info("Starting web server", "port", conf.Port)
+	if conf.Web.Port != 0 && conf.Web.Port >= 1 && conf.Web.Oauth.ClientID != "" && conf.Web.Oauth.ClientSecret != "" && conf.Web.Oauth.RedirectURI != "" {
+		slog.Info("Starting web server", "port", conf.Web.Port)
 		go startWebServer(conf)
 	} else {
 		slog.Info("Required web server arguments missing or invalid. Skipping web server start.")
@@ -609,7 +609,7 @@ func StartGidbig() {
 
 	// Create a discord session
 	slog.Info("Starting discord session...")
-	discord, err = discordgo.New("Bot " + conf.Token)
+	discord, err = discordgo.New("Bot " + conf.Discord.Token)
 	if err != nil {
 		slog.Error("Failed to create discord session", "error", err)
 		os.Exit(1)
@@ -617,8 +617,8 @@ func StartGidbig() {
 	}
 
 	// Set sharding info
-	discord.ShardID, _ = strconv.Atoi(conf.Shard)
-	discord.ShardCount, _ = strconv.Atoi(conf.ShardCount)
+	discord.ShardID = conf.Discord.ShardID
+	discord.ShardCount = conf.Discord.ShardCount
 
 	if discord.ShardCount <= 0 {
 		discord.ShardCount = 1
@@ -642,7 +642,7 @@ func StartGidbig() {
 
 	banner := new(bytes.Buffer)
 	Banner(banner, *gbploader.GetLoadedPlugins())
-	if !conf.DevMode {
+	if conf.DevMode {
 		notifyOwner("```I just started!\n" + banner.String() + "```")
 	}
 

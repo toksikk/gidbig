@@ -1,9 +1,12 @@
-token: ""
-shard: ""
-shardcount: ""
-owner: ""
-port: 8080
-redirecturl: "https://bot.example.org:1337"
-ci: 0
-cs: ""
-devMode: true
+discord:
+    token: "YOUR_DISCORD_BOT_TOKEN"
+    owner_id: "YOUR_DISCORD_USER_ID"
+    shard_id: 0
+    shard_count: 0
+web:
+    oauth:
+        client_id: "YOUR_OAUTH_CLIENT_ID"
+        client_secret: "YOUR_OAUTH_CLIENT_SECRET"
+        redirect_uri: "YOUR_REDIRECT_URI"
+    port: 8080
+dev_mode: true

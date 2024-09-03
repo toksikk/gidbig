@@ -62,10 +62,10 @@ func startWebServer(config *cfg.Config) {
 	tmpls["itemrowend.html"] = template.Must(template.ParseFiles(templateDir + "itemrowend.html"))
 	tmpls["collwrapstart.html"] = template.Must(template.ParseFiles(templateDir + "collwrapstart.html"))
 	tmpls["collwrapend.html"] = template.Must(template.ParseFiles(templateDir + "collwrapend.html"))
-	store = sessions.NewCookieStore([]byte(config.Cs))
-	discordOauthConfig.ClientID = strconv.Itoa(config.Ci)
-	discordOauthConfig.ClientSecret = config.Cs
-	discordOauthConfig.RedirectURL = config.RedirectURL + "/discordCallback"
+	store = sessions.NewCookieStore([]byte(config.Web.Oauth.ClientSecret))
+	discordOauthConfig.ClientID = config.Web.Oauth.ClientID
+	discordOauthConfig.ClientSecret = config.Web.Oauth.ClientSecret
+	discordOauthConfig.RedirectURL = config.Web.Oauth.RedirectURI + "/discordCallback"
 
 	r := mux.NewRouter()
 	r.HandleFunc("/", handleMain)
@@ -75,7 +75,7 @@ func startWebServer(config *cfg.Config) {
 	r.HandleFunc("/playsound", handlePlaySound)
 	http.Handle("/", r)
 	http.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("web/static"))))
-	err := http.ListenAndServe(":"+strconv.Itoa(config.Port), nil)
+	err := http.ListenAndServe(":"+strconv.Itoa(config.Web.Port), nil)
 	if err != nil {
 		slog.Error("could not start webserver", "error", err)
 		os.Exit(1)
