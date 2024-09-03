@@ -510,7 +510,6 @@ func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 }
 
 func notifyOwner(message string) {
-	fmt.Println("notifyOwner called")
 	// FIXME
 	st, err := discord.UserChannelCreate(conf.Discord.OwnerID)
 	if err != nil {
