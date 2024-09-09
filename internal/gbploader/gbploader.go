@@ -13,6 +13,7 @@ import (
 	gbp_leetoclock "github.com/toksikk/gbp-leetoclock/plugin"
 	gbp_stoll "github.com/toksikk/gbp-stoll/plugin"
 	gbp_wttrin "github.com/toksikk/gbp-wttrin/plugin"
+	gbp_gippity "github.com/toksikk/gidbig/internal/gippity"
 )
 
 var pluginStarter interface { // nolint:unused
@@ -68,6 +69,8 @@ func loadLibraryPlugins(discord *discordgo.Session) {
 	loadLibraryPlugin("github.com/toksikk/gbp-wttrin", gbp_wttrin.PluginName, &wttrinStart, discord, buildInfo)
 	esoStart := gbp_eso.Start
 	loadLibraryPlugin("github.com/toksikk/gbp-eso", gbp_eso.PluginName, &esoStart, discord, buildInfo)
+	gippityStart := gbp_gippity.Start
+	loadLibraryPlugin("github.com/toksikk/gidbig/plugins/gippity", gbp_gippity.PluginName, &gippityStart, discord, buildInfo)
 }
 
 func addPluginToLoadedPlugins(pluginName string, pluginVersion string, pluginBuilddate string) {
