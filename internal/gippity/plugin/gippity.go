@@ -36,6 +36,7 @@ func Start(discord *discordgo.Session) {
 	slog.Info("Starting plugin.", "plugin", PluginName)
 
 	userMessageCount = make(map[string]int, 0)
+	userMessageCountLastReset = make(map[string]time.Time, 0)
 
 	openaiClient = openai.NewClient() // option.WithAPIKey defaults to os.LookupEnv("OPENAI_API_KEY")
 
@@ -72,6 +73,10 @@ func isLimitedUser(m *discordgo.MessageCreate) bool {
 		userMessageCountLastReset[m.Author.ID] = time.Now()
 		userMessageCount[m.Author.ID] = 0
 		return false
+	}
+
+	if _, exists := userMessageCountLastReset[m.Author.ID]; !exists {
+		userMessageCountLastReset[m.Author.ID] = time.Now()
 	}
 
 	if hoursSince(userMessageCountLastReset[m.Author.ID]) >= 1 {
