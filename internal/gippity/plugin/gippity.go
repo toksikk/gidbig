@@ -66,6 +66,8 @@ func isLimitedUser(m *discordgo.MessageCreate) bool {
 		return false
 	}
 
+	userMessageCount[m.Author.ID]++
+
 	return userMessageCount[m.Author.ID] >= userMessageLimit
 }
 
