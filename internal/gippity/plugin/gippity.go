@@ -2,6 +2,7 @@ package gbpgippity
 
 import (
 	"log/slog"
+	"time"
 
 	"context"
 
@@ -28,6 +29,8 @@ var allowedGuildIDs [2]string = [2]string{"225303764108705793", "125231125961506
 var userMessageCount map[string]int
 var userMessageLimit int = 10
 
+var userMessageCountLastReset map[string]time.Time
+
 // Start the plugin
 func Start(discord *discordgo.Session) {
 	slog.Info("Starting plugin.", "plugin", PluginName)
@@ -40,6 +43,10 @@ func Start(discord *discordgo.Session) {
 
 	discord.AddHandler(onMessageCreate)
 	discord.AddHandler(onMessageWithMentionCreate)
+}
+
+func hoursSince(t time.Time) int {
+	return int(time.Since(t).Hours())
 }
 
 func getBotDisplayName(m *discordgo.MessageCreate) string {
@@ -62,6 +69,13 @@ func getBotDisplayName(m *discordgo.MessageCreate) string {
 
 func isLimitedUser(m *discordgo.MessageCreate) bool {
 	if _, exists := userMessageCount[m.Author.ID]; !exists {
+		userMessageCountLastReset[m.Author.ID] = time.Now()
+		userMessageCount[m.Author.ID] = 0
+		return false
+	}
+
+	if hoursSince(userMessageCountLastReset[m.Author.ID]) >= 1 {
+		userMessageCountLastReset[m.Author.ID] = time.Now()
 		userMessageCount[m.Author.ID] = 0
 		return false
 	}
