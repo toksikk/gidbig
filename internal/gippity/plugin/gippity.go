@@ -191,9 +191,8 @@ func generateAnswer(m *discordgo.MessageCreate) (string, error) {
 			openai.ChatCompletionMessageParamUnion(openai.SystemMessage("Antworte so kurz wie möglich. Deine Antworten sollen maximal 50 Wörter haben. Vermeide Füllwörter und Interjektionen. Passe deinen Sprachstil an die letzten Nachrichten an und übernehme ihn auf möglichst bissige und überzeichnete Weise. Verwende ausgeprägte, scharfe Formulierungen und stilistische Mittel, um eine karikierende Wirkung zu erzielen. Achte darauf, dass deine Antworten auch in Formatierung den vorherigen Nachrichten aller Teilnehmer entsprechen. Bei Bedarf, nimm Bezug auf die letzten Nachrichten.")),
 			openai.ChatCompletionMessageParamUnion(openai.UserMessage(m.Content)),
 		}),
-		Model:     openai.F(openai.ChatModelGPT4oMini),
-		MaxTokens: openai.Int(512),
-		N:         openai.Int(1),
+		Model: openai.F(openai.ChatModelGPT4oMini),
+		N:     openai.Int(1),
 	})
 
 	if err != nil {
