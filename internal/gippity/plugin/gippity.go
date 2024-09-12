@@ -59,7 +59,7 @@ var allowedGuildIDs [2]string = [2]string{"225303764108705793", "125231125961506
 
 var userMessageCount map[string]int
 
-const userMessageLimit = 20
+const userMessageLimit = 30
 
 const messageHistoryFileName = "message_history.json"
 
