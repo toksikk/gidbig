@@ -143,6 +143,10 @@ func limited(m *discordgo.MessageCreate) bool {
 }
 
 func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
+	if m.Author.ID == s.State.User.ID && len(lastMessage) == 0 {
+		// this is the first message after the bot started, so we don't want it in the history as it malforms the completion
+		return
+	}
 	addMessage(m)
 
 	if limited(m) {
