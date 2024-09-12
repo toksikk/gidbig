@@ -53,6 +53,13 @@ func hoursSince(t time.Time) int {
 	return int(time.Since(t).Hours())
 }
 
+func addMessage(m *discordgo.MessageCreate) {
+	if len(lastMessage) >= maxMessages {
+		lastMessage = lastMessage[1:]
+	}
+	lastMessage = append(lastMessage, m)
+}
+
 func getBotDisplayName(m *discordgo.MessageCreate) string {
 	botUserID := discordSession.State.User.ID
 	// Get the bot's member information for the specific guild
