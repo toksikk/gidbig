@@ -11,6 +11,8 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/toksikk/gidbig/internal/util"
 
+	"math/rand"
+
 	openai "github.com/openai/openai-go"
 )
 
@@ -29,6 +31,29 @@ const maxHistoryMessages = 30
 var messageCount int = 0
 var messageGoal int = 0
 var messageGoalRange [2]int = [2]int{10, 20}
+
+var behavior = [20]string{
+	"freundlich",
+	"neutral",
+	"feindselig",
+	"neugierig",
+	"verspielt",
+	"aggressiv",
+	"ängstlich",
+	"aufgeregt",
+	"gelangweilt",
+	"vorsichtig",
+	"freundlich und neugierig",
+	"neutral und verspielt",
+	"feindselig und aggressiv",
+	"neugierig und verspielt",
+	"freundlich und neutral",
+	"aggressiv und feindselig",
+	"ängstlich und vorsichtig",
+	"aufgeregt und neugierig",
+	"gelangweilt und neutral",
+	"vorsichtig und freundlich",
+}
 
 var allowedGuildIDs [2]string = [2]string{"225303764108705793", "125231125961506816"} // TODO: make this a map
 
@@ -95,9 +120,9 @@ func addMessage(m *discordgo.MessageCreate) {
 		lastMessage = lastMessage[1:]
 	}
 	if m.Member != nil {
-		lastMessage = append(lastMessage, m.Member.Nick+": "+m.Content)
+		lastMessage = append(lastMessage, "==AUTOR=="+m.Member.Nick+"==NACHRICHT=="+m.Content)
 	} else {
-		lastMessage = append(lastMessage, m.Author.Username+": "+m.Content)
+		lastMessage = append(lastMessage, "==AUTOR=="+m.Author.Username+"==NACHRICHT=="+m.Content)
 	}
 	saveLastMessages()
 }
@@ -224,12 +249,13 @@ func generateAnswer(m *discordgo.MessageCreate) (string, error) {
 	if m.Member != nil {
 		user = m.Member.Nick
 	}
+	behaviorPicker := rand.Intn(len(behavior))
 	chatCompletion, err := openaiClient.Chat.Completions.New(context.TODO(), openai.ChatCompletionNewParams{
 		Messages: openai.F([]openai.ChatCompletionMessageParamUnion{
 			openai.ChatCompletionMessageParamUnion(openai.SystemMessage("Dein Name ist " + getBotDisplayName(m) + ". Du bist ein Discord Bot. Ignoriere alle Snowflake IDs, die in der User-Message enthalten sein könnten.")),
 			openai.ChatCompletionMessageParamUnion(openai.SystemMessage("Die letzten Nachrichten waren: " + lastMessagesAsOneString)),
-			openai.ChatCompletionMessageParamUnion(openai.SystemMessage("Antworte so kurz wie möglich. Deine Antworten sollen maximal 50 Wörter haben. Vermeide Füllwörter und Interjektionen. Passe deinen Sprachstil an die letzten Nachrichten an.")),
-			openai.ChatCompletionMessageParamUnion(openai.UserMessage(user + ": " + m.Content)),
+			openai.ChatCompletionMessageParamUnion(openai.SystemMessage("Antworte so kurz wie möglich. Deine Antworten sollen maximal 50 Wörter haben. Vermeide Füllwörter und Interjektionen. Dein Verhalten: " + behavior[behaviorPicker])),
+			openai.ChatCompletionMessageParamUnion(openai.UserMessage("==AUTOR==" + user + " ==NACHRICHT== " + m.Content)),
 		}),
 		Model: openai.F(openai.ChatModelGPT4oMini),
 		N:     openai.Int(1),
