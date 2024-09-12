@@ -22,7 +22,7 @@ var discordSession *discordgo.Session
 
 var lastMessage []*discordgo.MessageCreate
 
-const maxMessages = 10
+const maxMessages = 20
 
 var messageCount int = 0
 var messageGoal int = 0
