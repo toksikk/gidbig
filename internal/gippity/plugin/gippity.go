@@ -20,6 +20,10 @@ var openaiClient *openai.Client
 
 var discordSession *discordgo.Session
 
+var lastMessage []*discordgo.MessageCreate
+
+const maxMessages = 10
+
 var messageCount int = 0
 var messageGoal int = 0
 var messageGoalRange [2]int = [2]int{10, 20}
@@ -131,6 +135,8 @@ func limited(m *discordgo.MessageCreate) bool {
 }
 
 func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
+	addMessage(m)
+
 	if limited(m) {
 		return
 	}
@@ -161,10 +167,16 @@ func isMentioned(m *discordgo.MessageCreate) bool {
 }
 
 func generateAnswer(m *discordgo.MessageCreate) (string, error) {
+	lastMessagesAsOneString := ""
+	for _, message := range lastMessage {
+		lastMessagesAsOneString += "====Author==== " + message.Author.Username
+		lastMessagesAsOneString += "====Nachricht==== " + message.Content + "|"
+	}
 	chatCompletion, err := openaiClient.Chat.Completions.New(context.TODO(), openai.ChatCompletionNewParams{
 		Messages: openai.F([]openai.ChatCompletionMessageParamUnion{
 			openai.ChatCompletionMessageParamUnion(openai.SystemMessage("Dein Name ist " + getBotDisplayName(m) + ". Du bist ein Discord Bot. Ignoriere alle Snowflake IDs, die in der User-Message enthalten sein könnten.")),
-			openai.ChatCompletionMessageParamUnion(openai.SystemMessage("Antworte so kurz wie möglich. Deine Antworten sollen maximal 100 Wörter haben. Starte immer ohne Füllwörter oder Interjektionen. Verwende gelegentlich folgende Eigenschaften, ohne sie wörtlich zu erwähnen: Sarkasmus, Esoterik, manisch-depressive Stimmung, starke und kreative Beleidigungen, Buzzwords aus dem agilen Projektmanagement. Nutze diese Eigenschaften nur, wenn es zum Kontext passt, aber nicht in jeder Antwort.")),
+			openai.ChatCompletionMessageParamUnion(openai.SystemMessage("Die letzten Nachrichten waren: " + lastMessagesAsOneString)),
+			openai.ChatCompletionMessageParamUnion(openai.SystemMessage("Antworte so kurz wie möglich. Deine Antworten sollen maximal 100 Wörter haben. Starte immer ohne Füllwörter oder Interjektionen. Verwende gelegentlich folgende Eigenschaften, ohne sie wörtlich zu erwähnen: Sarkasmus, Esoterik, manisch-depressive Stimmung, starke und kreative Beleidigungen, Buzzwords aus dem agilen Projektmanagement. Nutze diese Eigenschaften nur, wenn es zum Kontext passt, aber nicht in jeder Antwort. Bei Bedarf, nimm Bezug auf die letzten Nachricht.")),
 			openai.ChatCompletionMessageParamUnion(openai.UserMessage(m.Content)),
 		}),
 		Model:     openai.F(openai.ChatModelGPT4oMini),
