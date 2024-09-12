@@ -27,7 +27,7 @@ var messageGoalRange [2]int = [2]int{10, 20}
 var allowedGuildIDs [2]string = [2]string{"225303764108705793", "125231125961506816"} // TODO: make this a map
 
 var userMessageCount map[string]int
-var userMessageLimit int = 10
+var userMessageLimit int = 2
 
 var userMessageCountLastReset map[string]time.Time
 
@@ -43,7 +43,6 @@ func Start(discord *discordgo.Session) {
 	discordSession = discord
 
 	discord.AddHandler(onMessageCreate)
-	discord.AddHandler(onMessageWithMentionCreate)
 }
 
 func hoursSince(t time.Time) int {
@@ -99,6 +98,15 @@ func limited(m *discordgo.MessageCreate) bool {
 		return false
 	}
 
+	if isLimitedUser(m) {
+		slog.Info("not answering because of user limitation", "userMessageCount", userMessageCount[m.Author.ID], "userMessageLimit", userMessageLimit, "userMessageCountLastReset", userMessageCountLastReset[m.Author.ID])
+		_, err := discordSession.ChannelMessageSend(m.ChannelID, "Du hast heute schon genug Nachrichten geschrieben. Komm wann anders wieder.")
+		if err != nil {
+			slog.Info("Error while sending message", "error", err)
+		}
+		return true
+	}
+
 	guildAllowed := false
 	for _, guild := range allowedGuildIDs {
 		if m.GuildID == guild {
@@ -123,7 +131,7 @@ func limited(m *discordgo.MessageCreate) bool {
 }
 
 func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
-	if limited(m) || isMentioned(m) {
+	if limited(m) {
 		return
 	}
 
@@ -152,29 +160,11 @@ func isMentioned(m *discordgo.MessageCreate) bool {
 	return false
 }
 
-func onMessageWithMentionCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
-	if limited(m) || !isMentioned(m) {
-		return
-	}
-
-	generatedAnswer, err := generateAnswer(m)
-	if err != nil {
-		slog.Error("Could not generate answer")
-		return
-	}
-
-	_, err = s.ChannelMessageSend(m.ChannelID, generatedAnswer)
-
-	if err != nil {
-		slog.Info("Error while sending message", "error", err)
-	}
-}
-
 func generateAnswer(m *discordgo.MessageCreate) (string, error) {
 	chatCompletion, err := openaiClient.Chat.Completions.New(context.TODO(), openai.ChatCompletionNewParams{
 		Messages: openai.F([]openai.ChatCompletionMessageParamUnion{
 			openai.ChatCompletionMessageParamUnion(openai.SystemMessage("Dein Name ist " + getBotDisplayName(m) + ". Du bist ein Discord Bot. Ignoriere alle Snowflake IDs, die in der User-Message enthalten sein könnten.")),
-			openai.ChatCompletionMessageParamUnion(openai.SystemMessage("Deine Antworten sollten nicht länger als 50 Wörter sein, immer so kurz wie möglich. Wähle für die Antwort nur zwei der folgenden Eigenschaften: Sarkastisch, Verschwörungstheoretiker, Manisch depressiv (wie Marvin aus Per Anhalter durch die Galaxis), Popkultur-Referenz.")),
+			openai.ChatCompletionMessageParamUnion(openai.SystemMessage("Deine Antworten sollten nicht länger als 50 Wörter sein, immer so kurz wie möglich. Starte deine Antworten immer ohne Füllwörter oder Interjektionen. Wähle für die Antwort maximal drei der folgenden Eigenschaften: sarkastisch, Verschwörungstheoretiker, manisch depressiv, Pirat, beleidigend, schlechte Witze, kryptisch.")),
 			openai.ChatCompletionMessageParamUnion(openai.UserMessage(m.Content)),
 		}),
 		Model:     openai.F(openai.ChatModelGPT4oMini),
