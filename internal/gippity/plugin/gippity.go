@@ -2,7 +2,6 @@ package gbpgippity
 
 import (
 	"encoding/json"
-	"fmt"
 	"log/slog"
 	"os"
 	"time"
@@ -23,7 +22,7 @@ var openaiClient *openai.Client
 
 var discordSession *discordgo.Session
 
-var lastMessage []*discordgo.MessageCreate
+var lastMessage []string
 
 const maxHistoryMessages = 30
 
@@ -60,7 +59,9 @@ func Start(discord *discordgo.Session) {
 func loadLastMessages() {
 	file, err := os.Open(messageHistoryFileName)
 	if err != nil {
+		lastMessage = make([]string, 0)
 		slog.Warn("Error while loading last messages", "error", err)
+		return
 	}
 	defer file.Close()
 
@@ -93,7 +94,11 @@ func addMessage(m *discordgo.MessageCreate) {
 	if len(lastMessage) >= maxHistoryMessages {
 		lastMessage = lastMessage[1:]
 	}
-	lastMessage = append(lastMessage, m)
+	if m.Member != nil {
+		lastMessage = append(lastMessage, m.Member.Nick+": "+m.Content)
+	} else {
+		lastMessage = append(lastMessage, m.Author.Username+": "+m.Content)
+	}
 	saveLastMessages()
 }
 
@@ -179,10 +184,6 @@ func limited(m *discordgo.MessageCreate) bool {
 }
 
 func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
-	if m.Author.ID == s.State.User.ID && len(lastMessage) == 0 {
-		// this is the first message after the bot started, so we don't want it in the history as it malforms the completion
-		return
-	}
 	addMessage(m)
 
 	if limited(m) {
@@ -217,14 +218,18 @@ func isMentioned(m *discordgo.MessageCreate) bool {
 func generateAnswer(m *discordgo.MessageCreate) (string, error) {
 	lastMessagesAsOneString := ""
 	for _, message := range lastMessage[0 : len(lastMessage)-1] {
-		lastMessagesAsOneString += fmt.Sprintf("%+v", message)
+		lastMessagesAsOneString += message
+	}
+	user := m.Author.Username
+	if m.Member != nil {
+		user = m.Member.Nick
 	}
 	chatCompletion, err := openaiClient.Chat.Completions.New(context.TODO(), openai.ChatCompletionNewParams{
 		Messages: openai.F([]openai.ChatCompletionMessageParamUnion{
 			openai.ChatCompletionMessageParamUnion(openai.SystemMessage("Dein Name ist " + getBotDisplayName(m) + ". Du bist ein Discord Bot. Ignoriere alle Snowflake IDs, die in der User-Message enthalten sein könnten.")),
-			openai.ChatCompletionMessageParamUnion(openai.SystemMessage("Die letzten Nachrichten im Discord API Format waren: " + lastMessagesAsOneString)),
-			openai.ChatCompletionMessageParamUnion(openai.SystemMessage("Antworte so kurz wie möglich. Deine Antworten sollen maximal 50 Wörter haben. Vermeide Füllwörter und Interjektionen. Passe deinen Sprachstil an die letzten Nachrichten an. Nimm oft Bezug auf die letzten Nachrichten und ihre Autoren. Verwende als Autorennamen immer die Discord Server spezifischen Nicks, falls vorhanden. Die User Message ist im Discord API Format.")),
-			openai.ChatCompletionMessageParamUnion(openai.UserMessage(fmt.Sprintf("%+v", m))),
+			openai.ChatCompletionMessageParamUnion(openai.SystemMessage("Die letzten Nachrichten waren: " + lastMessagesAsOneString)),
+			openai.ChatCompletionMessageParamUnion(openai.SystemMessage("Antworte so kurz wie möglich. Deine Antworten sollen maximal 50 Wörter haben. Vermeide Füllwörter und Interjektionen. Passe deinen Sprachstil an die letzten Nachrichten an.")),
+			openai.ChatCompletionMessageParamUnion(openai.UserMessage(user + ": " + m.Content)),
 		}),
 		Model: openai.F(openai.ChatModelGPT4oMini),
 		N:     openai.Int(1),
