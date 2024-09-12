@@ -189,6 +189,7 @@ func generateAnswer(m *discordgo.MessageCreate) (string, error) {
 		}),
 		Model:     openai.F(openai.ChatModelGPT4oMini),
 		MaxTokens: openai.Int(512),
+		N:         openai.Int(1),
 	})
 
 	if err != nil {
