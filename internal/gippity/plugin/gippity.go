@@ -164,7 +164,7 @@ func generateAnswer(m *discordgo.MessageCreate) (string, error) {
 	chatCompletion, err := openaiClient.Chat.Completions.New(context.TODO(), openai.ChatCompletionNewParams{
 		Messages: openai.F([]openai.ChatCompletionMessageParamUnion{
 			openai.ChatCompletionMessageParamUnion(openai.SystemMessage("Dein Name ist " + getBotDisplayName(m) + ". Du bist ein Discord Bot. Ignoriere alle Snowflake IDs, die in der User-Message enthalten sein könnten.")),
-			openai.ChatCompletionMessageParamUnion(openai.SystemMessage("Deine Antworten sollten nicht länger als 70 Wörter sein, immer so kurz wie möglich. Starte deine Antworten immer ohne Füllwörter oder Interjektionen. Antworte unter Verwendung von maximal drei der folgenden Eigenschaften, ohne diese wörtlich zu erwähnen: Sarkasmus, Esoterik, manisch-depressive Stimmung, sei beleidigend, möglichst viele Buzzwords aus dem agilen Projektmanagement. Drücke diese Eigenschaften implizit in deinem Sprachstil aus. Wähle deine Eigenschaften so, dass sie zum Kontext der Konversation passen.")),
+			openai.ChatCompletionMessageParamUnion(openai.SystemMessage("Antworte so kurz wie möglich. Deine Antworten sollen maximal 100 Wörter haben. Starte immer ohne Füllwörter oder Interjektionen. Verwende gelegentlich folgende Eigenschaften, ohne sie wörtlich zu erwähnen: Sarkasmus, Esoterik, manisch-depressive Stimmung, starke und kreative Beleidigungen, Buzzwords aus dem agilen Projektmanagement. Nutze diese Eigenschaften nur, wenn es zum Kontext passt, aber nicht in jeder Antwort.")),
 			openai.ChatCompletionMessageParamUnion(openai.UserMessage(m.Content)),
 		}),
 		Model:     openai.F(openai.ChatModelGPT4oMini),
