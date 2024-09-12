@@ -27,7 +27,7 @@ var messageGoalRange [2]int = [2]int{10, 20}
 var allowedGuildIDs [2]string = [2]string{"225303764108705793", "125231125961506816"} // TODO: make this a map
 
 var userMessageCount map[string]int
-var userMessageLimit int = 2
+var userMessageLimit int = 20
 
 var userMessageCountLastReset map[string]time.Time
 
