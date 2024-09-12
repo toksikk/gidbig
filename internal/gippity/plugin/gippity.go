@@ -98,7 +98,7 @@ func limited(m *discordgo.MessageCreate) bool {
 		return false
 	}
 
-	if isLimitedUser(m) {
+	if isMentioned(m) && isLimitedUser(m) {
 		slog.Info("not answering because of user limitation", "userMessageCount", userMessageCount[m.Author.ID], "userMessageLimit", userMessageLimit, "userMessageCountLastReset", userMessageCountLastReset[m.Author.ID])
 		_, err := discordSession.ChannelMessageSend(m.ChannelID, "Du hast heute schon genug Nachrichten geschrieben. Komm wann anders wieder.")
 		if err != nil {
