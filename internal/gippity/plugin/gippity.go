@@ -176,7 +176,7 @@ func isMentioned(m *discordgo.MessageCreate) bool {
 
 func generateAnswer(m *discordgo.MessageCreate) (string, error) {
 	lastMessagesAsOneString := ""
-	for _, message := range lastMessage {
+	for _, message := range lastMessage[0 : len(lastMessage)-1] {
 		lastMessagesAsOneString += "====Author==== " + message.Author.Username
 		lastMessagesAsOneString += "====Nachricht==== " + message.Content + "|"
 	}
