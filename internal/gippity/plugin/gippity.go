@@ -55,7 +55,7 @@ func hoursSince(t time.Time) int {
 }
 
 func addMessage(m *discordgo.MessageCreate) {
-	if len(lastMessage) >= maxMessages {
+	if len(lastMessage) >= maxHistoryMessages {
 		lastMessage = lastMessage[1:]
 	}
 	lastMessage = append(lastMessage, m)
