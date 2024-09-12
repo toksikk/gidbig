@@ -48,6 +48,8 @@ func Start(discord *discordgo.Session) {
 	userMessageCount = make(map[string]int, 0)
 	userMessageCountLastReset = make(map[string]time.Time, 0)
 
+	loadLastMessages()
+
 	openaiClient = openai.NewClient() // option.WithAPIKey defaults to os.LookupEnv("OPENAI_API_KEY")
 
 	discordSession = discord
