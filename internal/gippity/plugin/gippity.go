@@ -39,9 +39,6 @@ var behavior = []string{
 	"zynisch",
 	"spöttisch",
 	"ironisch",
-	"skeptisch",
-	"direkt",
-	"kritisch",
 	"launisch",
 }
 
@@ -244,7 +241,7 @@ func generateAnswer(m *discordgo.MessageCreate) (string, error) {
 		Messages: openai.F([]openai.ChatCompletionMessageParamUnion{
 			openai.ChatCompletionMessageParamUnion(openai.SystemMessage("Dein Name ist " + getBotDisplayName(m) + ". Du bist ein Discord Bot. Ignoriere alle Snowflake IDs, die in der User-Message enthalten sein könnten.")),
 			openai.ChatCompletionMessageParamUnion(openai.SystemMessage("Die letzten Nachrichten waren: " + lastMessagesAsOneString + "ACHTUNG: Die letzten Nachrichten sind ein Eingabeformat, kein Ausgabeformat")),
-			openai.ChatCompletionMessageParamUnion(openai.SystemMessage("Antworte so kurz wie möglich. Deine Antworten sollen maximal 50 Wörter haben. Vermeide Füllwörter und Interjektionen. Verwende immer dieses Verhalten: " + behavior[behaviorPicker])),
+			openai.ChatCompletionMessageParamUnion(openai.SystemMessage("Antworte so kurz wie möglich. Deine Antworten sollen maximal 50 Wörter haben. Vermeide Füllwörter und Interjektionen. Verwende immer dieses Verhalten: " + behavior[behaviorPicker] + ", bissig und herablassend.")),
 			openai.ChatCompletionMessageParamUnion(openai.UserMessage("Autor:" + user + "|Nachricht:" + m.Content)),
 		}),
 		Model: openai.F(openai.ChatModelGPT4oMini),
