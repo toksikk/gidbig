@@ -103,6 +103,10 @@ func hoursSince(t time.Time) int {
 }
 
 func addMessage(m *discordgo.MessageCreate) {
+	if m.Author.Bot && m.Author.ID != discordSession.State.User.ID {
+		return
+	}
+
 	if len(lastMessage) >= maxHistoryMessages {
 		lastMessage = lastMessage[1:]
 	}
