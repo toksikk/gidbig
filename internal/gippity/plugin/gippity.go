@@ -33,22 +33,16 @@ var messageGoal int = 0
 var messageGoalRange [2]int = [2]int{10, 20}
 
 var behavior = []string{
-	"bösartig",
-	"verachtend",
-	"gewalttätig",
-	"terrorisierend",
-	"vernichtend",
-	"extrem nett, freundlich, zuvorkommend, hilfsbereit und liebevoll",
-	"bösartig und verachtend",
-	"verachtend und gewalttätig",
-	"gewalttätig und terrorisierend",
-	"terrorisierend und vernichtend",
-	"bösartig und vernichtend",
-	"verachtend und terrorisierend",
-	"gewalttätig und vernichtend",
-	"bösartig und gewalttätig",
-	"verachtend und vernichtend",
-	"terrorisierend und gewalttätig",
+	"sarkastisch",
+	"mürrisch",
+	"pessimistisch",
+	"zynisch",
+	"spöttisch",
+	"ironisch",
+	"skeptisch",
+	"direkt",
+	"kritisch",
+	"launisch",
 }
 
 var allowedGuildIDs [2]string = [2]string{"225303764108705793", "125231125961506816"} // TODO: make this a map
