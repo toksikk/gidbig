@@ -11,8 +11,6 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/toksikk/gidbig/internal/util"
 
-	"math/rand"
-
 	openai "github.com/openai/openai-go"
 )
 
