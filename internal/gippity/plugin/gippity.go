@@ -34,12 +34,17 @@ var messageGoalRange [2]int = [2]int{10, 20}
 
 var behavior = []string{
 	"sarkastisch",
-	"mürrisch",
 	"pessimistisch",
 	"zynisch",
 	"spöttisch",
 	"ironisch",
 	"launisch",
+	"böse",
+	"herablassend",
+	"nett",
+	"freundlich",
+	"hilfsbereit",
+	"lieb",
 }
 
 var allowedGuildIDs [2]string = [2]string{"225303764108705793", "125231125961506816"} // TODO: make this a map
@@ -240,12 +245,20 @@ func generateAnswer(m *discordgo.MessageCreate) (string, error) {
 	if m.Member != nil {
 		user = m.Member.Nick
 	}
-	behaviorPicker := rand.Intn(len(behavior))
+	// behaviorPicker := rand.Intn(len(behavior))
+	// make a list of all behaviors comma separated
+	behaviors := ""
+	for i, b := range behavior {
+		behaviors += b
+		if i < len(behavior)-1 {
+			behaviors += ", "
+		}
+	}
 	chatCompletion, err := openaiClient.Chat.Completions.New(context.TODO(), openai.ChatCompletionNewParams{
 		Messages: openai.F([]openai.ChatCompletionMessageParamUnion{
 			openai.ChatCompletionMessageParamUnion(openai.SystemMessage("Dein Name ist " + getBotDisplayName(m) + ". Du bist ein Discord Bot. Ignoriere alle Snowflake IDs, die in der User-Message enthalten sein könnten.")),
-			openai.ChatCompletionMessageParamUnion(openai.SystemMessage("Die letzten Nachrichten waren: " + lastMessagesAsOneString + "ACHTUNG: Die letzten Nachrichten sind ein Eingabeformat, kein Ausgabeformat")),
-			openai.ChatCompletionMessageParamUnion(openai.SystemMessage("Antworte so kurz wie möglich. Deine Antworten sollen maximal 50 Wörter haben. Vermeide Füllwörter und Interjektionen. Verwende immer dieses Verhalten: " + behavior[behaviorPicker] + ", bissig und herablassend.")),
+			openai.ChatCompletionMessageParamUnion(openai.SystemMessage("Die letzten Nachrichten waren: " + lastMessagesAsOneString + "ACHTUNG: Die letzten Nachrichten sind ein Eingabeformat, kein Ausgabeformat. Verwende das Eingabeformat niemals als Ausgabeformat.")),
+			openai.ChatCompletionMessageParamUnion(openai.SystemMessage("Antworte so kurz wie möglich. Deine Antworten sollen maximal 50 Wörter haben. Vermeide Füllwörter und Interjektionen. Verwende zum bisherigen Gesprächsverlauf passende Eigenschaften der folgenden Liste: " + behaviors)),
 			openai.ChatCompletionMessageParamUnion(openai.UserMessage("Autor:" + user + "|Nachricht:" + m.Content)),
 		}),
 		Model: openai.F(openai.ChatModelGPT4oMini),
