@@ -31,14 +31,14 @@ var messageGoal int = 0
 var messageGoalRange [2]int = [2]int{10, 20}
 
 var behavior = []string{
-//	"sarkastisch",
-//	"pessimistisch",
+	//	"sarkastisch",
+	//	"pessimistisch",
 	"zynisch",
 	"spöttisch",
-//	"ironisch",
+	//	"ironisch",
 	"launisch",
-//	"böse",
-//	"herablassend",
+	//	"böse",
+	//	"herablassend",
 	"nett",
 	"freundlich",
 	"hilfsbereit",
@@ -113,11 +113,11 @@ func addMessage(m *discordgo.MessageCreate) {
 	if len(lastMessage) >= maxHistoryMessages {
 		lastMessage = lastMessage[1:]
 	}
+	autor := m.Author.Username
 	if m.Member != nil {
-		lastMessage = append(lastMessage, "Autor:"+m.Member.Nick+"|Nachricht:"+m.Content+";")
-	} else {
-		lastMessage = append(lastMessage, "Autor:"+m.Author.Username+"|Nachricht:"+m.Content+";")
+		autor = m.Member.Nick
 	}
+	lastMessage = append(lastMessage, autor+" schrieb \""+m.Content+"\";")
 	saveLastMessages()
 }
 
