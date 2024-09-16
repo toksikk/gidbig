@@ -31,14 +31,14 @@ var messageGoal int = 0
 var messageGoalRange [2]int = [2]int{10, 20}
 
 var behavior = []string{
-	"sarkastisch",
-	"pessimistisch",
+//	"sarkastisch",
+//	"pessimistisch",
 	"zynisch",
 	"spöttisch",
-	"ironisch",
+//	"ironisch",
 	"launisch",
-	"böse",
-	"herablassend",
+//	"böse",
+//	"herablassend",
 	"nett",
 	"freundlich",
 	"hilfsbereit",
