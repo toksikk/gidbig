@@ -255,9 +255,9 @@ func generateAnswer(m *discordgo.MessageCreate) (string, error) {
 	chatCompletion, err := openaiClient.Chat.Completions.New(context.TODO(), openai.ChatCompletionNewParams{
 		Messages: openai.F([]openai.ChatCompletionMessageParamUnion{
 			openai.ChatCompletionMessageParamUnion(openai.SystemMessage("Dein Name ist " + getBotDisplayName(m) + ". Du bist ein Discord Bot. Ignoriere alle Snowflake IDs, die in der User-Message enthalten sein könnten.")),
-			openai.ChatCompletionMessageParamUnion(openai.SystemMessage("Die letzten Nachrichten waren: " + lastMessagesAsOneString + "ACHTUNG: Die letzten Nachrichten sind ein Eingabeformat, kein Ausgabeformat. Verwende das Eingabeformat niemals als Ausgabeformat.")),
+			openai.ChatCompletionMessageParamUnion(openai.SystemMessage("Die letzten Nachrichten waren: " + lastMessagesAsOneString)),
 			openai.ChatCompletionMessageParamUnion(openai.SystemMessage("Antworte so kurz wie möglich. Deine Antworten sollen maximal 50 Wörter haben. Vermeide Füllwörter und Interjektionen. Verwende zum bisherigen Gesprächsverlauf passende Eigenschaften der folgenden Liste: " + behaviors)),
-			openai.ChatCompletionMessageParamUnion(openai.UserMessage("Autor:" + user + "|Nachricht:" + m.Content)),
+			openai.ChatCompletionMessageParamUnion(openai.UserMessage(user + "schrieb \"" + m.Content + "\"")),
 		}),
 		Model: openai.F(openai.ChatModelGPT4oMini),
 		N:     openai.Int(1),
