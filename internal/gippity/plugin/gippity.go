@@ -192,6 +192,10 @@ func limited(m *discordgo.MessageCreate) bool {
 	}
 
 	if messageCount >= messageGoal {
+		if m.GuildID == "125231125961506816" {
+			// they don't want the bot to answer randomly in this guild
+			return true
+		}
 		messageCount = 0
 		messageGoal = util.RandomRange(messageGoalRange[0], messageGoalRange[1])
 		return false
