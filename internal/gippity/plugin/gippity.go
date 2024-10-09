@@ -256,12 +256,17 @@ func generateAnswer(m *discordgo.MessageCreate) (string, error) {
 			behaviors += ", "
 		}
 	}
+	responseMentioned := "Diese Nachricht ist nicht an dich direkt gerichtet, aber du antwortest bitte dennoch darauf, damit das Gespräch weitergeführt wird."
+	if isMentioned(m) {
+		responseMentioned = "Diese Nachricht ist an dich direkt gerichtet."
+	}
 	chatCompletion, err := openaiClient.Chat.Completions.New(context.TODO(), openai.ChatCompletionNewParams{
 		Messages: openai.F([]openai.ChatCompletionMessageParamUnion{
-			openai.ChatCompletionMessageParamUnion(openai.SystemMessage("Dein Name ist " + getBotDisplayName(m) + ". Du bist ein Discord Bot. Ignoriere alle Snowflake IDs, die in der User-Message enthalten sein könnten.")),
-			openai.ChatCompletionMessageParamUnion(openai.SystemMessage("Die letzten Nachrichten waren: " + lastMessagesAsOneString)),
+			openai.ChatCompletionMessageParamUnion(openai.SystemMessage("Dein Name ist " + getBotDisplayName(m) + ". Du bist ein Discord Bot. Ignoriere alle Snowflake IDs, die in der Benutzer-Nachricht enthalten sein könnten. Der Autor der Nachricht wird dir mitgeteilt. Du erhältst Nachrichten von verschiedenen Benutzern.")),
 			openai.ChatCompletionMessageParamUnion(openai.SystemMessage("Antworte so kurz wie möglich. Deine Antworten sollen maximal 50 Wörter haben. Vermeide Füllwörter und Interjektionen. Verwende zum bisherigen Gesprächsverlauf passende Eigenschaften der folgenden Liste: " + behaviors)),
-			openai.ChatCompletionMessageParamUnion(openai.UserMessage(user + "schrieb \"" + m.Content + "\"")),
+			openai.ChatCompletionMessageParamUnion(openai.SystemMessage(responseMentioned)),
+			openai.ChatCompletionMessageParamUnion(openai.SystemMessage("Die letzten Nachrichten waren: " + lastMessagesAsOneString)),
+			openai.ChatCompletionMessageParamUnion(openai.UserMessage("Autor: " + user + "\nNachricht: " + m.Content)),
 		}),
 		Model: openai.F(openai.ChatModelGPT4oMini),
 		N:     openai.Int(1),
