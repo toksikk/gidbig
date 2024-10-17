@@ -3,7 +3,9 @@ package gbpgippity
 import (
 	"encoding/json"
 	"log/slog"
+	"math/rand"
 	"os"
+	"strings"
 	"time"
 
 	"context"
@@ -30,10 +32,10 @@ var messageCount int = 0
 var messageGoal int = 0
 var messageGoalRange [2]int = [2]int{10, 20}
 
-var behavior = []string{
+var behaviorPool = []string{
 	//	"sarkastisch",
 	//	"pessimistisch",
-	"zynisch",
+	//	"zynisch",
 	"spöttisch",
 	//	"ironisch",
 	"launisch",
@@ -43,6 +45,10 @@ var behavior = []string{
 	"freundlich",
 	"hilfsbereit",
 	"lieb",
+	"optimistisch",
+	"entspannt",
+	"energisch",
+	"respektvoll",
 }
 
 var allowedGuildIDs [2]string = [2]string{"225303764108705793", "125231125961506816"} // TODO: make this a map
@@ -249,13 +255,16 @@ func generateAnswer(m *discordgo.MessageCreate) (string, error) {
 	}
 	// behaviorPicker := rand.Intn(len(behavior))
 	// make a list of all behaviors comma separated
-	behaviors := ""
-	for i, b := range behavior {
-		behaviors += b
-		if i < len(behavior)-1 {
-			behaviors += ", "
-		}
-	}
+	shuffledBehaviors := behaviorPool
+	// Shuffle the behaviors
+	rand.Shuffle(len(shuffledBehaviors), func(i, j int) {
+		shuffledBehaviors[i], shuffledBehaviors[j] = shuffledBehaviors[j], shuffledBehaviors[i]
+	})
+	// Choose a random subset of behaviors
+	subsetSize := rand.Intn(len(shuffledBehaviors)) + 1
+	subset := shuffledBehaviors[:subsetSize]
+	behaviors := strings.Join(subset, ", ")
+
 	responseMentioned := "Diese Nachricht ist nicht an dich direkt gerichtet, aber du antwortest bitte dennoch darauf, damit das Gespräch weitergeführt wird."
 	if isMentioned(m) {
 		responseMentioned = "Diese Nachricht ist an dich direkt gerichtet."
@@ -264,6 +273,7 @@ func generateAnswer(m *discordgo.MessageCreate) (string, error) {
 		Messages: openai.F([]openai.ChatCompletionMessageParamUnion{
 			openai.ChatCompletionMessageParamUnion(openai.SystemMessage("Dein Name ist " + getBotDisplayName(m) + ". Du bist ein Discord Bot. Ignoriere alle Snowflake IDs, die in der Benutzer-Nachricht enthalten sein könnten. Der Autor der Nachricht wird dir mitgeteilt. Du erhältst Nachrichten von verschiedenen Benutzern.")),
 			openai.ChatCompletionMessageParamUnion(openai.SystemMessage("Antworte so kurz wie möglich. Deine Antworten sollen maximal 50 Wörter haben. Vermeide Füllwörter und Interjektionen. Verwende zum bisherigen Gesprächsverlauf passende Eigenschaften der folgenden Liste: " + behaviors)),
+			openai.ChatCompletionMessageParamUnion(openai.SystemMessage("Mache auf Grammatik und Rechtschreibfehlern aufmerksam, welche du in den letzten Nachrichten findest.")),
 			openai.ChatCompletionMessageParamUnion(openai.SystemMessage(responseMentioned)),
 			openai.ChatCompletionMessageParamUnion(openai.SystemMessage("Die letzten Nachrichten waren: " + lastMessagesAsOneString)),
 			openai.ChatCompletionMessageParamUnion(openai.UserMessage("Autor: " + user + "\nNachricht: " + m.Content)),
