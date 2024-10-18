@@ -35,7 +35,7 @@ var messageGoalRange [2]int = [2]int{10, 20}
 var behaviorPool = []string{
 	//	"sarkastisch",
 	//	"pessimistisch",
-	//	"zynisch",
+	"zynisch",
 	"spöttisch",
 	//	"ironisch",
 	"launisch",
@@ -49,6 +49,9 @@ var behaviorPool = []string{
 	"entspannt",
 	"energisch",
 	"respektvoll",
+	"mürrisch",
+	"senil",
+	"paranoid",
 }
 
 var allowedGuildIDs [2]string = [2]string{"225303764108705793", "125231125961506816"} // TODO: make this a map
@@ -111,6 +114,11 @@ func hoursSince(t time.Time) int {
 	return int(time.Since(t).Hours())
 }
 
+func formatMessage(user string, message string) string {
+	// return user+" schrieb \""+message+"\";"
+	return "Autor: " + user + "\nNachricht: " + message
+}
+
 func addMessage(m *discordgo.MessageCreate) {
 	if m.Author.Bot && m.Author.ID != discordSession.State.User.ID {
 		return
@@ -119,11 +127,13 @@ func addMessage(m *discordgo.MessageCreate) {
 	if len(lastMessage) >= maxHistoryMessages {
 		lastMessage = lastMessage[1:]
 	}
-	autor := m.Author.Username
+	author := m.Author.Username
 	if m.Member != nil {
-		autor = m.Member.Nick
+		author = m.Member.Nick
 	}
-	lastMessage = append(lastMessage, autor+" schrieb \""+m.Content+"\";")
+	formatted := formatMessage(author, m.Content)
+
+	lastMessage = append(lastMessage, formatted)
 	saveLastMessages()
 }
 
@@ -246,8 +256,8 @@ func isMentioned(m *discordgo.MessageCreate) bool {
 
 func generateAnswer(m *discordgo.MessageCreate) (string, error) {
 	lastMessagesAsOneString := ""
-	for _, message := range lastMessage[0 : len(lastMessage)-1] {
-		lastMessagesAsOneString += message
+	if len(lastMessage) > 1 {
+		lastMessagesAsOneString = strings.Join(lastMessage[:len(lastMessage)-1], "\n")
 	}
 	user := m.Author.Username
 	if m.Member != nil {
@@ -269,14 +279,18 @@ func generateAnswer(m *discordgo.MessageCreate) (string, error) {
 	if isMentioned(m) {
 		responseMentioned = "Diese Nachricht ist an dich direkt gerichtet."
 	}
+	chatHistory := "Es gab keine vorherigen Nachrichten."
+	if lastMessagesAsOneString != "" {
+		chatHistory = "Die letzten Nachrichten waren:\n" + lastMessagesAsOneString
+	}
 	chatCompletion, err := openaiClient.Chat.Completions.New(context.TODO(), openai.ChatCompletionNewParams{
 		Messages: openai.F([]openai.ChatCompletionMessageParamUnion{
-			openai.ChatCompletionMessageParamUnion(openai.SystemMessage("Dein Name ist " + getBotDisplayName(m) + ". Du bist ein Discord Bot. Ignoriere alle Snowflake IDs, die in der Benutzer-Nachricht enthalten sein könnten. Der Autor der Nachricht wird dir mitgeteilt. Du erhältst Nachrichten von verschiedenen Benutzern.")),
+			openai.ChatCompletionMessageParamUnion(openai.SystemMessage("Dein Name ist " + getBotDisplayName(m) + ". Du bist ein Discord Chatbot. Ignoriere alle Snowflake IDs, die in der Benutzer-Nachricht enthalten sein könnten. Der Autor der Nachricht wird dir mitgeteilt. Du erhältst Nachrichten von verschiedenen Benutzern.")),
 			openai.ChatCompletionMessageParamUnion(openai.SystemMessage("Antworte so kurz wie möglich. Deine Antworten sollen maximal 50 Wörter haben. Vermeide Füllwörter und Interjektionen. Verwende zum bisherigen Gesprächsverlauf passende Eigenschaften der folgenden Liste: " + behaviors)),
-			openai.ChatCompletionMessageParamUnion(openai.SystemMessage("Mache auf Grammatik und Rechtschreibfehlern aufmerksam, welche du in den letzten Nachrichten findest.")),
+			openai.ChatCompletionMessageParamUnion(openai.SystemMessage("Mache gelegentlich auf Grammatik und Rechtschreibfehler aufmerksam, welche du in den letzten Nachrichten findest, aber nicht die, die du schon moniert hast.")),
 			openai.ChatCompletionMessageParamUnion(openai.SystemMessage(responseMentioned)),
-			openai.ChatCompletionMessageParamUnion(openai.SystemMessage("Die letzten Nachrichten waren: " + lastMessagesAsOneString)),
-			openai.ChatCompletionMessageParamUnion(openai.UserMessage("Autor: " + user + "\nNachricht: " + m.Content)),
+			openai.ChatCompletionMessageParamUnion(openai.SystemMessage(chatHistory)),
+			openai.ChatCompletionMessageParamUnion(openai.UserMessage(formatMessage(user, m.Content))),
 		}),
 		Model: openai.F(openai.ChatModelGPT4oMini),
 		N:     openai.Int(1),
