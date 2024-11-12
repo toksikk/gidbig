@@ -138,21 +138,26 @@ func addMessage(m *discordgo.MessageCreate) {
 }
 
 func getBotDisplayName(m *discordgo.MessageCreate) string {
+	botDisplayNames := getBotDisplayNames()
+	if botDisplayNames[m.GuildID] == "" {
+		return "Gidbig"
+	}
+	return botDisplayNames[m.GuildID]
+}
+
+func getBotDisplayNames() map[string]string {
+	guilds := discordSession.State.Guilds
 	botUserID := discordSession.State.User.ID
-	// Get the bot's member information for the specific guild
-	botMember, err := discordSession.GuildMember(m.GuildID, botUserID)
-	if err != nil {
-		slog.Info("Error while getting bot member", "error", err)
-		return ""
+	allBotDisplayNames := make(map[string]string)
+	for _, guild := range guilds {
+		botGuildMember, err := discordSession.GuildMember(guild.ID, botUserID)
+		if err != nil {
+			slog.Info("Error while getting bot member", "error", err)
+			continue
+		}
+		allBotDisplayNames[guild.ID] = botGuildMember.Nick
 	}
-
-	// Determine the bot's display name
-	botDisplayName := botMember.Nick
-	if botDisplayName == "" {
-		botDisplayName = discordSession.State.User.Username
-	}
-
-	return botDisplayName
+	return allBotDisplayNames
 }
 
 func isLimitedUser(m *discordgo.MessageCreate) bool {
