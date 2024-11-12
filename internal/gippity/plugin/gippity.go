@@ -445,7 +445,7 @@ func generateAnswer(m *discordgo.MessageCreate) (string, error) {
 
 	chatCompletion, err := openaiClient.Chat.Completions.New(context.TODO(), openai.ChatCompletionNewParams{
 		Messages: openai.F([]openai.ChatCompletionMessageParamUnion{
-			openai.ChatCompletionMessageParamUnion(openai.SystemMessage("Du bist ein Discord Chatbot in einem Channel mit vielen verschiedenen Nutzern, auf mehreren Servern (auch Gilden genannt) und jeweils mit mehreren Textkanälen. Du kannst auf Servern unterschiedliche Namen haben. Deine Namen auf den jeweiligen Servern sind: " + botNames + ". Verwende keine Snowflake IDs in deiner Antwort, außer du wirst explizit danach gefragt.")),
+			openai.ChatCompletionMessageParamUnion(openai.SystemMessage("Du bist ein Discord Chatbot in einem Channel mit vielen verschiedenen Nutzern, auf mehreren Servern (auch Gilden genannt) und jeweils mit mehreren Textkanälen. Du kannst auf Servern unterschiedliche Namen haben. Deine Namen auf den jeweiligen Servern sind: " + botNames + ".")),
 			openai.ChatCompletionMessageParamUnion(openai.SystemMessage("Antworte so kurz wie möglich. Deine Antworten sollen maximal 100 Wörter haben. Vermeide Füllwörter und Interjektionen. Verwende zum bisherigen Gesprächsverlauf passende Eigenschaften der folgenden Liste: " + behaviors)),
 			openai.ChatCompletionMessageParamUnion(openai.SystemMessage("Mache gelegentlich auf Grammatik und Rechtschreibfehler aufmerksam, welche du in den letzten Nachrichten findest, aber nicht die, die du schon moniert hast.")),
 			openai.ChatCompletionMessageParamUnion(openai.SystemMessage(responseMentioned)),
