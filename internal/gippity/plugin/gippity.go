@@ -2,6 +2,7 @@ package gbpgippity
 
 import (
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"math/rand"
 	"os"
@@ -148,9 +149,30 @@ func hoursSince(t time.Time) int {
 	return int(time.Since(t).Hours())
 }
 
-func formatMessage(user string, message string) string {
-	// return user+" schrieb \""+message+"\";"
-	return "Autor: " + user + "\nNachricht: " + message
+func formatMessage(msg *discordgo.MessageCreate) (string, error) {
+	channel, err := discordSession.Channel(msg.ChannelID)
+	channelName := ""
+	if err != nil {
+		slog.Info("Error while getting channel", "error", err)
+		channelName = msg.ChannelID
+	} else {
+		channelName = channel.Name
+	}
+
+	messageStruct := message{
+		Username:    msg.Author.Username,
+		UserID:      msg.Author.ID,
+		ChannelID:   msg.ChannelID,
+		ChannelName: channelName,
+		Timestamp:   msg.Timestamp.Unix(),
+		Message:     msg.Content,
+	}
+
+	jsonData, err := json.Marshal(messageStruct)
+	if err != nil {
+		return "", err
+	}
+	return string(jsonData), nil
 }
 
 func addMessage(m *discordgo.MessageCreate) {
@@ -165,7 +187,6 @@ func addMessage(m *discordgo.MessageCreate) {
 	if m.Member != nil {
 		author = m.Member.Nick
 	}
-	formatted := formatMessage(author, m.Content)
 	channel, err := discordSession.Channel(m.ChannelID)
 	channelName := ""
 	if err != nil {
@@ -181,7 +202,7 @@ func addMessage(m *discordgo.MessageCreate) {
 		ChannelID:   m.ChannelID,
 		ChannelName: channelName,
 		Timestamp:   m.Timestamp.Unix(),
-		Message:     formatted,
+		Message:     m.Content,
 	})
 	saveLastMessages()
 }
@@ -342,10 +363,32 @@ func generateHistorySummary() string {
 	return chatCompletion.Choices[0].Message.Content
 }
 
+func generateMessageSummary(message string) string {
+	chatCompletion, err := openaiClient.Chat.Completions.New(context.TODO(), openai.ChatCompletionNewParams{
+		Messages: openai.F([]openai.ChatCompletionMessageParamUnion{
+			openai.ChatCompletionMessageParamUnion(openai.SystemMessage("Du erhältst eine Nachricht aus einem Discord Textchat im JSON Format. Schreibe eine Zusammenfassung der Nachricht, aber lasse keine Details dabei aus.")),
+			openai.ChatCompletionMessageParamUnion(openai.UserMessage(message)),
+		}),
+		Model: openai.F(openai.ChatModelGPT4oMini),
+		N:     openai.Int(1),
+	})
+
+	if err != nil {
+		slog.Info("Error while getting completion", "error", err)
+		return ""
+	}
+
+	slog.Info("Chat completion", "completion", chatCompletion)
+
+	return chatCompletion.Choices[0].Message.Content
+}
+
 func generateAnswer(m *discordgo.MessageCreate) (string, error) {
-	user := m.Author.Username
-	if m.Member != nil {
-		user = m.Member.Nick
+	allBotNames := getBotDisplayNames()
+	// write a string for chatCompletion in human language that describes all bot names and their respective guilds
+	botNames := ""
+	for guildID, botName := range allBotNames {
+		botNames += botName + " in " + guildID + ", "
 	}
 	// behaviorPicker := rand.Intn(len(behavior))
 	// make a list of all behaviors comma separated
@@ -368,14 +411,28 @@ func generateAnswer(m *discordgo.MessageCreate) (string, error) {
 	if chatHistorySummary == "" {
 		chatHistorySummary = "Es gab keine vorherigen Nachrichten."
 	}
+
+	messageAsJSON, err := formatMessage(m)
+
+	if err != nil {
+		slog.Info("Error while formatting message", "error", err)
+		return "", err
+	}
+
+	messageSummary := generateMessageSummary(messageAsJSON)
+
+	if messageSummary == "" {
+		return "", errors.New("Message summary is empty")
+	}
+
 	chatCompletion, err := openaiClient.Chat.Completions.New(context.TODO(), openai.ChatCompletionNewParams{
 		Messages: openai.F([]openai.ChatCompletionMessageParamUnion{
-			openai.ChatCompletionMessageParamUnion(openai.SystemMessage("Dein Name ist " + getBotDisplayName(m) + ". Du bist ein Discord Chatbot in einem Channel mit vielen verschiedenen Nutzern, auf mehreren Servern (auch Gilden genannt) und jeweils mit mehreren Textkanälen. Verwende keine Snowflake IDs in deiner Antwort, außer du wirst explizit danach gefragt.")),
+			openai.ChatCompletionMessageParamUnion(openai.SystemMessage("Du bist ein Discord Chatbot in einem Channel mit vielen verschiedenen Nutzern, auf mehreren Servern (auch Gilden genannt) und jeweils mit mehreren Textkanälen. Du kannst auf Servern unterschiedliche Namen haben. Deine Namen auf den jeweiligen Servern sind: " + botNames + ". Verwende keine Snowflake IDs in deiner Antwort, außer du wirst explizit danach gefragt.")),
 			openai.ChatCompletionMessageParamUnion(openai.SystemMessage("Antworte so kurz wie möglich. Deine Antworten sollen maximal 100 Wörter haben. Vermeide Füllwörter und Interjektionen. Verwende zum bisherigen Gesprächsverlauf passende Eigenschaften der folgenden Liste: " + behaviors)),
 			openai.ChatCompletionMessageParamUnion(openai.SystemMessage("Mache gelegentlich auf Grammatik und Rechtschreibfehler aufmerksam, welche du in den letzten Nachrichten findest, aber nicht die, die du schon moniert hast.")),
 			openai.ChatCompletionMessageParamUnion(openai.SystemMessage(responseMentioned)),
 			openai.ChatCompletionMessageParamUnion(openai.SystemMessage(chatHistorySummary)),
-			openai.ChatCompletionMessageParamUnion(openai.UserMessage(formatMessage(user, m.Content))),
+			openai.ChatCompletionMessageParamUnion(openai.UserMessage(messageSummary)),
 		}),
 		Model: openai.F(openai.ChatModelGPT4oMini),
 		N:     openai.Int(1),
