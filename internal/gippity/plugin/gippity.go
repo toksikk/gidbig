@@ -2,7 +2,6 @@ package gbpgippity
 
 import (
 	"encoding/json"
-	"errors"
 	"log/slog"
 	"math/rand"
 	"os"
@@ -207,14 +206,15 @@ func addMessage(m *discordgo.MessageCreate) {
 	saveLastMessages()
 }
 
-func getMessageHistoryAsJSON() (string, error) {
-	jsonData, err := json.Marshal(msgHistory)
+func getMessageHistoryAsJSON(history messageHistory) (string, error) {
+	jsonData, err := json.Marshal(history)
 	if err != nil {
 		return "", err
 	}
 	return string(jsonData), nil
 }
 
+// nolint: unused
 func getBotDisplayName(m *discordgo.MessageCreate) string {
 	botDisplayNames := getBotDisplayNames()
 	if botDisplayNames[m.GuildID] == "" {
@@ -337,8 +337,9 @@ func isMentioned(m *discordgo.MessageCreate) bool {
 	return false
 }
 
-func generateHistorySummary() string {
-	messageHistoryJSON, err := getMessageHistoryAsJSON()
+// nolint: unused
+func generateHistorySummary(history messageHistory) string {
+	messageHistoryJSON, err := getMessageHistoryAsJSON(history)
 	if err != nil {
 		slog.Info("Error while getting message history as JSON", "error", err)
 		return ""
@@ -363,6 +364,7 @@ func generateHistorySummary() string {
 	return chatCompletion.Choices[0].Message.Content
 }
 
+// nolint: unused
 func generateMessageSummary(message string) string {
 	chatCompletion, err := openaiClient.Chat.Completions.New(context.TODO(), openai.ChatCompletionNewParams{
 		Messages: openai.F([]openai.ChatCompletionMessageParamUnion{
@@ -407,23 +409,39 @@ func generateAnswer(m *discordgo.MessageCreate) (string, error) {
 		responseMentioned = "Diese Nachricht ist an dich direkt gerichtet."
 	}
 
-	chatHistorySummary := generateHistorySummary()
-	if chatHistorySummary == "" {
+	// chatHistorySummary := generateHistorySummary()
+	// if chatHistorySummary == "" {
+	// 	chatHistorySummary = "Es gab keine vorherigen Nachrichten."
+	// }
+
+	// create a copy of msgHistory but without the last message
+	msgHistoryCopy := msgHistory
+	if len(msgHistoryCopy.Messages) > 0 {
+		msgHistoryCopy.Messages = msgHistoryCopy.Messages[:len(msgHistoryCopy.Messages)-1]
+	}
+
+	chatHistorySummary, err := getMessageHistoryAsJSON(msgHistoryCopy)
+	if err != nil {
+		slog.Info("Error while getting message history as JSON", "error", err)
 		chatHistorySummary = "Es gab keine vorherigen Nachrichten."
 	}
 
 	messageAsJSON, err := formatMessage(m)
-
 	if err != nil {
 		slog.Info("Error while formatting message", "error", err)
 		return "", err
 	}
 
-	messageSummary := generateMessageSummary(messageAsJSON)
+	// if err != nil {
+	// 	slog.Info("Error while formatting message", "error", err)
+	// 	return "", err
+	// }
 
-	if messageSummary == "" {
-		return "", errors.New("Message summary is empty")
-	}
+	// messageSummary := generateMessageSummary(messageAsJSON)
+
+	// if messageSummary == "" {
+	// 	return "", errors.New("Message summary is empty")
+	// }
 
 	chatCompletion, err := openaiClient.Chat.Completions.New(context.TODO(), openai.ChatCompletionNewParams{
 		Messages: openai.F([]openai.ChatCompletionMessageParamUnion{
@@ -432,7 +450,7 @@ func generateAnswer(m *discordgo.MessageCreate) (string, error) {
 			openai.ChatCompletionMessageParamUnion(openai.SystemMessage("Mache gelegentlich auf Grammatik und Rechtschreibfehler aufmerksam, welche du in den letzten Nachrichten findest, aber nicht die, die du schon moniert hast.")),
 			openai.ChatCompletionMessageParamUnion(openai.SystemMessage(responseMentioned)),
 			openai.ChatCompletionMessageParamUnion(openai.SystemMessage(chatHistorySummary)),
-			openai.ChatCompletionMessageParamUnion(openai.UserMessage(messageSummary)),
+			openai.ChatCompletionMessageParamUnion(openai.UserMessage(messageAsJSON)),
 		}),
 		Model: openai.F(openai.ChatModelGPT4oMini),
 		N:     openai.Int(1),
