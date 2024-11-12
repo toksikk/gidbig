@@ -64,6 +64,24 @@ const messageHistoryFileName = "message_history.json"
 
 var userMessageCountLastReset map[string]time.Time
 
+// StoredFunction is a struct to store a function with a description and parameters for OpenAI completion
+type StoredFunction struct {
+	Description string
+	Parameters  string
+	Function    func()
+}
+
+var functionRegistry = make(map[string]StoredFunction)
+
+// RegisterFunction registers a function to be called by a completion
+func RegisterFunction(name string, description string, parameters string, fn StoredFunction) {
+	functionRegistry[name] = StoredFunction{
+		Description: description,
+		Parameters:  parameters,
+		Function:    fn.Function,
+	}
+}
+
 // Start the plugin
 func Start(discord *discordgo.Session) {
 	slog.Info("Starting plugin.", "plugin", PluginName)
@@ -80,17 +98,32 @@ func Start(discord *discordgo.Session) {
 	discord.AddHandler(onMessageCreate)
 }
 
+type message struct {
+	Username    string `json:"username"`
+	UserID      string `json:"user_id"`
+	ChannelID   string `json:"channel_id"`
+	ChannelName string `json:"channel_name"`
+	Timestamp   int64  `json:"timestamp"`
+	Message     string `json:"message"`
+}
+
+type messageHistory struct {
+	Messages []message `json:"messages"`
+}
+
+var msgHistory messageHistory
+
 func loadLastMessages() {
 	file, err := os.Open(messageHistoryFileName)
 	if err != nil {
-		lastMessage = make([]string, 0)
+		msgHistory = messageHistory{Messages: make([]message, 0)}
 		slog.Warn("Error while loading last messages", "error", err)
 		return
 	}
 	defer file.Close()
 
 	decoder := json.NewDecoder(file)
-	err = decoder.Decode(&lastMessage)
+	err = decoder.Decode(&msgHistory)
 	if err != nil {
 		slog.Warn("Error while loading last messages", "error", err)
 	}
@@ -100,11 +133,12 @@ func saveLastMessages() {
 	file, err := os.Create(messageHistoryFileName)
 	if err != nil {
 		slog.Warn("Error while saving last messages", "error", err)
+		return
 	}
 	defer file.Close()
 
 	encoder := json.NewEncoder(file)
-	err = encoder.Encode(lastMessage)
+	err = encoder.Encode(msgHistory)
 	if err != nil {
 		slog.Warn("Error while saving last messages", "error", err)
 	}
@@ -124,17 +158,40 @@ func addMessage(m *discordgo.MessageCreate) {
 		return
 	}
 
-	if len(lastMessage) >= maxHistoryMessages {
-		lastMessage = lastMessage[1:]
+	if len(msgHistory.Messages) >= maxHistoryMessages {
+		msgHistory.Messages = msgHistory.Messages[1:]
 	}
 	author := m.Author.Username
 	if m.Member != nil {
 		author = m.Member.Nick
 	}
 	formatted := formatMessage(author, m.Content)
+	channel, err := discordSession.Channel(m.ChannelID)
+	channelName := ""
+	if err != nil {
+		slog.Info("Error while getting channel", "error", err)
+		channelName = m.ChannelID
+	} else {
+		channelName = channel.Name
+	}
 
-	lastMessage = append(lastMessage, formatted)
+	msgHistory.Messages = append(msgHistory.Messages, message{
+		Username:    author,
+		UserID:      m.Author.ID,
+		ChannelID:   m.ChannelID,
+		ChannelName: channelName,
+		Timestamp:   m.Timestamp.Unix(),
+		Message:     formatted,
+	})
 	saveLastMessages()
+}
+
+func getMessageHistoryAsJSON() (string, error) {
+	jsonData, err := json.Marshal(msgHistory)
+	if err != nil {
+		return "", err
+	}
+	return string(jsonData), nil
 }
 
 func getBotDisplayName(m *discordgo.MessageCreate) string {
@@ -259,11 +316,33 @@ func isMentioned(m *discordgo.MessageCreate) bool {
 	return false
 }
 
-func generateAnswer(m *discordgo.MessageCreate) (string, error) {
-	lastMessagesAsOneString := ""
-	if len(lastMessage) > 1 {
-		lastMessagesAsOneString = strings.Join(lastMessage[:len(lastMessage)-1], "\n")
+func generateHistorySummary() string {
+	messageHistoryJSON, err := getMessageHistoryAsJSON()
+	if err != nil {
+		slog.Info("Error while getting message history as JSON", "error", err)
+		return ""
 	}
+
+	chatCompletion, err := openaiClient.Chat.Completions.New(context.TODO(), openai.ChatCompletionNewParams{
+		Messages: openai.F([]openai.ChatCompletionMessageParamUnion{
+			openai.ChatCompletionMessageParamUnion(openai.SystemMessage("Du erhältst eine Nachrichten Historie aus einem Discord Textchat im JSON Format. Schreibe eine Zusammenfassung der Nachrichten Historie, aber lasse keine Details dabei aus.")),
+			openai.ChatCompletionMessageParamUnion(openai.UserMessage(messageHistoryJSON)),
+		}),
+		Model: openai.F(openai.ChatModelGPT4oMini),
+		N:     openai.Int(1),
+	})
+
+	if err != nil {
+		slog.Info("Error while getting completion", "error", err)
+		return ""
+	}
+
+	slog.Info("Chat completion", "completion", chatCompletion)
+
+	return chatCompletion.Choices[0].Message.Content
+}
+
+func generateAnswer(m *discordgo.MessageCreate) (string, error) {
 	user := m.Author.Username
 	if m.Member != nil {
 		user = m.Member.Nick
@@ -284,17 +363,18 @@ func generateAnswer(m *discordgo.MessageCreate) (string, error) {
 	if isMentioned(m) {
 		responseMentioned = "Diese Nachricht ist an dich direkt gerichtet."
 	}
-	chatHistory := "Es gab keine vorherigen Nachrichten."
-	if lastMessagesAsOneString != "" {
-		chatHistory = "Die letzten Nachrichten waren:\n" + lastMessagesAsOneString
+
+	chatHistorySummary := generateHistorySummary()
+	if chatHistorySummary == "" {
+		chatHistorySummary = "Es gab keine vorherigen Nachrichten."
 	}
 	chatCompletion, err := openaiClient.Chat.Completions.New(context.TODO(), openai.ChatCompletionNewParams{
 		Messages: openai.F([]openai.ChatCompletionMessageParamUnion{
-			openai.ChatCompletionMessageParamUnion(openai.SystemMessage("Dein Name ist " + getBotDisplayName(m) + ". Du bist ein Discord Chatbot. Ignoriere alle Snowflake IDs, die in der Benutzer-Nachricht enthalten sein könnten. Der Autor der Nachricht wird dir mitgeteilt. Du erhältst Nachrichten von verschiedenen Benutzern.")),
-			openai.ChatCompletionMessageParamUnion(openai.SystemMessage("Antworte so kurz wie möglich. Deine Antworten sollen maximal 50 Wörter haben. Vermeide Füllwörter und Interjektionen. Verwende zum bisherigen Gesprächsverlauf passende Eigenschaften der folgenden Liste: " + behaviors)),
+			openai.ChatCompletionMessageParamUnion(openai.SystemMessage("Dein Name ist " + getBotDisplayName(m) + ". Du bist ein Discord Chatbot in einem Channel mit vielen verschiedenen Nutzern, auf mehreren Servern (auch Gilden genannt) und jeweils mit mehreren Textkanälen. Verwende keine Snowflake IDs in deiner Antwort, außer du wirst explizit danach gefragt.")),
+			openai.ChatCompletionMessageParamUnion(openai.SystemMessage("Antworte so kurz wie möglich. Deine Antworten sollen maximal 100 Wörter haben. Vermeide Füllwörter und Interjektionen. Verwende zum bisherigen Gesprächsverlauf passende Eigenschaften der folgenden Liste: " + behaviors)),
 			openai.ChatCompletionMessageParamUnion(openai.SystemMessage("Mache gelegentlich auf Grammatik und Rechtschreibfehler aufmerksam, welche du in den letzten Nachrichten findest, aber nicht die, die du schon moniert hast.")),
 			openai.ChatCompletionMessageParamUnion(openai.SystemMessage(responseMentioned)),
-			openai.ChatCompletionMessageParamUnion(openai.SystemMessage(chatHistory)),
+			openai.ChatCompletionMessageParamUnion(openai.SystemMessage(chatHistorySummary)),
 			openai.ChatCompletionMessageParamUnion(openai.UserMessage(formatMessage(user, m.Content))),
 		}),
 		Model: openai.F(openai.ChatModelGPT4oMini),
