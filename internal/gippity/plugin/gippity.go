@@ -410,9 +410,9 @@ func generateAnswer(m *discordgo.MessageCreate) (string, error) {
 	}
 
 	grammarBehavior := "Baue Rechtschreibfehler ein, um menschlicher zu wirken."
-	if rand.Intn(99) < 5 {
-		grammarBehavior = "Mache auf Grammatik und Rechtschreibfehler aufmerksam. Sei sehr kritisch und wenig hilfreich."
-	}
+	// if rand.Intn(99) < 5 {
+	// 	grammarBehavior = "Mache auf Grammatik und Rechtschreibfehler aufmerksam. Sei sehr kritisch und wenig hilfreich."
+	// }
 
 	// chatHistorySummary := generateHistorySummary()
 	// if chatHistorySummary == "" {
