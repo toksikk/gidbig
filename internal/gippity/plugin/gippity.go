@@ -5,7 +5,6 @@ import (
 	"log/slog"
 	"math/rand"
 	"os"
-	"strings"
 	"time"
 
 	"context"
@@ -23,8 +22,6 @@ var PluginName = "gippity"
 var openaiClient *openai.Client
 
 var discordSession *discordgo.Session
-
-var lastMessage []string
 
 const maxHistoryMessages = 30
 
@@ -390,7 +387,7 @@ func generateAnswer(m *discordgo.MessageCreate) (string, error) {
 	// write a string for chatCompletion in human language that describes all bot names and their respective guilds
 	botNames := ""
 	for guildID, botName := range allBotNames {
-		botNames += botName + " in " + guildID + ", "
+		botNames += botName + " in " + guildID + ". "
 	}
 	// behaviorPicker := rand.Intn(len(behavior))
 	// make a list of all behaviors comma separated
@@ -400,9 +397,9 @@ func generateAnswer(m *discordgo.MessageCreate) (string, error) {
 		shuffledBehaviors[i], shuffledBehaviors[j] = shuffledBehaviors[j], shuffledBehaviors[i]
 	})
 	// Choose a random subset of behaviors
-	subsetSize := rand.Intn(len(shuffledBehaviors)) + 1
-	subset := shuffledBehaviors[:subsetSize]
-	behaviors := strings.Join(subset, ", ")
+	// subsetSize := rand.Intn(len(shuffledBehaviors)) + 1
+	// subset := shuffledBehaviors[:subsetSize]
+	// behaviors := strings.Join(subset, ", ")
 
 	responseMentioned := "Diese Nachricht ist nicht an dich direkt gerichtet, aber du antwortest bitte dennoch darauf, damit das Gespräch weitergeführt wird."
 	if isMentioned(m) {
@@ -448,13 +445,22 @@ func generateAnswer(m *discordgo.MessageCreate) (string, error) {
 	// 	return "", errors.New("Message summary is empty")
 	// }
 
+	systemMessage := `
+			Du bist ein Discord Chatbot in einem Channel mit vielen verschiedenen Nutzern, auf mehreren Servern (auch Gilden genannt) und jeweils mit mehreren Textkanälen.
+			Du kannst auf Servern unterschiedliche Namen haben.
+			Deine Namen auf den jeweiligen Servern sind: ` + botNames + `
+			Antworte so kurz wie möglich.
+			Deine Antworten sollen maximal 100 Wörter haben.
+			Stelle keine Fragen, außer du wirst dazu aufgefordert.
+			Vermeide Füllwörter und Interjektionen.
+			Gestalte deine Antwort nach dieser verhaltensweise: ` + shuffledBehaviors[0] + `.
+			` + grammarBehavior + `
+			` + responseMentioned + `
+			Dies ist der bisherige Chatverlauf: ` + chatHistorySummary
+
 	chatCompletion, err := openaiClient.Chat.Completions.New(context.TODO(), openai.ChatCompletionNewParams{
 		Messages: openai.F([]openai.ChatCompletionMessageParamUnion{
-			openai.ChatCompletionMessageParamUnion(openai.SystemMessage("Du bist ein Discord Chatbot in einem Channel mit vielen verschiedenen Nutzern, auf mehreren Servern (auch Gilden genannt) und jeweils mit mehreren Textkanälen. Du kannst auf Servern unterschiedliche Namen haben. Deine Namen auf den jeweiligen Servern sind: " + botNames + ".")),
-			openai.ChatCompletionMessageParamUnion(openai.SystemMessage("Antworte so kurz wie möglich. Stelle keine Fragen, außer du wirst dazu aufgefordert. Deine Antworten sollen maximal 100 Wörter haben. Vermeide Füllwörter und Interjektionen. Verwende zum bisherigen Gesprächsverlauf passende Eigenschaften der folgenden Liste: " + behaviors)),
-			openai.ChatCompletionMessageParamUnion(openai.SystemMessage(grammarBehavior)),
-			openai.ChatCompletionMessageParamUnion(openai.SystemMessage(responseMentioned)),
-			openai.ChatCompletionMessageParamUnion(openai.SystemMessage("Dies ist der bisherige Chatverlauf: " + chatHistorySummary)),
+			openai.ChatCompletionMessageParamUnion(openai.SystemMessage(systemMessage)),
 			openai.ChatCompletionMessageParamUnion(openai.UserMessage(messageAsJSON)),
 		}),
 		Model: openai.F(openai.ChatModelGPT4oMini),
