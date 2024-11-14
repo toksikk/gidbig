@@ -407,9 +407,9 @@ func generateAnswer(m *discordgo.MessageCreate) (string, error) {
 	}
 
 	grammarBehavior := "Korrigiere niemals Rechtschreib- oder Grammatikfehler."
-	// if rand.Intn(99) < 5 {
-	// 	grammarBehavior = "Mache auf Grammatik und Rechtschreibfehler aufmerksam. Sei sehr kritisch und wenig hilfreich."
-	// }
+	if rand.Intn(99) < 5 {
+		grammarBehavior = "Mache auf Grammatik und Rechtschreibfehler aufmerksam. Mache dich über den Fehler lustig."
+	}
 
 	// chatHistorySummary := generateHistorySummary()
 	// if chatHistorySummary == "" {
