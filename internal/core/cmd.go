@@ -203,6 +203,10 @@ func notifyOwner(message string) {
 	}
 }
 
+func setStartedStatus() {
+	discord.UpdateCustomStatus("just started with version " + version)
+}
+
 // Delete the message after a delay so the channel does not get cluttered
 func deleteCommandMessage(s *discordgo.Session, channelID string, messageID string) {
 	time.Sleep(30 * time.Second)
@@ -283,8 +287,10 @@ func StartGidbig() {
 
 	banner := new(bytes.Buffer)
 	Banner(banner, *gbploader.GetLoadedPlugins())
+	slog.Info("Dev Mode", "enabled", conf.DevMode)
 	if conf.DevMode {
 		notifyOwner("```I just started!\n" + banner.String() + "```")
+		setStartedStatus()
 	}
 
 	// Wait for a signal to quit
