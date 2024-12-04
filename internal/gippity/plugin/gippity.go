@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"log/slog"
 	"math/rand"
-	"os"
 	"time"
 
 	"context"
@@ -18,7 +17,6 @@ import (
 // PluginName is the name of the plugin
 var PluginName = "gippity"
 
-// OpenAI client
 var openaiClient *openai.Client
 
 var discordSession *discordgo.Session
@@ -61,24 +59,6 @@ const messageHistoryFileName = "message_history.json"
 
 var userMessageCountLastReset map[string]time.Time
 
-// StoredFunction is a struct to store a function with a description and parameters for OpenAI completion
-type StoredFunction struct {
-	Description string
-	Parameters  string
-	Function    func()
-}
-
-var functionRegistry = make(map[string]StoredFunction)
-
-// RegisterFunction registers a function to be called by a completion
-func RegisterFunction(name string, description string, parameters string, fn StoredFunction) {
-	functionRegistry[name] = StoredFunction{
-		Description: description,
-		Parameters:  parameters,
-		Function:    fn.Function,
-	}
-}
-
 // Start the plugin
 func Start(discord *discordgo.Session) {
 	slog.Info("Starting plugin.", "plugin", PluginName)
@@ -104,47 +84,6 @@ type message struct {
 	Message     string `json:"message"`
 }
 
-type messageHistory struct {
-	Messages []message `json:"messages"`
-}
-
-var msgHistory messageHistory
-
-func loadLastMessages() {
-	file, err := os.Open(messageHistoryFileName)
-	if err != nil {
-		msgHistory = messageHistory{Messages: make([]message, 0)}
-		slog.Warn("Error while loading last messages", "error", err)
-		return
-	}
-	defer file.Close()
-
-	decoder := json.NewDecoder(file)
-	err = decoder.Decode(&msgHistory)
-	if err != nil {
-		slog.Warn("Error while loading last messages", "error", err)
-	}
-}
-
-func saveLastMessages() {
-	file, err := os.Create(messageHistoryFileName)
-	if err != nil {
-		slog.Warn("Error while saving last messages", "error", err)
-		return
-	}
-	defer file.Close()
-
-	encoder := json.NewEncoder(file)
-	err = encoder.Encode(msgHistory)
-	if err != nil {
-		slog.Warn("Error while saving last messages", "error", err)
-	}
-}
-
-func hoursSince(t time.Time) int {
-	return int(time.Since(t).Hours())
-}
-
 func formatMessage(msg *discordgo.MessageCreate) (string, error) {
 	channel, err := discordSession.Channel(msg.ChannelID)
 	channelName := ""
@@ -165,46 +104,6 @@ func formatMessage(msg *discordgo.MessageCreate) (string, error) {
 	}
 
 	jsonData, err := json.Marshal(messageStruct)
-	if err != nil {
-		return "", err
-	}
-	return string(jsonData), nil
-}
-
-func addMessage(m *discordgo.MessageCreate) {
-	if m.Author.Bot && m.Author.ID != discordSession.State.User.ID {
-		return
-	}
-
-	if len(msgHistory.Messages) >= maxHistoryMessages {
-		msgHistory.Messages = msgHistory.Messages[1:]
-	}
-	author := m.Author.Username
-	if m.Member != nil {
-		author = m.Member.Nick
-	}
-	channel, err := discordSession.Channel(m.ChannelID)
-	channelName := ""
-	if err != nil {
-		slog.Info("Error while getting channel", "error", err)
-		channelName = m.ChannelID
-	} else {
-		channelName = channel.Name
-	}
-
-	msgHistory.Messages = append(msgHistory.Messages, message{
-		Username:    author,
-		UserID:      m.Author.ID,
-		ChannelID:   m.ChannelID,
-		ChannelName: channelName,
-		Timestamp:   m.Timestamp.Unix(),
-		Message:     m.Content,
-	})
-	saveLastMessages()
-}
-
-func getMessageHistoryAsJSON(history messageHistory) (string, error) {
-	jsonData, err := json.Marshal(history)
 	if err != nil {
 		return "", err
 	}
@@ -246,7 +145,7 @@ func isLimitedUser(m *discordgo.MessageCreate) bool {
 		userMessageCountLastReset[m.Author.ID] = time.Now()
 	}
 
-	if hoursSince(userMessageCountLastReset[m.Author.ID]) >= 1 {
+	if int(time.Since(userMessageCountLastReset[m.Author.ID]).Hours()) >= 1 {
 		userMessageCountLastReset[m.Author.ID] = time.Now()
 		userMessageCount[m.Author.ID] = 0
 		return false
