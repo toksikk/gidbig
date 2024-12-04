@@ -26,26 +26,28 @@ type Config struct {
 	DevMode bool `yaml:"dev_mode,omitempty" default:"false"`
 }
 
-const s = "config.yaml"
+var initializedConfig Config = Config{}
 
-// LoadConfigFile config.yaml and creates a Config struct
-func LoadConfigFile() *Config {
-	return loadFile(s)
+// GetConfig returns the config struct
+func GetConfig() *Config {
+	if initializedConfig == (Config{}) {
+		initializedConfig = *loadFile()
+	}
+	return &initializedConfig
 }
 
-func loadFile(cf string) *Config {
-	config := &Config{}
-	configFile, err := os.Open(cf)
+func loadFile() *Config {
+	configFile, err := os.Open("config.yaml")
 	if err != nil {
-		slog.Warn("Could not load config file.", "error", err)
+		slog.Error("Could not load config file.", "error", err)
 	}
 	defer configFile.Close()
 
-	d := yaml.NewDecoder(configFile)
+	configDecoder := yaml.NewDecoder(configFile)
 
-	if err := d.Decode(&config); err != nil {
+	if err := configDecoder.Decode(&initializedConfig); err != nil {
 		slog.Error("could not decode config.", "error", err)
 	}
 
-	return config
+	return &initializedConfig
 }
