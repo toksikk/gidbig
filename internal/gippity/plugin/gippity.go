@@ -295,7 +295,7 @@ func generateAnswer(m *discordgo.MessageCreate) (string, error) {
 			` + grammarBehavior + `
 			` + responseMentioned + `
 			Dies ist der bisherige Chatverlauf: ` + chatHistorySummary + `
-			Noch ältere Verläufe als Zusammenfassung: ` + chatHistory.LongtermMemory
+			// Noch ältere Verläufe als Zusammenfassung: ` + chatHistory.LongtermMemory
 
 	chatCompletion, err := openaiClient.Chat.Completions.New(context.TODO(), openai.ChatCompletionNewParams{
 		Messages: openai.F([]openai.ChatCompletionMessageParamUnion{

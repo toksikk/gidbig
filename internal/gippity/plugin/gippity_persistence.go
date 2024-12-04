@@ -64,7 +64,7 @@ func addMessage(m *discordgo.MessageCreate) {
 	}
 
 	if len(chatHistory.ChatMessages) >= maxChatMessagesInHistory {
-		createNewLongtermMemory()
+		// createNewLongtermMemory()
 		chatHistory.ChatMessages = chatHistory.ChatMessages[1:]
 	}
 	author := m.Author.Username
