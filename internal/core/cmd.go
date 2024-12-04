@@ -204,7 +204,7 @@ func notifyOwner(message string) {
 }
 
 func setStartedStatus() {
-	discord.UpdateCustomStatus("just started with version " + version)
+	discord.UpdateCustomStatus("I just started! " + version + " (" + builddate + ")")
 }
 
 // Delete the message after a delay so the channel does not get cluttered
