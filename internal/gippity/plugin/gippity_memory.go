@@ -7,6 +7,7 @@ import (
 	openai "github.com/openai/openai-go"
 )
 
+// nolint: unused
 func createNewLongtermMemory() {
 	allBotNames := getBotDisplayNames()
 	// TODO: write a string for chatCompletion in human language that describes all bot names and their respective guilds
