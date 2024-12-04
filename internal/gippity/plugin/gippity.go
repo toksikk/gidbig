@@ -222,7 +222,7 @@ func isMentioned(m *discordgo.MessageCreate) bool {
 
 func generateAnswer(m *discordgo.MessageCreate) (string, error) {
 	allBotNames := getBotDisplayNames()
-	// write a string for chatCompletion in human language that describes all bot names and their respective guilds
+	// TODO: write a string for chatCompletion in human language that describes all bot names and their respective guilds
 	botNames := ""
 	for guildID, botName := range allBotNames {
 		botNames += botName + " in " + guildID + ". "
@@ -294,7 +294,8 @@ func generateAnswer(m *discordgo.MessageCreate) (string, error) {
 			Gestalte deine Antwort nach dieser verhaltensweise: ` + shuffledBehaviors[0] + `.
 			` + grammarBehavior + `
 			` + responseMentioned + `
-			Dies ist der bisherige Chatverlauf: ` + chatHistorySummary
+			Dies ist der bisherige Chatverlauf: ` + chatHistorySummary + `
+			Noch ältere Verläufe als Zusammenfassung: ` + chatHistory.LongtermMemory
 
 	chatCompletion, err := openaiClient.Chat.Completions.New(context.TODO(), openai.ChatCompletionNewParams{
 		Messages: openai.F([]openai.ChatCompletionMessageParamUnion{
