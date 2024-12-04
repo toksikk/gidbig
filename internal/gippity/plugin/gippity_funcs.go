@@ -1,5 +1,7 @@
 package gbpgippity
 
+// import gbp_wttrin "github.com/toksikk/gbp-wttrin/plugin"
+
 // StoredFunction is a struct to store a function with a description and parameters for OpenAI completion
 type StoredFunction struct {
 	Description string
@@ -17,3 +19,7 @@ func RegisterFunction(name string, description string, parameters string, fn Sto
 		Function:    fn.Function,
 	}
 }
+
+// func init() {
+// 	RegisterFunction("wttrinStart", "Start the wttrin plugin", "discord *discordgo.Session", gbp_wttrin.Start)
+// }

@@ -21,8 +21,6 @@ var openaiClient *openai.Client
 
 var discordSession *discordgo.Session
 
-const maxHistoryMessages = 30
-
 var messageCount int = 0
 var messageGoal int = 0
 var messageGoalRange [2]int = [2]int{10, 20}
@@ -55,8 +53,6 @@ var userMessageCount map[string]int
 
 const userMessageLimit = 30
 
-const messageHistoryFileName = "message_history.json"
-
 var userMessageCountLastReset map[string]time.Time
 
 // Start the plugin
@@ -66,22 +62,13 @@ func Start(discord *discordgo.Session) {
 	userMessageCount = make(map[string]int, 0)
 	userMessageCountLastReset = make(map[string]time.Time, 0)
 
-	loadLastMessages()
+	loadChatHistory()
 
 	openaiClient = openai.NewClient() // option.WithAPIKey defaults to os.LookupEnv("OPENAI_API_KEY")
 
 	discordSession = discord
 
 	discord.AddHandler(onMessageCreate)
-}
-
-type message struct {
-	Username    string `json:"username"`
-	UserID      string `json:"user_id"`
-	ChannelID   string `json:"channel_id"`
-	ChannelName string `json:"channel_name"`
-	Timestamp   int64  `json:"timestamp"`
-	Message     string `json:"message"`
 }
 
 func formatMessage(msg *discordgo.MessageCreate) (string, error) {
@@ -94,7 +81,7 @@ func formatMessage(msg *discordgo.MessageCreate) (string, error) {
 		channelName = channel.Name
 	}
 
-	messageStruct := message{
+	messageStruct := chatMessage{
 		Username:    msg.Author.Username,
 		UserID:      msg.Author.ID,
 		ChannelID:   msg.ChannelID,
@@ -233,54 +220,6 @@ func isMentioned(m *discordgo.MessageCreate) bool {
 	return false
 }
 
-// nolint: unused
-func generateHistorySummary(history messageHistory) string {
-	messageHistoryJSON, err := getMessageHistoryAsJSON(history)
-	if err != nil {
-		slog.Info("Error while getting message history as JSON", "error", err)
-		return ""
-	}
-
-	chatCompletion, err := openaiClient.Chat.Completions.New(context.TODO(), openai.ChatCompletionNewParams{
-		Messages: openai.F([]openai.ChatCompletionMessageParamUnion{
-			openai.ChatCompletionMessageParamUnion(openai.SystemMessage("Du erhältst eine Nachrichten Historie aus einem Discord Textchat im JSON Format. Schreibe eine Zusammenfassung der Nachrichten Historie, aber lasse keine Details dabei aus.")),
-			openai.ChatCompletionMessageParamUnion(openai.UserMessage(messageHistoryJSON)),
-		}),
-		Model: openai.F(openai.ChatModelGPT4oMini),
-		N:     openai.Int(1),
-	})
-
-	if err != nil {
-		slog.Info("Error while getting completion", "error", err)
-		return ""
-	}
-
-	slog.Info("Chat completion", "completion", chatCompletion)
-
-	return chatCompletion.Choices[0].Message.Content
-}
-
-// nolint: unused
-func generateMessageSummary(message string) string {
-	chatCompletion, err := openaiClient.Chat.Completions.New(context.TODO(), openai.ChatCompletionNewParams{
-		Messages: openai.F([]openai.ChatCompletionMessageParamUnion{
-			openai.ChatCompletionMessageParamUnion(openai.SystemMessage("Du erhältst eine Nachricht aus einem Discord Textchat im JSON Format. Schreibe eine Zusammenfassung der Nachricht, aber lasse keine Details dabei aus.")),
-			openai.ChatCompletionMessageParamUnion(openai.UserMessage(message)),
-		}),
-		Model: openai.F(openai.ChatModelGPT4oMini),
-		N:     openai.Int(1),
-	})
-
-	if err != nil {
-		slog.Info("Error while getting completion", "error", err)
-		return ""
-	}
-
-	slog.Info("Chat completion", "completion", chatCompletion)
-
-	return chatCompletion.Choices[0].Message.Content
-}
-
 func generateAnswer(m *discordgo.MessageCreate) (string, error) {
 	allBotNames := getBotDisplayNames()
 	// write a string for chatCompletion in human language that describes all bot names and their respective guilds
@@ -316,9 +255,9 @@ func generateAnswer(m *discordgo.MessageCreate) (string, error) {
 	// }
 
 	// create a copy of msgHistory but without the last message
-	msgHistoryCopy := msgHistory
-	if len(msgHistoryCopy.Messages) > 0 {
-		msgHistoryCopy.Messages = msgHistoryCopy.Messages[:len(msgHistoryCopy.Messages)-1]
+	msgHistoryCopy := chatHistory
+	if len(msgHistoryCopy.ChatMessages) > 0 {
+		msgHistoryCopy.ChatMessages = msgHistoryCopy.ChatMessages[:len(msgHistoryCopy.ChatMessages)-1]
 	}
 
 	chatHistorySummary, err := getMessageHistoryAsJSON(msgHistoryCopy)
