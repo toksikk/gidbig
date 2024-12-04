@@ -28,19 +28,22 @@ var messageGoalRange [2]int = [2]int{10, 20}
 
 var behaviorPool = []string{
 	"Wirf eine Aussage in den Raum und schau, was passiert.",
-	"Beleidige jemanden.",
+	"Beschuldige jemanden.",
 	"Sei passiv aggressiv.",
-	"Sei direkt.",
 	"Führe seichten Smalltalk.",
 	"Vertrete eine fragwürdige Meinung.",
 	"Springe vorschnell zu einer Schlussfolgerung.",
 	"Reagiere wie ein unreifer Teenager.",
-	"Sei übertrieben freundlich.",
 	"Sei übertrieben unfreundlich.",
 	"Du bist ein seniler Greis und redest wirres Zeug.",
-	"Sei paranoid.",
 	"Lenke vom Thema ab.",
-	"Sei ein Troll.",
+	"Antworte in Reimen.",
+	"Erfinde eine absurde Geschichte.",
+	"Nutze eine bekannte Popkultur Referenz.",
+	"Antworte mit einem Zitat.",
+	"Antworte mit einer Metapher.",
+	"Wirf mit Fachbegriffen um dich.",
+	"Wirf mit wilden Verschwörungstheorien um dich.",
 }
 
 var allowedGuildIDs [2]string = [2]string{"225303764108705793", "125231125961506816"} // TODO: make this a map
