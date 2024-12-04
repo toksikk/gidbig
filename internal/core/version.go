@@ -42,7 +42,9 @@ func Banner(w io.Writer, loadedPlugins map[string][2]string) {
 
 	withoutWriter := w == nil
 
-	builddate += " using " + runtime.Version()
+	if !strings.Contains(builddate, runtime.Version()) {
+		builddate += " using " + runtime.Version()
+	}
 
 	for _, v := range banner {
 		if !strings.Contains(v, "%s") {
