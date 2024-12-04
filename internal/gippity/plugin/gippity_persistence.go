@@ -8,30 +8,43 @@ import (
 	"github.com/bwmarrin/discordgo"
 )
 
-type messageHistory struct {
-	Messages []message `json:"messages"`
+type chatMessage struct {
+	Username    string `json:"username"`
+	UserID      string `json:"user_id"`
+	ChannelID   string `json:"channel_id"`
+	ChannelName string `json:"channel_name"`
+	Timestamp   int64  `json:"timestamp"`
+	Message     string `json:"message"`
 }
 
-var msgHistory messageHistory
+type chatMessageHistory struct {
+	ChatMessages   []chatMessage `json:"messages"`
+	LongtermMemory string        `json:"longterm_memory"`
+}
 
-func loadLastMessages() {
-	file, err := os.Open(messageHistoryFileName)
+const maxChatMessagesInHistory = 30
+const chatHistoryFilename = "message_history.json"
+
+var chatHistory chatMessageHistory
+
+func loadChatHistory() {
+	file, err := os.Open(chatHistoryFilename)
 	if err != nil {
-		msgHistory = messageHistory{Messages: make([]message, 0)}
+		chatHistory = chatMessageHistory{ChatMessages: make([]chatMessage, 0)}
 		slog.Warn("Error while loading last messages", "error", err)
 		return
 	}
 	defer file.Close()
 
 	decoder := json.NewDecoder(file)
-	err = decoder.Decode(&msgHistory)
+	err = decoder.Decode(&chatHistory)
 	if err != nil {
 		slog.Warn("Error while loading last messages", "error", err)
 	}
 }
 
-func saveLastMessages() {
-	file, err := os.Create(messageHistoryFileName)
+func saveChatHistory() {
+	file, err := os.Create(chatHistoryFilename)
 	if err != nil {
 		slog.Warn("Error while saving last messages", "error", err)
 		return
@@ -39,7 +52,7 @@ func saveLastMessages() {
 	defer file.Close()
 
 	encoder := json.NewEncoder(file)
-	err = encoder.Encode(msgHistory)
+	err = encoder.Encode(chatHistory)
 	if err != nil {
 		slog.Warn("Error while saving last messages", "error", err)
 	}
@@ -50,8 +63,8 @@ func addMessage(m *discordgo.MessageCreate) {
 		return
 	}
 
-	if len(msgHistory.Messages) >= maxHistoryMessages {
-		msgHistory.Messages = msgHistory.Messages[1:]
+	if len(chatHistory.ChatMessages) >= maxChatMessagesInHistory {
+		chatHistory.ChatMessages = chatHistory.ChatMessages[1:]
 	}
 	author := m.Author.Username
 	if m.Member != nil {
@@ -66,7 +79,7 @@ func addMessage(m *discordgo.MessageCreate) {
 		channelName = channel.Name
 	}
 
-	msgHistory.Messages = append(msgHistory.Messages, message{
+	chatHistory.ChatMessages = append(chatHistory.ChatMessages, chatMessage{
 		Username:    author,
 		UserID:      m.Author.ID,
 		ChannelID:   m.ChannelID,
@@ -74,10 +87,10 @@ func addMessage(m *discordgo.MessageCreate) {
 		Timestamp:   m.Timestamp.Unix(),
 		Message:     m.Content,
 	})
-	saveLastMessages()
+	saveChatHistory()
 }
 
-func getMessageHistoryAsJSON(history messageHistory) (string, error) {
+func getMessageHistoryAsJSON(history chatMessageHistory) (string, error) {
 	jsonData, err := json.Marshal(history)
 	if err != nil {
 		return "", err
