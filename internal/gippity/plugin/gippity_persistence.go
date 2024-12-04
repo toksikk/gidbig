@@ -64,6 +64,7 @@ func addMessage(m *discordgo.MessageCreate) {
 	}
 
 	if len(chatHistory.ChatMessages) >= maxChatMessagesInHistory {
+		createNewLongtermMemory()
 		chatHistory.ChatMessages = chatHistory.ChatMessages[1:]
 	}
 	author := m.Author.Username
@@ -87,11 +88,20 @@ func addMessage(m *discordgo.MessageCreate) {
 		Timestamp:   m.Timestamp.Unix(),
 		Message:     m.Content,
 	})
+
 	saveChatHistory()
 }
 
 func getMessageHistoryAsJSON(history chatMessageHistory) (string, error) {
 	jsonData, err := json.Marshal(history)
+	if err != nil {
+		return "", err
+	}
+	return string(jsonData), nil
+}
+
+func getOldestChatMessageAsJSON(history chatMessageHistory) (string, error) {
+	jsonData, err := json.Marshal(history.ChatMessages[0])
 	if err != nil {
 		return "", err
 	}
