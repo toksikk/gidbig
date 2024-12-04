@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"math/rand"
+	"strings"
 	"time"
 
 	"context"
@@ -26,25 +27,20 @@ var messageGoal int = 0
 var messageGoalRange [2]int = [2]int{10, 20}
 
 var behaviorPool = []string{
-	//	"sarkastisch",
-	//	"pessimistisch",
-	"zynisch",
-	"spöttisch",
-	//	"ironisch",
-	"launisch",
-	//	"böse",
-	//	"herablassend",
-	"nett",
-	"freundlich",
-	"hilfsbereit",
-	"lieb",
-	"optimistisch",
-	"entspannt",
-	"energisch",
-	"respektvoll",
-	"mürrisch",
-	"senil",
-	"paranoid",
+	"Wirf eine Aussage in den Raum und schau, was passiert.",
+	"Beleidige jemanden.",
+	"Sei passiv aggressiv.",
+	"Sei direkt.",
+	"Führe seichten Smalltalk.",
+	"Vertrete eine fragwürdige Meinung.",
+	"Springe vorschnell zu einer Schlussfolgerung.",
+	"Reagiere wie ein unreifer Teenager.",
+	"Sei übertrieben freundlich.",
+	"Sei übertrieben unfreundlich.",
+	"Du bist ein seniler Greis und redest wirres Zeug.",
+	"Sei paranoid.",
+	"Lenke vom Thema ab.",
+	"Sei ein Troll.",
 }
 
 var allowedGuildIDs [2]string = [2]string{"225303764108705793", "125231125961506816"} // TODO: make this a map
@@ -234,19 +230,14 @@ func generateAnswer(m *discordgo.MessageCreate) (string, error) {
 	rand.Shuffle(len(shuffledBehaviors), func(i, j int) {
 		shuffledBehaviors[i], shuffledBehaviors[j] = shuffledBehaviors[j], shuffledBehaviors[i]
 	})
-	// Choose a random subset of behaviors
-	// subsetSize := rand.Intn(len(shuffledBehaviors)) + 1
-	// subset := shuffledBehaviors[:subsetSize]
-	// behaviors := strings.Join(subset, ", ")
+
+	subsetSize := rand.Intn(2) + 1 // pick 1 or 2 behaviors
+	subset := shuffledBehaviors[:subsetSize]
+	behaviors := strings.Join(subset, "\n\t\t") // format the same way as the system message
 
 	responseMentioned := "Diese Nachricht ist nicht an dich direkt gerichtet, aber du antwortest bitte dennoch darauf, damit das Gespräch weitergeführt wird."
 	if isMentioned(m) {
 		responseMentioned = "Diese Nachricht ist an dich direkt gerichtet."
-	}
-
-	grammarBehavior := "Korrigiere niemals Rechtschreib- oder Grammatikfehler."
-	if rand.Intn(99) < 5 {
-		grammarBehavior = "Mache auf Grammatik und Rechtschreibfehler aufmerksam. Mache dich über den Fehler lustig."
 	}
 
 	// chatHistorySummary := generateHistorySummary()
@@ -284,18 +275,14 @@ func generateAnswer(m *discordgo.MessageCreate) (string, error) {
 	// }
 
 	systemMessage := `
-			Du bist ein Discord Chatbot in einem Channel mit vielen verschiedenen Nutzern, auf mehreren Servern (auch Gilden genannt) und jeweils mit mehreren Textkanälen.
+			Du bist ein Chat Teilnehmer in einem Channel mit vielen verschiedenen Nutzern, auf mehreren Servern (auch Gilden genannt) und jeweils mit mehreren Textkanälen.
 			Du kannst auf Servern unterschiedliche Namen haben.
 			Deine Namen auf den jeweiligen Servern sind: ` + botNames + `
-			Antworte so kurz wie möglich.
-			Deine Antworten sollen maximal 100 Wörter haben.
-			Stelle keine Fragen, außer du wirst dazu aufgefordert.
-			Vermeide Füllwörter und Interjektionen.
-			Gestalte deine Antwort nach dieser verhaltensweise: ` + shuffledBehaviors[0] + `.
-			` + grammarBehavior + `
+			Schreibe in lockerem Chatstil mit maximal 100 Wörtern.
+			` + behaviors + `
 			` + responseMentioned + `
-			Dies ist der bisherige Chatverlauf: ` + chatHistorySummary + `
-			// Noch ältere Verläufe als Zusammenfassung: ` + chatHistory.LongtermMemory
+			Dies ist der bisherige Chatverlauf: ` + chatHistorySummary
+	// `Noch ältere Verläufe als Zusammenfassung: ` + chatHistory.LongtermMemory
 
 	chatCompletion, err := openaiClient.Chat.Completions.New(context.TODO(), openai.ChatCompletionNewParams{
 		Messages: openai.F([]openai.ChatCompletionMessageParamUnion{
