@@ -32,7 +32,7 @@ func Banner(w io.Writer, loadedPlugins map[string][2]string) {
 		" / _  | |/ || | || \\| |/ _  |\n",
 		"( ( | | ( (_| | |_) ) ( ( | |\n",
 		" \\_|| |_|\\____|____/|_|\\_|| |\n",
-		"(_____|               (_____| %s (%s)\n\n",
+		"(_____|               (_____| %s\n(%s)\n\n",
 	}
 
 	bannerLoadedPlugins := []string{
