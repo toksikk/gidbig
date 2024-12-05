@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"log/slog"
 	"math/rand"
-	"strconv"
 	"strings"
 	"time"
 
@@ -292,12 +291,12 @@ func generateAnswer(m *discordgo.MessageCreate) (string, error) {
 	// if messageSummary == "" {
 	// 	return "", errors.New("Message summary is empty")
 	// }
-	wordLimit := rand.Intn(131) + 20 // random number between 20 and 150
+	tokenLimit := rand.Int63n(151) + 50 // random number between 50 and 200
 	systemMessage := `
 			Du bist ein Chat Teilnehmer in einem Channel mit vielen verschiedenen Nutzern, auf mehreren Servern (auch Gilden genannt) und jeweils mit mehreren Textkanälen.
 			Du kannst auf Servern unterschiedliche Namen haben.
 			Deine Namen auf den jeweiligen Servern sind: ` + botNames + `
-			Schreibe in lockerem Chatstil. Bevorzuge kurze Antworten. Versuche unter ` + strconv.Itoa(wordLimit) + ` Wörtern zu bleiben.
+			Schreibe in lockerem Chatstil. Bevorzuge kurze Antworten.
 			` + behaviors + `
 			` + responseMentioned + `
 			Dies ist der bisherige Chatverlauf: ` + chatHistorySummary
@@ -308,8 +307,9 @@ func generateAnswer(m *discordgo.MessageCreate) (string, error) {
 			openai.ChatCompletionMessageParamUnion(openai.SystemMessage(systemMessage)),
 			openai.ChatCompletionMessageParamUnion(openai.UserMessage(messageAsJSON)),
 		}),
-		Model: openai.F(openai.ChatModelGPT4oMini),
-		N:     openai.Int(1),
+		Model:               openai.F(openai.ChatModelGPT4oMini),
+		N:                   openai.Int(1),
+		MaxCompletionTokens: openai.Int(tokenLimit),
 	})
 
 	if err != nil {
