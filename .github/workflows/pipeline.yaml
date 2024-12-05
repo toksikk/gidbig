@@ -1,0 +1,64 @@
+name: Check and build
+
+on:
+    push:
+    pull_request:
+    workflow_dispatch:
+
+jobs:
+    check_code:
+        name: Check code
+        runs-on: ubuntu-latest
+
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Determine Go version from go.mod
+              run: echo "GO_VERSION=$(grep "go 1." go.mod | cut -d " " -f 2)" >> $GITHUB_ENV
+
+            - name: Setup Go
+              uses: actions/setup-go@v5
+              with:
+                  go-version: ${{ env.GO_VERSION }}
+
+            - name: Install dependencies
+              run: |
+                  go version
+                  go get -u golang.org/x/lint/golint
+                  export PATH=${PATH}:$(go env GOPATH)/bin
+
+            - name: Lint
+              uses: golangci/golangci-lint-action@v3
+
+    build:
+        name: Build
+        needs: check_code
+        runs-on: ubuntu-latest
+
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Determine Go version from go.mod
+              run: echo "GO_VERSION=$(grep "go 1." go.mod | cut -d " " -f 2)" >> $GITHUB_ENV
+
+            - name: Setup Go
+              uses: actions/setup-go@v5
+              with:
+                  go-version: ${{ env.GO_VERSION }}
+
+            - name: Run build
+              run: make build
+
+    deploy_for_testing:
+        name: Deploy for testing
+        if: ${{ github.ref == 'refs/heads/testing' }}
+        needs: build
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: Dispatch Deploy Repo
+              uses: peter-evans/repository-dispatch@v2.1.2
+              with:
+                  token: ${{ secrets.DEPLOY_REPO_ACCESS_TOKEN }}
+                  repository: toksikk/deploy-gidbig
+                  event-type: deploy
