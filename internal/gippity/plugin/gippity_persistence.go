@@ -100,6 +100,7 @@ func getMessageHistoryAsJSON(history chatMessageHistory) (string, error) {
 	return string(jsonData), nil
 }
 
+// nolint: unused
 func getOldestChatMessageAsJSON(history chatMessageHistory) (string, error) {
 	jsonData, err := json.Marshal(history.ChatMessages[0])
 	if err != nil {
