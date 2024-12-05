@@ -7,7 +7,7 @@ on:
 
 jobs:
     check_code_and_build:
-        name: Build
+        name: Check code and build
         runs-on: ubuntu-latest
 
         steps:
