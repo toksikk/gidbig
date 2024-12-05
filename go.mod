@@ -24,7 +24,7 @@ require (
 	github.com/tidwall/match v1.1.1 // indirect
 	github.com/tidwall/pretty v1.2.1 // indirect
 	github.com/tidwall/sjson v1.2.5 // indirect
-	golang.org/x/text v0.20.0 // indirect
+	golang.org/x/text v0.21.0 // indirect
 	gorm.io/driver/sqlite v1.5.6 // indirect
 	gorm.io/gorm v1.25.12 // indirect
 )
@@ -34,7 +34,7 @@ require (
 	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/openai/openai-go v0.1.0-alpha.38
 	github.com/toksikk/gbp-coffee v0.0.2
-	github.com/toksikk/gbp-gamerstatus v0.1.5-0.20241203144357-ed176f584dc2
-	golang.org/x/crypto v0.29.0 // indirect
-	golang.org/x/sys v0.27.0 // indirect
+	github.com/toksikk/gbp-gamerstatus v0.1.5-0.20241205114932-0bfdac3e2e0a
+	golang.org/x/crypto v0.30.0 // indirect
+	golang.org/x/sys v0.28.0 // indirect
 )
