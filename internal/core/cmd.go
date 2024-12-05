@@ -204,7 +204,10 @@ func notifyOwner(message string) {
 }
 
 func setStartedStatus() {
-	discord.UpdateCustomStatus("I just started! " + version + " (" + builddate + ")")
+	err := discord.UpdateCustomStatus("I just started! " + version + " (" + builddate + ")")
+	if err != nil {
+		slog.Warn("Failed to set custom status", "error", err)
+	}
 }
 
 // Delete the message after a delay so the channel does not get cluttered

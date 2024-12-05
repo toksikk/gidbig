@@ -69,9 +69,9 @@ func Banner(w io.Writer, loadedPlugins map[string][2]string) {
 	sort.Strings(pluginNames)
 
 	if withoutWriter {
-		fmt.Printf(bannerLoadedPlugins[0])
+		fmt.Printf("%s", bannerLoadedPlugins[0])
 	} else {
-		fmt.Fprintf(w, bannerLoadedPlugins[0])
+		fmt.Fprintf(w, "%s", bannerLoadedPlugins[0])
 	}
 
 	for _, v := range pluginNames {
