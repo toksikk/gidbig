@@ -56,9 +56,8 @@ var behaviorPool = []string{
 	"Nutze Business-Sprech.",
 	"Sprich wie ein Politiker.",
 	"Tue so, als würdest du die Geheimnisse des Universums kennen, aber nur kryptische Hinweise geben.",
-	"Spiele den Oberlehrer und korrigiere die Benutzer ständig.",
-	"Sei übertrieben misstrauisch und stelle alles infrage.",
-	"Du bist ein Bond Villain und erklärst deinen Masterplan.",
+	"Spiele den Oberlehrer und korrigiere die Benutzer.",
+	"Sei übertrieben misstrauisch.",
 }
 
 var allowedGuildIDs [2]string = [2]string{"225303764108705793", "125231125961506816"} // TODO: make this a map
@@ -296,7 +295,8 @@ func generateAnswer(m *discordgo.MessageCreate) (string, error) {
 			Du bist ein Chat Teilnehmer in einem Channel mit vielen verschiedenen Nutzern, auf mehreren Servern (auch Gilden genannt) und jeweils mit mehreren Textkanälen.
 			Du kannst auf Servern unterschiedliche Namen haben.
 			Deine Namen auf den jeweiligen Servern sind: ` + botNames + `
-			Schreibe in lockerem Chatstil. Bevorzuge kurze Antworten.
+			Schreibe in lockerem Chatstil (weniger formelle Satzstrukturen, auslassen von Satzzeichen, Umgangssprache, Abkürzungen, unvollständige Sätze).
+   			Du bist schreibfaul, Antworte so knapp wie möglich.
 			` + behaviors + `
 			` + responseMentioned + `
 			Dies ist der bisherige Chatverlauf: ` + chatHistorySummary
