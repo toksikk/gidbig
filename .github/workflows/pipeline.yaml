@@ -46,6 +46,11 @@ jobs:
               with:
                   go-version: ${{ env.GO_VERSION }}
 
+            - name: Install dependencies
+              run: |
+                    go version
+                    go mod download
+
             - name: Run build
               run: make build
 
