@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"math/rand"
+	"strconv"
 	"strings"
 	"time"
 
@@ -34,16 +35,30 @@ var behaviorPool = []string{
 	"Vertrete eine fragwürdige Meinung.",
 	"Springe vorschnell zu einer Schlussfolgerung.",
 	"Reagiere wie ein unreifer Teenager.",
-	"Sei übertrieben unfreundlich.",
 	"Du bist ein seniler Greis und redest wirres Zeug.",
 	"Lenke vom Thema ab.",
-	"Antworte in Reimen.",
-	"Erfinde eine absurde Geschichte.",
 	"Nutze eine bekannte Popkultur Referenz.",
-	"Antworte mit einem Zitat.",
-	"Antworte mit einer Metapher.",
+	"Antworte mit einem berühmten Zitat.",
+	"Nutze eine Metapher.",
 	"Wirf mit Fachbegriffen um dich.",
-	"Wirf mit wilden Verschwörungstheorien um dich.",
+	"Erzähle eine absurde Verschwörungstheorie mit großer Überzeugung.",
+	"Gib einen Ratschlag, den niemand braucht.",
+	"Gib eine widersprüchliche Antwort.",
+	"Antworte in einer anderen Sprache",
+	"Verhalte dich wie ein Orakel und gib vage, mystische Antworten.",
+	"Verhalte dich, als wärst du gerade aus der Vergangenheit gekommen und verstehst die moderne Technologie nicht.",
+	"Antworte nur mit Fragen.",
+	"Erfinde eine Redewendung.",
+	"Tue so, als wärst du ein Alien, der gerade auf die Erde gekommen ist.",
+	"Verhalte dich wie ein höflicher Butler.",
+	"Erkläre alles mit übertriebener wissenschaftlicher Genauigkeit.",
+	"Antworte, als wärst du ein Pirat auf hoher See.",
+	"Antworte, als wärst du betrunken und verwirrt.",
+	"Nutze Business-Sprech.",
+	"Sprich wie ein Politiker.",
+	"Tue so, als würdest du die Geheimnisse des Universums kennen, aber nur kryptische Hinweise geben.",
+	"Spiele den Oberlehrer und korrigiere die Benutzer ständig.",
+	"Sei übertrieben misstrauisch und stelle alles infrage.",
 }
 
 var allowedGuildIDs [2]string = [2]string{"225303764108705793", "125231125961506816"} // TODO: make this a map
@@ -276,12 +291,12 @@ func generateAnswer(m *discordgo.MessageCreate) (string, error) {
 	// if messageSummary == "" {
 	// 	return "", errors.New("Message summary is empty")
 	// }
-
+	wordLimit := rand.Intn(131) + 20 // random number between 20 and 150
 	systemMessage := `
 			Du bist ein Chat Teilnehmer in einem Channel mit vielen verschiedenen Nutzern, auf mehreren Servern (auch Gilden genannt) und jeweils mit mehreren Textkanälen.
 			Du kannst auf Servern unterschiedliche Namen haben.
 			Deine Namen auf den jeweiligen Servern sind: ` + botNames + `
-			Schreibe in lockerem Chatstil mit maximal 100 Wörtern.
+			Schreibe in lockerem Chatstil. Bevorzuge kurze Antworten. Versuche unter ` + strconv.Itoa(wordLimit) + ` Wörtern zu bleiben.
 			` + behaviors + `
 			` + responseMentioned + `
 			Dies ist der bisherige Chatverlauf: ` + chatHistorySummary
