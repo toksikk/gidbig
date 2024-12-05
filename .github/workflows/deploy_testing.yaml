@@ -1,6 +1,9 @@
 name: Deploy for testing
 
 on:
+    push:
+      branches:
+        - testing
     workflow_run:
         workflows: ["Check and build"]
         types:
