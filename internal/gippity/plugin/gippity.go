@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"log/slog"
 	"math/rand"
-	"strings"
 	"time"
 
 	"context"
@@ -27,37 +26,25 @@ var messageGoal int = 0
 var messageGoalRange [2]int = [2]int{10, 20}
 
 var behaviorPool = []string{
-	"Wirf eine Aussage in den Raum und schau, was passiert.",
-	"Beschuldige jemanden.",
-	"Sei passiv aggressiv.",
-	"Führe seichten Smalltalk.",
-	"Vertrete eine fragwürdige Meinung.",
-	"Springe vorschnell zu einer Schlussfolgerung.",
-	"Reagiere wie ein unreifer Teenager.",
-	"Du bist ein seniler Greis und redest wirres Zeug.",
-	"Lenke vom Thema ab.",
-	"Nutze eine bekannte Popkultur Referenz.",
-	"Antworte mit einem berühmten Zitat.",
-	"Nutze eine Metapher.",
-	"Wirf mit Fachbegriffen um dich.",
-	"Erzähle eine absurde Verschwörungstheorie mit großer Überzeugung.",
-	"Gib einen Ratschlag, den niemand braucht.",
-	"Gib eine widersprüchliche Antwort.",
-	"Antworte in einer anderen Sprache",
-	"Verhalte dich wie ein Orakel und gib vage, mystische Antworten.",
-	"Verhalte dich, als wärst du gerade aus der Vergangenheit gekommen und verstehst die moderne Technologie nicht.",
-	"Du bist ein Spitzel und versuchst, die anderen Benutzer auszuhorchen.",
-	"Erfinde eine Redewendung.",
-	"Tue so, als wärst du heimlich ein verkleideter Alien. Versuche, nicht aufzufliegen!",
-	"Verhalte dich wie ein höflicher Butler.",
-	"Erkläre alles mit übertriebener wissenschaftlicher Genauigkeit.",
-	"Antworte, als wärst du ein Pirat auf hoher See.",
-	"Antworte, als wärst du betrunken und verwirrt.",
-	"Nutze Business-Sprech.",
-	"Sprich wie ein Politiker.",
-	"Tue so, als würdest du die Geheimnisse des Universums kennen, aber nur kryptische Hinweise geben.",
-	"Spiele den Oberlehrer und korrigiere die Benutzer.",
-	"Sei übertrieben misstrauisch.",
+	//	"sarkastisch",
+	//	"pessimistisch",
+	"zynisch",
+	"spöttisch",
+	//	"ironisch",
+	"launisch",
+	//	"böse",
+	//	"herablassend",
+	"nett",
+	"freundlich",
+	"hilfsbereit",
+	"lieb",
+	"optimistisch",
+	"entspannt",
+	"energisch",
+	"respektvoll",
+	"mürrisch",
+	"senil",
+	"paranoid",
 }
 
 var allowedGuildIDs [2]string = [2]string{"225303764108705793", "125231125961506816"} // TODO: make this a map
@@ -247,14 +234,19 @@ func generateAnswer(m *discordgo.MessageCreate) (string, error) {
 	rand.Shuffle(len(shuffledBehaviors), func(i, j int) {
 		shuffledBehaviors[i], shuffledBehaviors[j] = shuffledBehaviors[j], shuffledBehaviors[i]
 	})
-
-	subsetSize := rand.Intn(2) + 1 // pick 1 or 2 behaviors
-	subset := shuffledBehaviors[:subsetSize]
-	behaviors := strings.Join(subset, "\n\t\t") // format the same way as the system message
+	// Choose a random subset of behaviors
+	// subsetSize := rand.Intn(len(shuffledBehaviors)) + 1
+	// subset := shuffledBehaviors[:subsetSize]
+	// behaviors := strings.Join(subset, ", ")
 
 	responseMentioned := "Diese Nachricht ist nicht an dich direkt gerichtet, aber du antwortest bitte dennoch darauf, damit das Gespräch weitergeführt wird."
 	if isMentioned(m) {
 		responseMentioned = "Diese Nachricht ist an dich direkt gerichtet."
+	}
+
+	grammarBehavior := "Korrigiere niemals Rechtschreib- oder Grammatikfehler."
+	if rand.Intn(99) < 5 {
+		grammarBehavior = "Mache auf Grammatik und Rechtschreibfehler aufmerksam. Mache dich über den Fehler lustig."
 	}
 
 	// chatHistorySummary := generateHistorySummary()
@@ -290,26 +282,28 @@ func generateAnswer(m *discordgo.MessageCreate) (string, error) {
 	// if messageSummary == "" {
 	// 	return "", errors.New("Message summary is empty")
 	// }
-	tokenLimit := rand.Int63n(151) + 50 // random number between 50 and 200
+
 	systemMessage := `
-			Du bist ein Chat Teilnehmer in einem Channel mit vielen verschiedenen Nutzern, auf mehreren Servern (auch Gilden genannt) und jeweils mit mehreren Textkanälen.
+			Du bist ein Discord Chatbot in einem Channel mit vielen verschiedenen Nutzern, auf mehreren Servern (auch Gilden genannt) und jeweils mit mehreren Textkanälen.
 			Du kannst auf Servern unterschiedliche Namen haben.
 			Deine Namen auf den jeweiligen Servern sind: ` + botNames + `
-			Schreibe in lockerem Chatstil (weniger formelle Satzstrukturen, auslassen von Satzzeichen, Umgangssprache, Abkürzungen, unvollständige Sätze).
-   			Du bist schreibfaul, Antworte so knapp wie möglich.
-			` + behaviors + `
+			Antworte so kurz wie möglich.
+			Deine Antworten sollen maximal 100 Wörter haben.
+			Stelle keine Fragen, außer du wirst dazu aufgefordert.
+			Vermeide Füllwörter und Interjektionen.
+			Gestalte deine Antwort nach dieser verhaltensweise: ` + shuffledBehaviors[0] + `.
+			` + grammarBehavior + `
 			` + responseMentioned + `
 			Dies ist der bisherige Chatverlauf: ` + chatHistorySummary
-	// `Noch ältere Verläufe als Zusammenfassung: ` + chatHistory.LongtermMemory
+			// + `Noch ältere Verläufe als Zusammenfassung: ` + chatHistory.LongtermMemory
 
 	chatCompletion, err := openaiClient.Chat.Completions.New(context.TODO(), openai.ChatCompletionNewParams{
 		Messages: openai.F([]openai.ChatCompletionMessageParamUnion{
 			openai.ChatCompletionMessageParamUnion(openai.SystemMessage(systemMessage)),
 			openai.ChatCompletionMessageParamUnion(openai.UserMessage(messageAsJSON)),
 		}),
-		Model:               openai.F(openai.ChatModelGPT4oMini),
-		N:                   openai.Int(1),
-		MaxCompletionTokens: openai.Int(tokenLimit),
+		Model: openai.F(openai.ChatModelGPT4oMini),
+		N:     openai.Int(1),
 	})
 
 	if err != nil {
