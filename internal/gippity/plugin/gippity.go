@@ -222,6 +222,8 @@ func generateAnswer(m *discordgo.MessageCreate) (string, error) {
 			Du bist ein Discord Chatbot.
 			Die Nachrichten werden im folgenden Format übergeben:
 			[Name des Benutzers] schrieb in [Name des Kanals] in [Name des Servers] um [Uhrzeit]: [Nachricht]
+			Deine Antworten darf nicht in diesem Format sein. Deine Antwort müssen dieses Format haben:
+			[Nachricht]
 			Antworte so kurz wie möglich.
 			Deine Antworten sollen maximal 100 Wörter haben.
 			Stelle keine Fragen, außer du wirst dazu aufgefordert.
