@@ -1,7 +1,6 @@
 package gbpgippity
 
 import (
-	"encoding/json"
 	"log/slog"
 	"math/rand"
 	"time"
@@ -68,27 +67,6 @@ func Start(discord *discordgo.Session) {
 	discordSession = discord
 
 	discord.AddHandler(onMessageCreate)
-}
-
-func formatMessage(msg *discordgo.MessageCreate) (string, error) {
-	messageStruct := LLMChatMessage{
-		UserID:          msg.Author.ID,
-		Username:        msg.Author.Username,
-		ChannelID:       msg.ChannelID,
-		ChannelName:     util.GetChannelName(discordSession, msg.ChannelID),
-		Timestamp:       util.GetTimestampOfMessage(msg.ID).Unix(),
-		TimestampString: util.GetTimestampOfMessage(msg.ID).Format("2006-01-02 15:04:05"),
-		Message:         msg.Content,
-		MessageID:       msg.ID,
-		GuildID:         msg.GuildID,
-		GuildName:       util.GetGuildName(discordSession, msg.GuildID),
-	}
-
-	jsonData, err := json.Marshal(messageStruct)
-	if err != nil {
-		return "", err
-	}
-	return string(jsonData), nil
 }
 
 func isLimitedUser(m *discordgo.MessageCreate) bool {
@@ -159,7 +137,7 @@ func limited(m *discordgo.MessageCreate) bool {
 }
 
 func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
-	s.ChannelTyping(m.ChannelID)
+	s.ChannelTyping(m.ChannelID) //nolint:errcheck
 	addMessageToDatabase(m)
 
 	if limited(m) {
