@@ -211,6 +211,7 @@ func generateAnswer(m *discordgo.MessageCreate) (string, error) {
 		if message.UserID == discordSession.State.User.ID {
 			messages = append(messages, openai.ChatCompletionMessageParamUnion(openai.AssistantMessage(message.Message)))
 		} else {
+			replaceAllUserIDsWithUsernamesInMessage(&message)
 			messages = append(messages, openai.ChatCompletionMessageParamUnion(openai.UserMessage(convertLLMChatMessageToLLMCompatibleFlowingText(message))))
 		}
 	}
