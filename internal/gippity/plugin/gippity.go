@@ -219,7 +219,8 @@ func generateAnswer(m *discordgo.MessageCreate) (string, error) {
 	}
 
 	systemMessage := openai.SystemMessage(`
-			Du bist ein Discord Chatbot. Du befindest dich aktuell in + ` + util.GetChannelName(discordSession, m.ChannelID) + ` + auf dem Server + ` + util.GetGuildName(discordSession, m.GuildID) + ` +.
+			Du bist ein Discord Chatbot.
+			Du befindest dich aktuell im Channel + ` + util.GetChannelName(discordSession, m.ChannelID) + ` + auf dem Server + ` + util.GetGuildName(discordSession, m.GuildID) + ` +.
 			Die Nachrichten werden im folgenden Format übergeben:
 			[Uhrzeit] [Name des Benutzers]: [Nachricht]
 			Deine Antwort muss dieses Format haben:
@@ -235,7 +236,7 @@ func generateAnswer(m *discordgo.MessageCreate) (string, error) {
 
 	for _, message := range chatHistory {
 		if message.UserID == discordSession.State.User.ID {
-			messages = append(messages, openai.ChatCompletionMessageParamUnion(openai.AssistantMessage(convertLLMChatMessageToLLMCompatibleFlowingText(message))))
+			messages = append(messages, openai.ChatCompletionMessageParamUnion(openai.AssistantMessage(message.Message)))
 		} else {
 			messages = append(messages, openai.ChatCompletionMessageParamUnion(openai.UserMessage(convertLLMChatMessageToLLMCompatibleFlowingText(message))))
 		}
