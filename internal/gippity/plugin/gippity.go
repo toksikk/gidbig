@@ -159,6 +159,7 @@ func limited(m *discordgo.MessageCreate) bool {
 }
 
 func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
+	s.ChannelTyping(m.ChannelID)
 	addMessageToDatabase(m)
 
 	if limited(m) {
@@ -206,19 +207,13 @@ func generateAnswer(m *discordgo.MessageCreate) (string, error) {
 		grammarBehavior = "Mache auf Grammatik und Rechtschreibfehler aufmerksam. Mache dich über den Fehler lustig."
 	}
 
-	messageAsJSON, err := formatMessage(m)
-	if err != nil {
-		slog.Error("Error while formatting message", "error", err)
-		return "", err
-	}
-
 	chatHistory, err := getLastNMessagesFromDatabase(m, 30)
 	if err != nil {
 		slog.Error("Error while getting chat history", "error", err)
 		chatHistory = []LLMChatMessage{}
 	}
 
-	systemMessage := openai.SystemMessage(`
+	systemMessage := `
 			Du bist ein Discord Chatbot.
 			Du befindest dich aktuell im Channel + ` + util.GetChannelName(discordSession, m.ChannelID) + ` + auf dem Server + ` + util.GetGuildName(discordSession, m.GuildID) + ` +.
 			Die Nachrichten werden im folgenden Format übergeben:
@@ -231,8 +226,9 @@ func generateAnswer(m *discordgo.MessageCreate) (string, error) {
 			Vermeide Füllwörter und Interjektionen.
 			Gestalte deine Antwort nach dieser verhaltensweise: ` + shuffledBehaviors[0] + `.
 			` + grammarBehavior + `
-			` + responseMentioned)
-	messages := []openai.ChatCompletionMessageParamUnion{systemMessage}
+			` + responseMentioned
+	messages := []openai.ChatCompletionMessageParamUnion{}
+	messages = append(messages, openai.SystemMessage(systemMessage))
 
 	for _, message := range chatHistory {
 		if message.UserID == discordSession.State.User.ID {
@@ -242,7 +238,7 @@ func generateAnswer(m *discordgo.MessageCreate) (string, error) {
 		}
 	}
 
-	messages = append(messages, openai.ChatCompletionMessageParamUnion(openai.UserMessage(messageAsJSON)))
+	messages = append(messages, openai.ChatCompletionMessageParamUnion(openai.UserMessage(m.Message.Content)))
 
 	chatCompletion, err := openaiClient.Chat.Completions.New(context.TODO(), openai.ChatCompletionNewParams{
 		Messages: openai.F(messages),

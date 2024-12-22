@@ -68,7 +68,17 @@ func addMessageToDatabase(m *discordgo.MessageCreate) {
 }
 
 func getLastNMessagesFromDatabase(m *discordgo.MessageCreate, n int) ([]LLMChatMessage, error) {
-	stmt, err := database.Prepare("SELECT * FROM chat_history WHERE channel_id = ? ORDER BY timestamp DESC LIMIT ?")
+	stmt, err := database.Prepare(`
+	SELECT *
+	FROM (
+	    SELECT *
+	    FROM chat_history
+	    WHERE channel_id = ?
+	    ORDER BY timestamp DESC
+	    LIMIT ?
+    ) AS subquery
+	ORDER BY timestamp ASC;
+	`)
 	if err != nil {
 		slog.Error("Error while preparing statement", "error", err)
 		return nil, err
