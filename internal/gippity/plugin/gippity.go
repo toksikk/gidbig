@@ -58,11 +58,10 @@ var userMessageCountLastReset map[string]time.Time
 // Start the plugin
 func Start(discord *discordgo.Session) {
 	slog.Info("Starting plugin.", "plugin", PluginName)
+	initDB()
 
 	userMessageCount = make(map[string]int, 0)
 	userMessageCountLastReset = make(map[string]time.Time, 0)
-
-	loadChatHistory()
 
 	openaiClient = openai.NewClient() // option.WithAPIKey defaults to os.LookupEnv("OPENAI_API_KEY")
 
@@ -72,22 +71,17 @@ func Start(discord *discordgo.Session) {
 }
 
 func formatMessage(msg *discordgo.MessageCreate) (string, error) {
-	channel, err := discordSession.Channel(msg.ChannelID)
-	channelName := ""
-	if err != nil {
-		slog.Info("Error while getting channel", "error", err)
-		channelName = msg.ChannelID
-	} else {
-		channelName = channel.Name
-	}
-
-	messageStruct := chatMessage{
-		Username:    msg.Author.Username,
-		UserID:      msg.Author.ID,
-		ChannelID:   msg.ChannelID,
-		ChannelName: channelName,
-		Timestamp:   msg.Timestamp.Unix(),
-		Message:     msg.Content,
+	messageStruct := LLMChatMessage{
+		UserID:          msg.Author.ID,
+		Username:        msg.Author.Username,
+		ChannelID:       msg.ChannelID,
+		ChannelName:     util.GetChannelName(discordSession, msg.ChannelID),
+		Timestamp:       util.GetTimestampOfMessage(msg.ID).Unix(),
+		TimestampString: util.GetTimestampOfMessage(msg.ID).Format("2006-01-02 15:04:05"),
+		Message:         msg.Content,
+		MessageID:       msg.ID,
+		GuildID:         msg.GuildID,
+		GuildName:       util.GetGuildName(discordSession, msg.GuildID),
 	}
 
 	jsonData, err := json.Marshal(messageStruct)
@@ -95,30 +89,6 @@ func formatMessage(msg *discordgo.MessageCreate) (string, error) {
 		return "", err
 	}
 	return string(jsonData), nil
-}
-
-// nolint: unused
-func getBotDisplayName(m *discordgo.MessageCreate) string {
-	botDisplayNames := getBotDisplayNames()
-	if botDisplayNames[m.GuildID] == "" {
-		return "Gidbig"
-	}
-	return botDisplayNames[m.GuildID]
-}
-
-func getBotDisplayNames() map[string]string {
-	guilds := discordSession.State.Guilds
-	botUserID := discordSession.State.User.ID
-	allBotDisplayNames := make(map[string]string)
-	for _, guild := range guilds {
-		botGuildMember, err := discordSession.GuildMember(guild.ID, botUserID)
-		if err != nil {
-			slog.Info("Error while getting bot member", "error", err)
-			continue
-		}
-		allBotDisplayNames[guild.ID] = botGuildMember.Nick
-	}
-	return allBotDisplayNames
 }
 
 func isLimitedUser(m *discordgo.MessageCreate) bool {
@@ -189,7 +159,7 @@ func limited(m *discordgo.MessageCreate) bool {
 }
 
 func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
-	addMessage(m)
+	addMessageToDatabase(m)
 
 	if limited(m) {
 		return
@@ -221,23 +191,10 @@ func isMentioned(m *discordgo.MessageCreate) bool {
 }
 
 func generateAnswer(m *discordgo.MessageCreate) (string, error) {
-	allBotNames := getBotDisplayNames()
-	// TODO: write a string for chatCompletion in human language that describes all bot names and their respective guilds
-	botNames := ""
-	for guildID, botName := range allBotNames {
-		botNames += botName + " in " + guildID + ". "
-	}
-	// behaviorPicker := rand.Intn(len(behavior))
-	// make a list of all behaviors comma separated
 	shuffledBehaviors := behaviorPool
-	// Shuffle the behaviors
 	rand.Shuffle(len(shuffledBehaviors), func(i, j int) {
 		shuffledBehaviors[i], shuffledBehaviors[j] = shuffledBehaviors[j], shuffledBehaviors[i]
 	})
-	// Choose a random subset of behaviors
-	// subsetSize := rand.Intn(len(shuffledBehaviors)) + 1
-	// subset := shuffledBehaviors[:subsetSize]
-	// behaviors := strings.Join(subset, ", ")
 
 	responseMentioned := "Diese Nachricht ist nicht an dich direkt gerichtet, aber du antwortest bitte dennoch darauf, damit das Gespräch weitergeführt wird."
 	if isMentioned(m) {
@@ -249,69 +206,51 @@ func generateAnswer(m *discordgo.MessageCreate) (string, error) {
 		grammarBehavior = "Mache auf Grammatik und Rechtschreibfehler aufmerksam. Mache dich über den Fehler lustig."
 	}
 
-	// chatHistorySummary := generateHistorySummary()
-	// if chatHistorySummary == "" {
-	// 	chatHistorySummary = "Es gab keine vorherigen Nachrichten."
-	// }
-
-	// create a copy of msgHistory but without the last message
-	msgHistoryCopy := chatHistory
-	if len(msgHistoryCopy.ChatMessages) > 0 {
-		msgHistoryCopy.ChatMessages = msgHistoryCopy.ChatMessages[:len(msgHistoryCopy.ChatMessages)-1]
-	}
-
-	chatHistorySummary, err := getMessageHistoryAsJSON(msgHistoryCopy)
-	if err != nil {
-		slog.Info("Error while getting message history as JSON", "error", err)
-		chatHistorySummary = "Es gab keine vorherigen Nachrichten."
-	}
-
 	messageAsJSON, err := formatMessage(m)
 	if err != nil {
-		slog.Info("Error while formatting message", "error", err)
+		slog.Error("Error while formatting message", "error", err)
 		return "", err
 	}
 
-	// if err != nil {
-	// 	slog.Info("Error while formatting message", "error", err)
-	// 	return "", err
-	// }
+	chatHistory, err := getLastNMessagesFromDatabase(m, 30)
+	if err != nil {
+		slog.Error("Error while getting chat history", "error", err)
+		chatHistory = []LLMChatMessage{}
+	}
 
-	// messageSummary := generateMessageSummary(messageAsJSON)
-
-	// if messageSummary == "" {
-	// 	return "", errors.New("Message summary is empty")
-	// }
-
-	systemMessage := `
-			Du bist ein Discord Chatbot in einem Channel mit vielen verschiedenen Nutzern, auf mehreren Servern (auch Gilden genannt) und jeweils mit mehreren Textkanälen.
-			Du kannst auf Servern unterschiedliche Namen haben.
-			Deine Namen auf den jeweiligen Servern sind: ` + botNames + `
+	systemMessage := openai.SystemMessage(`
+			Du bist ein Discord Chatbot.
+			Die Nachrichten werden im folgenden Format übergeben:
+			[Name des Benutzers] schrieb in [Name des Kanals] in [Name des Servers] um [Uhrzeit]: [Nachricht]
 			Antworte so kurz wie möglich.
 			Deine Antworten sollen maximal 100 Wörter haben.
 			Stelle keine Fragen, außer du wirst dazu aufgefordert.
 			Vermeide Füllwörter und Interjektionen.
 			Gestalte deine Antwort nach dieser verhaltensweise: ` + shuffledBehaviors[0] + `.
 			` + grammarBehavior + `
-			` + responseMentioned + `
-			Dies ist der bisherige Chatverlauf: ` + chatHistorySummary
-			// + `Noch ältere Verläufe als Zusammenfassung: ` + chatHistory.LongtermMemory
+			` + responseMentioned)
+	messages := []openai.ChatCompletionMessageParamUnion{systemMessage}
+
+	for _, message := range chatHistory {
+		if message.UserID == discordSession.State.User.ID {
+			messages = append(messages, openai.ChatCompletionMessageParamUnion(openai.AssistantMessage(convertLLMChatMessageToLLMCompatibleFlowingText(message))))
+		} else {
+			messages = append(messages, openai.ChatCompletionMessageParamUnion(openai.UserMessage(convertLLMChatMessageToLLMCompatibleFlowingText(message))))
+		}
+	}
+
+	messages = append(messages, openai.ChatCompletionMessageParamUnion(openai.UserMessage(messageAsJSON)))
 
 	chatCompletion, err := openaiClient.Chat.Completions.New(context.TODO(), openai.ChatCompletionNewParams{
-		Messages: openai.F([]openai.ChatCompletionMessageParamUnion{
-			openai.ChatCompletionMessageParamUnion(openai.SystemMessage(systemMessage)),
-			openai.ChatCompletionMessageParamUnion(openai.UserMessage(messageAsJSON)),
-		}),
-		Model: openai.F(openai.ChatModelGPT4oMini),
-		N:     openai.Int(1),
+		Messages: openai.F(messages),
+		Model:    openai.F(openai.ChatModelGPT4oMini),
+		N:        openai.Int(1),
 	})
 
 	if err != nil {
-		slog.Info("Error while getting completion", "error", err)
+		slog.Error("Error while getting completion", "error", err)
 		return "", err
 	}
-
-	slog.Info("Chat completion", "completion", chatCompletion)
 
 	return chatCompletion.Choices[0].Message.Content, nil
 }

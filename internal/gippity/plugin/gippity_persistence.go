@@ -1,110 +1,114 @@
 package gbpgippity
 
 import (
-	"encoding/json"
+	"database/sql"
 	"log/slog"
-	"os"
 
 	"github.com/bwmarrin/discordgo"
+	// sqlite3 driver
+	_ "github.com/mattn/go-sqlite3"
+	"github.com/toksikk/gidbig/internal/util"
 )
 
-type chatMessage struct {
-	Username    string `json:"username"`
-	UserID      string `json:"user_id"`
-	ChannelID   string `json:"channel_id"`
-	ChannelName string `json:"channel_name"`
-	Timestamp   int64  `json:"timestamp"`
-	Message     string `json:"message"`
+// ChatMessage represents a chat message
+type ChatMessage struct {
+	UserID    string
+	ChannelID string
+	Timestamp int64
+	MessageID string
+	Message   string
+	GuildID   string
 }
 
-type chatMessageHistory struct {
-	ChatMessages   []chatMessage `json:"messages"`
-	LongtermMemory string        `json:"longterm_memory"`
+// LLMChatMessage represents a chat message in a human readable format
+type LLMChatMessage struct {
+	UserID          string
+	Username        string
+	ChannelID       string
+	ChannelName     string
+	Timestamp       int64
+	TimestampString string
+	MessageID       string
+	Message         string
+	GuildID         string
+	GuildName       string
 }
 
-const maxChatMessagesInHistory = 30
-const chatHistoryFilename = "message_history.json"
+const chatHistoryDBFilename = "gippity_history.db"
 
-var chatHistory chatMessageHistory
+var database *sql.DB
 
-func loadChatHistory() {
-	file, err := os.Open(chatHistoryFilename)
+func initDB() {
+	var err error
+	database, err = sql.Open("sqlite3", chatHistoryDBFilename)
 	if err != nil {
-		chatHistory = chatMessageHistory{ChatMessages: make([]chatMessage, 0)}
-		slog.Warn("Error while loading last messages", "error", err)
-		return
-	}
-	defer file.Close()
-
-	decoder := json.NewDecoder(file)
-	err = decoder.Decode(&chatHistory)
-	if err != nil {
-		slog.Warn("Error while loading last messages", "error", err)
-	}
-}
-
-func saveChatHistory() {
-	file, err := os.Create(chatHistoryFilename)
-	if err != nil {
-		slog.Warn("Error while saving last messages", "error", err)
-		return
-	}
-	defer file.Close()
-
-	encoder := json.NewEncoder(file)
-	err = encoder.Encode(chatHistory)
-	if err != nil {
-		slog.Warn("Error while saving last messages", "error", err)
-	}
-}
-
-func addMessage(m *discordgo.MessageCreate) {
-	if m.Author.Bot && m.Author.ID != discordSession.State.User.ID {
+		slog.Error("Error while opening database", "error", err)
 		return
 	}
 
-	if len(chatHistory.ChatMessages) >= maxChatMessagesInHistory {
-		// createNewLongtermMemory()
-		chatHistory.ChatMessages = chatHistory.ChatMessages[1:]
-	}
-	author := m.Author.Username
-	if m.Member != nil {
-		author = m.Member.Nick
-	}
-	channel, err := discordSession.Channel(m.ChannelID)
-	channelName := ""
+	// create new table chat_history if it does not exist, without using struct
+	_, err = database.Exec(`CREATE TABLE IF NOT EXISTS chat_history (user_id text, channel_id text, timestamp integer, message text, message_id text, guild_id text)`)
 	if err != nil {
-		slog.Info("Error while getting channel", "error", err)
-		channelName = m.ChannelID
-	} else {
-		channelName = channel.Name
+		slog.Error("Error while creating table", "error", err)
 	}
-
-	chatHistory.ChatMessages = append(chatHistory.ChatMessages, chatMessage{
-		Username:    author,
-		UserID:      m.Author.ID,
-		ChannelID:   m.ChannelID,
-		ChannelName: channelName,
-		Timestamp:   m.Timestamp.Unix(),
-		Message:     m.Content,
-	})
-
-	saveChatHistory()
 }
 
-func getMessageHistoryAsJSON(history chatMessageHistory) (string, error) {
-	jsonData, err := json.Marshal(history)
+func addMessageToDatabase(m *discordgo.MessageCreate) {
+	stmt, err := database.Prepare("INSERT INTO chat_history (user_id, channel_id, timestamp, message, message_id, guild_id) VALUES (?, ?, ?, ?, ?, ?)")
 	if err != nil {
-		return "", err
+		slog.Error("Error while preparing statement", "error", err)
+		return
 	}
-	return string(jsonData), nil
+	defer stmt.Close()
+
+	_, err = stmt.Exec(m.Author.ID, m.ChannelID, util.GetTimestampOfMessage(m.ID).Unix(), m.Content, m.ID, m.GuildID)
+	if err != nil {
+		slog.Error("Error while inserting message into database", "error", err)
+	}
 }
 
-// nolint: unused
-func getOldestChatMessageAsJSON(history chatMessageHistory) (string, error) {
-	jsonData, err := json.Marshal(history.ChatMessages[0])
+func getLastNMessagesFromDatabase(m *discordgo.MessageCreate, n int) ([]LLMChatMessage, error) {
+	stmt, err := database.Prepare("SELECT * FROM chat_history WHERE channel_id = ? ORDER BY timestamp DESC LIMIT ?")
 	if err != nil {
-		return "", err
+		slog.Error("Error while preparing statement", "error", err)
+		return nil, err
 	}
-	return string(jsonData), nil
+	defer stmt.Close()
+
+	rows, err := stmt.Query(m.ChannelID, n)
+	if err != nil {
+		slog.Error("Error while querying database", "error", err)
+		return nil, err
+	}
+	defer rows.Close()
+
+	var messages []ChatMessage
+	for rows.Next() {
+		var message ChatMessage
+		err = rows.Scan(&message.UserID, &message.ChannelID, &message.Timestamp, &message.Message, &message.MessageID, &message.GuildID)
+		if err != nil {
+			slog.Error("Error while scanning row", "error", err)
+			return nil, err
+		}
+		messages = append(messages, message)
+	}
+
+	var llmMessages []LLMChatMessage
+	for _, message := range messages {
+		llmMessage := LLMChatMessage{
+			UserID:          message.UserID,
+			Username:        util.GetUsernameInGuild(discordSession, m),
+			ChannelID:       message.ChannelID,
+			ChannelName:     util.GetChannelName(discordSession, message.ChannelID),
+			Timestamp:       message.Timestamp,
+			TimestampString: util.GetTimestampOfMessage(message.MessageID).Format("2006-01-02 15:04:05"),
+			MessageID:       message.MessageID,
+			Message:         message.Message,
+			GuildID:         message.GuildID,
+			GuildName:       util.GetGuildName(discordSession, message.GuildID),
+		}
+		llmMessages = append(llmMessages, llmMessage)
+	}
+
+	return llmMessages, nil
 }
