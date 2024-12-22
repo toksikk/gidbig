@@ -69,9 +69,9 @@ func addMessageToDatabase(m *discordgo.MessageCreate) {
 
 func getLastNMessagesFromDatabase(m *discordgo.MessageCreate, n int) ([]LLMChatMessage, error) {
 	stmt, err := database.Prepare(`
-	SELECT *
+	SELECT user_id, channel_id, timestamp, message, message_id, guild_id
 	FROM (
-	    SELECT *
+	    SELECT user_id, channel_id, timestamp, message, message_id, guild_id
 	    FROM chat_history
 	    WHERE channel_id = ?
 	    ORDER BY timestamp DESC
@@ -92,7 +92,7 @@ func getLastNMessagesFromDatabase(m *discordgo.MessageCreate, n int) ([]LLMChatM
 	}
 	defer rows.Close()
 
-	var messages []ChatMessage
+	var llmMessages []LLMChatMessage
 	for rows.Next() {
 		var message ChatMessage
 		err = rows.Scan(&message.UserID, &message.ChannelID, &message.Timestamp, &message.Message, &message.MessageID, &message.GuildID)
@@ -100,11 +100,7 @@ func getLastNMessagesFromDatabase(m *discordgo.MessageCreate, n int) ([]LLMChatM
 			slog.Error("Error while scanning row", "error", err)
 			return nil, err
 		}
-		messages = append(messages, message)
-	}
 
-	var llmMessages []LLMChatMessage
-	for _, message := range messages {
 		llmMessage := LLMChatMessage{
 			UserID:          message.UserID,
 			Username:        util.GetUsernameInGuild(discordSession, m),
