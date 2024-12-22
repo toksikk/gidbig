@@ -137,9 +137,7 @@ func limited(m *discordgo.MessageCreate) bool {
 }
 
 func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
-	s.ChannelTyping(m.ChannelID) //nolint:errcheck
 	addMessageToDatabase(m)
-
 	if limited(m) {
 		return
 	}
@@ -170,6 +168,7 @@ func isMentioned(m *discordgo.MessageCreate) bool {
 }
 
 func generateAnswer(m *discordgo.MessageCreate) (string, error) {
+	discordSession.ChannelTyping(m.ChannelID) //nolint:errcheck
 	shuffledBehaviors := behaviorPool
 	rand.Shuffle(len(shuffledBehaviors), func(i, j int) {
 		shuffledBehaviors[i], shuffledBehaviors[j] = shuffledBehaviors[j], shuffledBehaviors[i]
