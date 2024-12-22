@@ -219,10 +219,10 @@ func generateAnswer(m *discordgo.MessageCreate) (string, error) {
 	}
 
 	systemMessage := openai.SystemMessage(`
-			Du bist ein Discord Chatbot.
+			Du bist ein Discord Chatbot. Du befindest dich aktuell in + ` + util.GetChannelName(discordSession, m.ChannelID) + ` + auf dem Server + ` + util.GetGuildName(discordSession, m.GuildID) + ` +.
 			Die Nachrichten werden im folgenden Format übergeben:
-			[Name des Benutzers] schrieb in [Name des Kanals] in [Name des Servers] um [Uhrzeit]: [Nachricht]
-			Deine Antworten darf nicht in diesem Format sein. Deine Antwort müssen dieses Format haben:
+			[Uhrzeit] [Name des Benutzers]: [Nachricht]
+			Deine Antwort muss dieses Format haben:
 			[Nachricht]
 			Antworte so kurz wie möglich.
 			Deine Antworten sollen maximal 100 Wörter haben.

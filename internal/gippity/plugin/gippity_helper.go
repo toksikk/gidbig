@@ -16,5 +16,5 @@ func convertLLMChatMessageToJSON(message LLMChatMessage) string {
 }
 
 func convertLLMChatMessageToLLMCompatibleFlowingText(message LLMChatMessage) string {
-	return message.Username + " schrieb in " + message.ChannelName + " in " + message.GuildName + " um " + message.TimestampString + ": " + message.Message
+	return message.TimestampString + " " + message.Username + ": " + message.Message
 }
