@@ -34,7 +34,7 @@ type LLMChatMessage struct {
 	GuildName       string
 }
 
-const chatHistoryDBFilename = "gippity_history.db"
+const chatHistoryDBFilename = "gippity.db"
 
 var database *sql.DB
 

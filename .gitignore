@@ -8,4 +8,4 @@ config.yaml
 bin
 plugins/*
 !plugins/README.md
-gippity_history.db
+gippity.db
