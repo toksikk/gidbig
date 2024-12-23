@@ -217,7 +217,7 @@ func generateAnswer(m *discordgo.MessageCreate) (string, error) {
 	// TODO: this could potentially if we chose to no include user ids in message later
 	messages = append(messages, openai.ChatCompletionMessageParamUnion(openai.UserMessage(
 		replaceAllUserIDsWithUsernamesInStringMessage(
-			convertStringMessageToLLMCompatibleFlowingText(m.Content, m.Author.Username, m.Timestamp.Format("2006-01-02 15:04:05")), m.GuildID))))
+			convertDiscordMessageToLLMCompatibleFlowingText(m), m.GuildID))))
 
 	chatCompletion, err := openaiClient.Chat.Completions.New(context.TODO(), openai.ChatCompletionNewParams{
 		Messages: openai.F(messages),

@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/bwmarrin/discordgo"
 	"github.com/toksikk/gidbig/internal/util"
 )
 
@@ -23,11 +24,14 @@ func convertLLMChatMessageToLLMCompatibleFlowingText(message LLMChatMessage) str
 	return message.TimestampString + " " + message.Username + ": " + message.Message
 }
 
-func convertStringMessageToLLMCompatibleFlowingText(message string, username string, timestamp string) string {
+func convertDiscordMessageToLLMCompatibleFlowingText(m *discordgo.MessageCreate) string {
+	if iDtoNameCache[m.Author.ID] == "" {
+		iDtoNameCache[m.Author.ID] = util.GetUsernameInGuild(discordSession, m)
+	}
 	llmChatMessage := LLMChatMessage{
-		Message:         message,
-		Username:        username,
-		TimestampString: timestamp,
+		Message:         m.Message.Content,
+		Username:        iDtoNameCache[m.Author.ID],
+		TimestampString: m.Timestamp.Format("2006-01-02 15:04:05"),
 	}
 	return convertLLMChatMessageToLLMCompatibleFlowingText(llmChatMessage)
 }
