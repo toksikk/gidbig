@@ -23,6 +23,15 @@ func convertLLMChatMessageToLLMCompatibleFlowingText(message LLMChatMessage) str
 	return message.TimestampString + " " + message.Username + ": " + message.Message
 }
 
+func convertStringMessageToLLMCompatibleFlowingText(message string, username string, timestamp string) string {
+	llmChatMessage := LLMChatMessage{
+		Message:         message,
+		Username:        username,
+		TimestampString: timestamp,
+	}
+	return convertLLMChatMessageToLLMCompatibleFlowingText(llmChatMessage)
+}
+
 func replaceAllUserIDsWithUsernamesInMessage(message *LLMChatMessage) {
 	regexp := regexp.MustCompile("<@!?(\\d+)>") // nolint:gosimple
 	matches := regexp.FindAllStringSubmatch(message.Message, -1)
