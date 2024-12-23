@@ -24,7 +24,7 @@ func convertLLMChatMessageToLLMCompatibleFlowingText(message LLMChatMessage) str
 }
 
 func replaceAllUserIDsWithUsernamesInMessage(message *LLMChatMessage) {
-	regexp := regexp.MustCompile(`<@!?(\\d+)>`)
+	regexp := regexp.MustCompile("<@!?(\\d+)>") // nolint:gosimple
 	matches := regexp.FindAllStringSubmatch(message.Message, -1)
 	idToName := make(map[string]string)
 
@@ -45,4 +45,13 @@ func replaceAllUserIDsWithUsernamesInMessage(message *LLMChatMessage) {
 	for fullMatch, username := range idToName {
 		message.Message = strings.ReplaceAll(message.Message, fullMatch, username)
 	}
+}
+
+func replaceAllUserIDsWithUsernamesInStringMessage(message string, guildid string) string {
+	llmChatMessage := LLMChatMessage{
+		Message: message,
+		GuildID: guildid,
+	}
+	replaceAllUserIDsWithUsernamesInMessage(&llmChatMessage)
+	return llmChatMessage.Message
 }

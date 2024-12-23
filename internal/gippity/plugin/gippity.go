@@ -201,7 +201,7 @@ func generateAnswer(m *discordgo.MessageCreate) (string, error) {
 			Deine Antworten sollen maximal 100 Wörter haben.
 			Stelle keine Fragen, außer du wirst dazu aufgefordert.
 			Vermeide Füllwörter und Interjektionen.
-			Gestalte deine Antwort nach dieser verhaltensweise: ` + shuffledBehaviors[0] + `.
+			Gestalte deine Antwort nach dieser Verhaltensweise: ` + shuffledBehaviors[0] + `.
 			` + grammarBehavior + `
 			` + responseMentioned
 	messages := []openai.ChatCompletionMessageParamUnion{}
@@ -216,7 +216,7 @@ func generateAnswer(m *discordgo.MessageCreate) (string, error) {
 		}
 	}
 
-	messages = append(messages, openai.ChatCompletionMessageParamUnion(openai.UserMessage(m.Message.Content)))
+	messages = append(messages, openai.ChatCompletionMessageParamUnion(openai.UserMessage(replaceAllUserIDsWithUsernamesInStringMessage(m.Message.Content, m.GuildID))))
 
 	chatCompletion, err := openaiClient.Chat.Completions.New(context.TODO(), openai.ChatCompletionNewParams{
 		Messages: openai.F(messages),
