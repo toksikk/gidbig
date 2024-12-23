@@ -180,7 +180,7 @@ func generateAnswer(m *discordgo.MessageCreate) (string, error) {
 	}
 
 	grammarBehavior := "Korrigiere niemals Rechtschreib- oder Grammatikfehler."
-	if rand.Intn(99) < 5 {
+	if rand.Intn(99) < 10 {
 		grammarBehavior = "Mache auf Grammatik und Rechtschreibfehler aufmerksam. Mache dich über den Fehler lustig."
 	}
 
