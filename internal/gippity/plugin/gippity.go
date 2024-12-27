@@ -59,6 +59,8 @@ func Start(discord *discordgo.Session) {
 	slog.Info("Starting plugin.", "plugin", PluginName)
 	initDB()
 
+	go idToNameCacheResetLoop()
+
 	userMessageCount = make(map[string]int, 0)
 	userMessageCountLastReset = make(map[string]time.Time, 0)
 
@@ -67,6 +69,13 @@ func Start(discord *discordgo.Session) {
 	discordSession = discord
 
 	discord.AddHandler(onMessageCreate)
+}
+
+func idToNameCacheResetLoop() {
+	for {
+		time.Sleep(12 * time.Hour)
+		iDtoNameCache = make(map[string]string)
+	}
 }
 
 func isLimitedUser(m *discordgo.MessageCreate) bool {
@@ -137,21 +146,57 @@ func limited(m *discordgo.MessageCreate) bool {
 }
 
 func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
+	slog.Debug("Message received", "message", m.Content)
+	if slog.Default().Enabled(context.Background(), slog.LevelDebug) {
+		slog.Info("Debug mode enabled")
+		if m.ChannelID != "954388765877612575" { // for debugging / developing
+			slog.Debug("Ignoring message", "channel", m.ChannelID)
+			return
+		}
+	}
 	addMessageToDatabase(m)
 	if limited(m) {
 		return
 	}
 
-	generatedAnswer, err := generateAnswer(m)
-	if err != nil {
-		slog.Error("Could not generate answer")
-		return
+	var generatedAnswer string
+	var err error
+
+	if len(m.Attachments) > 0 && m.Content != "" {
+		slog.Debug("Message has attachments and content")
+		var imageURLs []string
+		for _, attachment := range m.Attachments {
+			slog.Debug("Attachment", "attachment", attachment)
+			if attachment.Filename[len(attachment.Filename)-3:] == "jpg" || attachment.Filename[len(attachment.Filename)-4:] == "jpeg" || attachment.Filename[len(attachment.Filename)-3:] == "png" || attachment.Filename[len(attachment.Filename)-4:] == "webp" {
+				imageURLs = append(imageURLs, attachment.URL)
+			}
+		}
+		if len(imageURLs) != 0 {
+			slog.Debug("Message has image attachments")
+			generatedAnswer, err = generateAnswer(m, imageURLs)
+			if err != nil {
+				slog.Error("Could not generate answer")
+				return
+			}
+		}
 	}
 
-	_, err = s.ChannelMessageSend(m.ChannelID, generatedAnswer)
+	if len(m.Attachments) == 0 && m.Content != "" {
+		slog.Debug("Message has content but no attachments")
+		generatedAnswer, err = generateAnswer(m, nil)
+		if err != nil {
+			slog.Error("Could not generate answer")
+			return
+		}
+	}
+	slog.Debug("Generated answer", "answer", generatedAnswer)
 
-	if err != nil {
-		slog.Info("Error while sending message", "error", err)
+	if generatedAnswer != "" {
+		_, err = s.ChannelMessageSend(m.ChannelID, generatedAnswer)
+
+		if err != nil {
+			slog.Info("Error while sending message", "error", err)
+		}
 	}
 }
 
@@ -167,7 +212,7 @@ func isMentioned(m *discordgo.MessageCreate) bool {
 	return false
 }
 
-func generateAnswer(m *discordgo.MessageCreate) (string, error) {
+func generateAnswer(m *discordgo.MessageCreate, imageURLs []string) (string, error) {
 	discordSession.ChannelTyping(m.ChannelID) //nolint:errcheck
 	shuffledBehaviors := behaviorPool
 	rand.Shuffle(len(shuffledBehaviors), func(i, j int) {
@@ -214,16 +259,32 @@ func generateAnswer(m *discordgo.MessageCreate) (string, error) {
 		}
 	}
 
-	// TODO: this could potentially if we chose to no include user ids in message later
-	messages = append(messages, openai.ChatCompletionMessageParamUnion(openai.UserMessage(
-		replaceAllUserIDsWithUsernamesInStringMessage(
-			convertDiscordMessageToLLMCompatibleFlowingText(m), m.GuildID))))
+	for _, imageURL := range imageURLs {
+		slog.Debug("Adding image to messages", "imageURL", imageURL)
+		image := openai.ImagePart(imageURL)
+		messages = append(messages, openai.ChatCompletionMessageParamUnion(openai.UserMessageParts(image)))
+	}
 
-	chatCompletion, err := openaiClient.Chat.Completions.New(context.TODO(), openai.ChatCompletionNewParams{
+	if m.Content == "" {
+		// TODO: this could potentially break if we chose to no include user ids in message later
+		messages = append(messages, openai.ChatCompletionMessageParamUnion(openai.UserMessage(
+			replaceAllUserIDsWithUsernamesInStringMessage(
+				convertDiscordMessageToLLMCompatibleFlowingText(m), m.GuildID))))
+	}
+
+	if slog.Default().Enabled(context.Background(), slog.LevelDebug) {
+		for _, message := range messages {
+			slog.Debug("Message", "message", message)
+		}
+	}
+
+	chatCompletion, err := openaiClient.Chat.Completions.New(context.Background(), openai.ChatCompletionNewParams{
 		Messages: openai.F(messages),
 		Model:    openai.F(openai.ChatModelGPT4oMini),
 		N:        openai.Int(1),
 	})
+
+	slog.Debug("Chat completion", "chatCompletion", chatCompletion)
 
 	if err != nil {
 		slog.Error("Error while getting completion", "error", err)

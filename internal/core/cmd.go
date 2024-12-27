@@ -292,6 +292,7 @@ func StartGidbig() {
 	Banner(banner, *gbploader.GetLoadedPlugins())
 	slog.Info("Dev Mode", "enabled", conf.DevMode)
 	if conf.DevMode {
+		slog.SetLogLoggerLevel(slog.LevelDebug)
 		notifyOwner("```I just started!\n" + banner.String() + "```")
 		setStartedStatus()
 	}
