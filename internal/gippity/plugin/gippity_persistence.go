@@ -47,7 +47,6 @@ func initDB() {
 		return
 	}
 
-	// create new table chat_history if it does not exist, without using struct
 	_, err = database.Exec(`CREATE TABLE IF NOT EXISTS chat_history (user_id text, channel_id text, timestamp integer, message text, message_id text, guild_id text)`)
 	if err != nil {
 		slog.Error("Error while creating table", "error", err)
