@@ -29,7 +29,6 @@ require (
 	github.com/gorilla/securecookie v1.1.2 // indirect
 	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/openai/openai-go v0.1.0-alpha.38
-	github.com/toksikk/gbp-coffee v0.0.2
 	golang.org/x/crypto v0.30.0 // indirect
 	golang.org/x/sys v0.28.0 // indirect
 )
