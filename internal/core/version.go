@@ -62,23 +62,25 @@ func Banner(w io.Writer, loadedPlugins map[string][2]string) {
 		}
 	}
 
-	var pluginNames []string
-	for k := range loadedPlugins {
-		pluginNames = append(pluginNames, k)
-	}
-	sort.Strings(pluginNames)
+	if len(loadedPlugins) > 0 {
+		var pluginNames []string
+		for k := range loadedPlugins {
+			pluginNames = append(pluginNames, k)
+		}
+		sort.Strings(pluginNames)
 
-	if withoutWriter {
-		fmt.Printf("%s", bannerLoadedPlugins[0])
-	} else {
-		fmt.Fprintf(w, "%s", bannerLoadedPlugins[0])
-	}
-
-	for _, v := range pluginNames {
 		if withoutWriter {
-			fmt.Printf(bannerLoadedPlugins[1], v, loadedPlugins[v][0], loadedPlugins[v][1])
+			fmt.Printf("%s", bannerLoadedPlugins[0])
 		} else {
-			fmt.Fprintf(w, bannerLoadedPlugins[1], v, loadedPlugins[v][0], loadedPlugins[v][1])
+			fmt.Fprintf(w, "%s", bannerLoadedPlugins[0])
+		}
+
+		for _, v := range pluginNames {
+			if withoutWriter {
+				fmt.Printf(bannerLoadedPlugins[1], v, loadedPlugins[v][0], loadedPlugins[v][1])
+			} else {
+				fmt.Fprintf(w, bannerLoadedPlugins[1], v, loadedPlugins[v][0], loadedPlugins[v][1])
+			}
 		}
 	}
 }

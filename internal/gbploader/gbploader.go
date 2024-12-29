@@ -7,13 +7,12 @@ import (
 	"runtime/debug"
 
 	"github.com/bwmarrin/discordgo"
-	gbp_coffee "github.com/toksikk/gbp-coffee/plugin"
-	gbp_eso "github.com/toksikk/gbp-eso/plugin"
-	gbp_gamerstatus "github.com/toksikk/gbp-gamerstatus/plugin"
-	gbp_leetoclock "github.com/toksikk/gbp-leetoclock/plugin"
-	gbp_stoll "github.com/toksikk/gbp-stoll/plugin"
-	gbp_wttrin "github.com/toksikk/gbp-wttrin/plugin"
-	gbp_gippity "github.com/toksikk/gidbig/internal/gippity"
+	// gbp_coffee "github.com/toksikk/gbp-coffee/plugin"
+	// gbp_eso "github.com/toksikk/gbp-eso/plugin"
+	// gbp_gamerstatus "github.com/toksikk/gbp-gamerstatus/plugin"
+	// gbp_leetoclock "github.com/toksikk/gbp-leetoclock/plugin"
+	// gbp_stoll "github.com/toksikk/gbp-stoll/plugin"
+	// gbp_wttrin "github.com/toksikk/gbp-wttrin/plugin"
 )
 
 var pluginStarter interface { // nolint:unused
@@ -27,6 +26,7 @@ func GetLoadedPlugins() *map[string][2]string {
 	return &loadedPlugins
 }
 
+// nolint:unused
 func loadLibraryPlugin(pluginImportPath string, pluginName string, pluginStartFunction *func(discord *discordgo.Session), discord *discordgo.Session, buildInfo *debug.BuildInfo) {
 	if buildInfo != nil {
 		for _, dep := range buildInfo.Deps {
@@ -55,24 +55,23 @@ func loadLibraryPlugins(discord *discordgo.Session) {
 		slog.Warn("Could not read build info.")
 	}
 
-	slog.Info("Loading built-in plugins...")
+	slog.Info("Loading built-in plugins...", "build", buildInfo)
 
-	coffeeStart := gbp_coffee.Start
-	loadLibraryPlugin("github.com/toksikk/gbp-coffee", gbp_coffee.PluginName, &coffeeStart, discord, buildInfo)
-	gamerstatusStart := gbp_gamerstatus.Start
-	loadLibraryPlugin("github.com/toksikk/gbp-gamerstatus", gbp_gamerstatus.PluginName, &gamerstatusStart, discord, buildInfo)
-	leetoclockStart := gbp_leetoclock.Start
-	loadLibraryPlugin("github.com/toksikk/gbp-leetoclock", gbp_leetoclock.PluginName, &leetoclockStart, discord, buildInfo)
-	stollStart := gbp_stoll.Start
-	loadLibraryPlugin("github.com/toksikk/gbp-stoll", gbp_stoll.PluginName, &stollStart, discord, buildInfo)
-	wttrinStart := gbp_wttrin.Start
-	loadLibraryPlugin("github.com/toksikk/gbp-wttrin", gbp_wttrin.PluginName, &wttrinStart, discord, buildInfo)
-	esoStart := gbp_eso.Start
-	loadLibraryPlugin("github.com/toksikk/gbp-eso", gbp_eso.PluginName, &esoStart, discord, buildInfo)
-	gippityStart := gbp_gippity.Start
-	loadLibraryPlugin("github.com/toksikk/gidbig/plugins/gippity", gbp_gippity.PluginName, &gippityStart, discord, buildInfo)
+	// coffeeStart := gbp_coffee.Start
+	// loadLibraryPlugin("github.com/toksikk/gbp-coffee", gbp_coffee.PluginName, &coffeeStart, discord, buildInfo)
+	// gamerstatusStart := gbp_gamerstatus.Start
+	// loadLibraryPlugin("github.com/toksikk/gbp-gamerstatus", gbp_gamerstatus.PluginName, &gamerstatusStart, discord, buildInfo)
+	// leetoclockStart := gbp_leetoclock.Start
+	// loadLibraryPlugin("github.com/toksikk/gbp-leetoclock", gbp_leetoclock.PluginName, &leetoclockStart, discord, buildInfo)
+	// stollStart := gbp_stoll.Start
+	// loadLibraryPlugin("github.com/toksikk/gbp-stoll", gbp_stoll.PluginName, &stollStart, discord, buildInfo)
+	// wttrinStart := gbp_wttrin.Start
+	// loadLibraryPlugin("github.com/toksikk/gbp-wttrin", gbp_wttrin.PluginName, &wttrinStart, discord, buildInfo)
+	// esoStart := gbp_eso.Start
+	// loadLibraryPlugin("github.com/toksikk/gbp-eso", gbp_eso.PluginName, &esoStart, discord, buildInfo)
 }
 
+// nolint:unused
 func addPluginToLoadedPlugins(pluginName string, pluginVersion string, pluginBuilddate string) {
 	loadedPlugins[pluginName] = [2]string{pluginVersion, pluginBuilddate}
 }

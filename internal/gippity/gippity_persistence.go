@@ -1,4 +1,4 @@
-package gbpgippity
+package gippity
 
 import (
 	"database/sql"

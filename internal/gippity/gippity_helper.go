@@ -1,4 +1,4 @@
-package gbpgippity
+package gippity
 
 import (
 	"encoding/json"

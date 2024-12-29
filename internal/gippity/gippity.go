@@ -1,4 +1,4 @@
-package gbpgippity
+package gippity
 
 import (
 	"log/slog"
@@ -12,9 +12,6 @@ import (
 
 	openai "github.com/openai/openai-go"
 )
-
-// PluginName is the name of the plugin
-var PluginName = "gippity"
 
 var openaiClient *openai.Client
 
@@ -56,7 +53,6 @@ var userMessageCountLastReset map[string]time.Time
 
 // Start the plugin
 func Start(discord *discordgo.Session) {
-	slog.Info("Starting plugin.", "plugin", PluginName)
 	initDB()
 
 	go idToNameCacheResetLoop()
@@ -69,6 +65,7 @@ func Start(discord *discordgo.Session) {
 	discordSession = discord
 
 	discord.AddHandler(onMessageCreate)
+	slog.Info("gippity function registered")
 }
 
 func idToNameCacheResetLoop() {
