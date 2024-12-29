@@ -33,6 +33,9 @@ var (
 
 	// mutex for checking if voice connection already exists
 	mutex = &sync.Mutex{}
+
+	// Start time for uptime calculation
+	startTime = time.Now()
 )
 
 func onReady(s *discordgo.Session, event *discordgo.Ready) {
@@ -57,37 +60,42 @@ func displayBotStats(cid string) {
 		users += len(guild.Members)
 	}
 
-	statusMessage := fmt.Sprintf(`Gidbig: %s
-Discordgo: %s
-Go: %s
+	uptime := time.Since(startTime).Round(time.Second)
+	startDateTime := startTime.Format("2006-01-02 15:04:05")
+
+	statusMessage := fmt.Sprintf(`Gidbig:          %s
+Discordgo:       %s
+Go:              %s
 
 Memory:
-  Alloc: %s
-  Sys: %s
-  TotalAlloc: %s
+  Alloc:         %s
+  Sys:           %s
+  TotalAlloc:    %s
 
 Live Memory Objects:
-  Malloc: %s
-  Frees: %s
+  Malloc:        %s
+  Frees:         %s
 
 Heap:
-  Alloc: %s
-  InUse: %s
-  Sys: %s
+  Alloc:         %s
+  InUse:         %s
+  Sys:           %s
 
 Heap Returnable:
-  HeapIdle: %s
-  HeapReleased: %s
+  HeapIdle:      %s
+  HeapReleased:  %s
 
 Stack:
-  InUse: %s
-  Sys: %s
+  InUse:         %s
+  Sys:           %s
 
 Pointer Lookups: %d
-Tasks: %d
-Servers: %d
-Users: %d
-Plugins: %d
+Tasks:           %d
+Servers:         %d
+Users:           %d
+Plugins:         %d
+
+Uptime:          %s (since %s)
 
 Loaded Plugins:
 `, version, discordgo.VERSION, runtime.Version(),
@@ -96,7 +104,7 @@ Loaded Plugins:
 		humanize.Bytes(stats.HeapAlloc), humanize.Bytes(stats.HeapInuse), humanize.Bytes(stats.HeapSys),
 		humanize.Bytes(stats.HeapIdle), humanize.Bytes(stats.HeapReleased),
 		humanize.Bytes(stats.StackInuse), humanize.Bytes(stats.StackSys),
-		stats.Lookups, runtime.NumGoroutine(), len(discord.State.Ready.Guilds), users, len(*gbploader.GetLoadedPlugins()))
+		stats.Lookups, runtime.NumGoroutine(), len(discord.State.Ready.Guilds), users, len(*gbploader.GetLoadedPlugins()), uptime, startDateTime)
 
 	for n, p := range *gbploader.GetLoadedPlugins() {
 		statusMessage += fmt.Sprintf("%s %s\n", n, p[0])
