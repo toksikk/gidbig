@@ -15,7 +15,13 @@ import (
 	"github.com/bwmarrin/discordgo"
 	humanize "github.com/dustin/go-humanize"
 	"github.com/toksikk/gidbig/internal/cfg"
+	"github.com/toksikk/gidbig/internal/coffee"
+	"github.com/toksikk/gidbig/internal/eso"
+	"github.com/toksikk/gidbig/internal/gamerstatus"
 	"github.com/toksikk/gidbig/internal/gbploader"
+	"github.com/toksikk/gidbig/internal/gippity"
+	"github.com/toksikk/gidbig/internal/leetoclock"
+	"github.com/toksikk/gidbig/internal/stoll"
 )
 
 var (
@@ -281,6 +287,13 @@ func StartGidbig() {
 		os.Exit(1)
 		return
 	}
+
+	coffee.Start(discord)
+	eso.Start(discord)
+	gamerstatus.Start(discord)
+	gippity.Start(discord)
+	leetoclock.Start(discord)
+	stoll.Start(discord)
 
 	gbploader.LoadPlugins(discord)
 

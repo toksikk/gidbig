@@ -1,4 +1,4 @@
-package gbpgippity
+package gippity
 
 // import gbp_wttrin "github.com/toksikk/gbp-wttrin/plugin"
 
