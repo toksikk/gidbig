@@ -116,15 +116,6 @@ Loaded Plugins:
 	}
 }
 
-// Handles bot operator messages, should be refactored (lmao)
-func handleBotControlMessages(s *discordgo.Session, m *discordgo.MessageCreate, parts []string, g *discordgo.Guild) {
-	if len(parts) > 1 {
-		if scontains(parts[1], "status") {
-			displayBotStats(m.ChannelID)
-		}
-	}
-}
-
 func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 	if m.Content == "ping" || m.Content == "pong" {
 		// If the message is "ping" reply with "Pong!"
@@ -186,19 +177,12 @@ func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 	}
 
 	// If this is a mention, it should come from the owner (otherwise we don't care)
-	if len(m.Mentions) > 0 && m.Author.ID == conf.Discord.OwnerID && len(parts) > 0 {
-		mentioned := false
-		for _, mention := range m.Mentions {
-			mentioned = (mention.ID == s.State.Ready.User.ID)
-			if mentioned {
-				break
+	if m.Author.ID == conf.Discord.OwnerID && len(parts) > 0 {
+		if len(parts) == 1 {
+			if scontains(parts[0], "!status") {
+				displayBotStats(m.ChannelID)
 			}
 		}
-
-		if mentioned {
-			handleBotControlMessages(s, m, parts, guild)
-		}
-		return
 	}
 
 	// Find the collection for the command we got
