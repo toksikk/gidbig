@@ -127,7 +127,8 @@ func limited(m *discordgo.MessageCreate) bool {
 		return true
 	}
 
-	if messageCount >= messageGoal {
+	if messageCount >= messageGoal || messageGoal == 0 {
+		// TODO: implement an ignore list to config file
 		if m.GuildID == "125231125961506816" {
 			// they don't want the bot to answer randomly in this guild
 			return true
@@ -264,6 +265,7 @@ func generateAnswer(m *discordgo.MessageCreate, imageURLs []string) (string, err
 
 	if m.Content == "" {
 		// TODO: this could potentially break if we chose to no include user ids in message later
+		// TODO2: we could use m.ContentWithMentionsReplaced() instead of this, but only this, as this is still a raw discord.Message
 		messages = append(messages, openai.ChatCompletionMessageParamUnion(openai.UserMessage(
 			replaceAllUserIDsWithUsernamesInStringMessage(
 				convertDiscordMessageToLLMCompatibleFlowingText(m), m.GuildID))))
