@@ -217,34 +217,19 @@ func generateAnswer(m *discordgo.MessageCreate, imageURLs []string) (string, err
 		shuffledBehaviors[i], shuffledBehaviors[j] = shuffledBehaviors[j], shuffledBehaviors[i]
 	})
 
-	responseMentioned := "Diese Nachricht ist nicht an dich direkt gerichtet, aber du antwortest bitte dennoch darauf, damit das Gespräch weitergeführt wird."
-	if isMentioned(m) {
-		responseMentioned = "Diese Nachricht ist an dich direkt gerichtet."
-	}
-
-	grammarBehavior := "Korrigiere niemals Rechtschreib- oder Grammatikfehler."
-	if rand.Intn(99) < 10 {
-		grammarBehavior = "Mache auf Grammatik und Rechtschreibfehler aufmerksam. Mache dich über den Fehler lustig."
-	}
-
 	chatHistory, err := getLastNMessagesFromDatabase(m, 30)
 	if err != nil {
 		slog.Error("Error while getting chat history", "error", err)
 		chatHistory = []LLMChatMessage{}
 	}
 
-	systemMessage := `
-			Du bist ein Discord Chatbot.
-			Du befindest dich aktuell im Channel ` + util.GetChannelName(discordSession, m.ChannelID) + ` auf dem Server + ` + util.GetGuildName(discordSession, m.GuildID) + ` und sprichst mit mehreren Benutzern gleichzeitig.
-			Die Nachrichten werden im folgenden Format übergeben:
-			[Uhrzeit] [Name des Benutzers]: [Nachricht]
-			Deine Antwort muss dieses Format haben:
-			[Nachricht]
-			Antworte so kurz wie möglich.
-			Deine Antworten sollen maximal 100 Wörter haben.
-			Gestalte deine Antwort nach dieser Verhaltensweise: ` + shuffledBehaviors[0] + `.
-			` + grammarBehavior + `
-			` + responseMentioned
+	systemMessage := `Du bist ein Discord Chatbot mit dem Namen ` + util.GetBotDisplayName(m, discordSession) + `.
+Du befindest dich aktuell im Channel ` + util.GetChannelName(discordSession, m.ChannelID) + ` auf dem Server + ` + util.GetGuildName(discordSession, m.GuildID) + ` und sprichst mit mehreren Benutzern gleichzeitig.
+Die Nachrichten werden im folgenden Format übergeben:
+[Uhrzeit] [Name des Benutzers]: [Nachricht]
+Deine Antwort muss dieses Format haben:
+[Nachricht]
+Antworte so kurz wie möglich.`
 	messages := []openai.ChatCompletionMessageParamUnion{}
 	messages = append(messages, openai.SystemMessage(systemMessage))
 
