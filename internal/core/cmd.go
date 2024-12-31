@@ -189,18 +189,6 @@ func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 	findAndPlaySound(s, m, parts, guild)
 }
 
-func notifyOwner(message string) {
-	// FIXME
-	st, err := discord.UserChannelCreate(conf.Discord.OwnerID)
-	if err != nil {
-		return
-	}
-	msg, err := discord.ChannelMessageSend(st.ID, message)
-	if err != nil {
-		slog.Error("could not send channel message", "message", msg, "error", err)
-	}
-}
-
 func setStartedStatus() {
 	err := discord.UpdateCustomStatus("I just started! " + version + " (" + builddate + ")")
 	if err != nil {
@@ -217,23 +205,26 @@ func deleteCommandMessage(s *discordgo.Session, channelID string, messageID stri
 	}
 }
 
-// StartGidbig obviously
-func StartGidbig() {
-	LogVersion()
-	conf = cfg.GetConfig()
-
-	// set log level to debug if env var is set
-	if os.Getenv("DEBUG") != "" {
-		logLevel := new(slog.LevelVar)
-		logLevel.Set(slog.LevelDebug)
-
-		logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
-			Level: logLevel,
-		}))
-
-		slog.SetDefault(logger)
+func setupLogging(config *cfg.Config) {
+	opts := &slog.HandlerOptions{}
+	var logger *slog.Logger
+	if config.DevMode {
+		opts.Level = slog.LevelDebug
+		opts.AddSource = true
+		slog.Debug("Dev Mode", "devMode", config.DevMode)
+		logger = slog.New(slog.NewTextHandler(os.Stdout, opts))
+	} else {
+		logger = slog.New(slog.NewJSONHandler(os.Stdout, opts))
 	}
 
+	slog.SetDefault(logger)
+}
+
+// StartGidbig obviously
+func StartGidbig() {
+	conf = cfg.GetConfig()
+	setupLogging(conf)
+	LogVersion()
 	var err error
 
 	// create SoundCollections by scanning the audio folder
@@ -295,12 +286,7 @@ func StartGidbig() {
 
 	banner := new(bytes.Buffer)
 	Banner(banner, *gbploader.GetLoadedPlugins())
-	slog.Info("Dev Mode", "enabled", conf.DevMode)
-	if conf.DevMode {
-		slog.SetLogLoggerLevel(slog.LevelDebug)
-		notifyOwner("```I just started!\n" + banner.String() + "```")
-		setStartedStatus()
-	}
+	setStartedStatus()
 
 	// Wait for a signal to quit
 	c := make(chan os.Signal, 1)
