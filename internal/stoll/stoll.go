@@ -30,7 +30,7 @@ func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 		stoll := fmt.Sprintf("%s", line) // nolint:gosimple
 		msg, err := s.ChannelMessageSend(m.ChannelID, stoll)
 		if err == nil {
-			_ = s.MessageReactionAdd(msg.ChannelID, msg.ID, ":stoll:747387878916751421")
+			go s.MessageReactionAdd(msg.ChannelID, msg.ID, ":stoll:747387878916751421") // nolint:errcheck
 		}
 	}
 }

@@ -31,7 +31,7 @@ func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 		)
 		msg, err := s.ChannelMessageSend(m.ChannelID, eso)
 		if err == nil {
-			_ = s.MessageReactionAdd(msg.ChannelID, msg.ID, "🧠")
+			go s.MessageReactionAdd(msg.ChannelID, msg.ID, "🧠") // nolint:errcheck
 		}
 	}
 }
