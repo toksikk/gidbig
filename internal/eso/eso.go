@@ -21,7 +21,14 @@ func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 		return
 	}
 	if strings.ToLower(tok[0]) == "!eso" {
-		eso := fmt.Sprintf("%s%s%s%s%s", ohai[rand.Intn(len(ohai))], buty[rand.Intn(len(buty))], wat[rand.Intn(len(wat))], dointings[rand.Intn(len(dointings))], todotings[rand.Intn(len(todotings))])
+		eso := fmt.Sprintf(
+			"%s%s%s%s%s",
+			ohai[rand.Intn(len(ohai))],
+			buty[rand.Intn(len(buty))],
+			wat[rand.Intn(len(wat))],
+			dointings[rand.Intn(len(dointings))],
+			todotings[rand.Intn(len(todotings))],
+		)
 		msg, err := s.ChannelMessageSend(m.ChannelID, eso)
 		if err == nil {
 			_ = s.MessageReactionAdd(msg.ChannelID, msg.ID, "🧠")
