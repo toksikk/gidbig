@@ -51,6 +51,15 @@ func scontains(key string, options ...string) bool {
 	return false
 }
 
+func displayUptime(channelid string) {
+	uptime := time.Since(startTime).Round(time.Second)
+	startDateTime := startTime.Format("2006-01-02 15:04:05")
+	uptimeMessage := fmt.Sprintf("`Uptime: %s (since %s)`", uptime, startDateTime)
+	if _, err := discord.ChannelMessageSend(channelid, uptimeMessage); err != nil {
+		slog.Error("could not send channel message", "error", err)
+	}
+}
+
 func displayBotStats(cid string) {
 	stats := runtime.MemStats{}
 	runtime.ReadMemStats(&stats)
@@ -181,6 +190,9 @@ func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 		if len(parts) == 1 {
 			if scontains(parts[0], "!status") {
 				displayBotStats(m.ChannelID)
+			}
+			if scontains(parts[0], "!uptime") {
+				displayUptime(m.ChannelID)
 			}
 		}
 	}
