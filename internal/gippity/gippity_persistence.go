@@ -37,7 +37,7 @@ type LLMChatMessage struct {
 const chatHistoryDBFilename = "gippity.db"
 
 var database *sql.DB
-var iDtoNameCache = make(map[string]string)
+var idToNameCache = make(map[string]string)
 
 func initDB() {
 	var err error
@@ -67,7 +67,7 @@ func addMessageToDatabase(m *discordgo.MessageCreate) {
 	}
 }
 
-func getLastNMessagesFromDatabase(m *discordgo.MessageCreate, n int) ([]LLMChatMessage, error) {
+func getLastNMessagesFromDatabase(channelID string, n int) ([]LLMChatMessage, error) {
 	stmt, err := database.Prepare(`
 	SELECT user_id, channel_id, timestamp, message, message_id, guild_id
 	FROM (
@@ -85,7 +85,7 @@ func getLastNMessagesFromDatabase(m *discordgo.MessageCreate, n int) ([]LLMChatM
 	}
 	defer stmt.Close()
 
-	rows, err := stmt.Query(m.ChannelID, n)
+	rows, err := stmt.Query(channelID, n)
 	if err != nil {
 		slog.Error("Error while querying database", "error", err)
 		return nil, err
@@ -108,20 +108,20 @@ func getLastNMessagesFromDatabase(m *discordgo.MessageCreate, n int) ([]LLMChatM
 			return nil, err
 		}
 
-		if iDtoNameCache[message.UserID] == "" {
-			iDtoNameCache[message.UserID] = util.GetUsernameInGuild(discordSession, m)
+		if idToNameCache[message.UserID] == "" {
+			idToNameCache[message.UserID] = util.GetUsernameForUserIDInGuild(discordSession, message.UserID, message.GuildID)
 		}
-		if iDtoNameCache[message.ChannelID] == "" {
-			iDtoNameCache[message.ChannelID] = util.GetChannelName(discordSession, m.ChannelID)
+		if idToNameCache[message.ChannelID] == "" {
+			idToNameCache[message.ChannelID] = util.GetChannelName(discordSession, message.ChannelID)
 		}
-		if iDtoNameCache[message.GuildID] == "" {
-			iDtoNameCache[message.GuildID] = util.GetGuildName(discordSession, m.GuildID)
+		if idToNameCache[message.GuildID] == "" {
+			idToNameCache[message.GuildID] = util.GetGuildName(discordSession, message.GuildID)
 		}
 
-		message.Username = iDtoNameCache[message.UserID]
-		message.ChannelName = iDtoNameCache[message.ChannelID]
-		message.GuildName = iDtoNameCache[message.GuildID]
-		message.TimestampString = util.GetTimestampOfMessage(m.ID).Format("2006-01-02 15:04:05")
+		message.Username = idToNameCache[message.UserID]
+		message.ChannelName = idToNameCache[message.ChannelID]
+		message.GuildName = idToNameCache[message.GuildID]
+		message.TimestampString = util.GetTimestampOfMessage(message.MessageID).Format("2006-01-02 15:04:05")
 
 		llmMessages = append(llmMessages, message)
 	}

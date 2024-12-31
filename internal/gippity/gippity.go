@@ -71,7 +71,7 @@ func Start(discord *discordgo.Session) {
 func idToNameCacheResetLoop() {
 	for {
 		time.Sleep(12 * time.Hour)
-		iDtoNameCache = make(map[string]string)
+		idToNameCache = make(map[string]string)
 	}
 }
 
@@ -146,7 +146,6 @@ func limited(m *discordgo.MessageCreate) bool {
 func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 	slog.Debug("Message received", "message", m.Content)
 	if slog.Default().Enabled(context.Background(), slog.LevelDebug) {
-		slog.Info("Debug mode enabled")
 		if m.ChannelID != "954388765877612575" { // for debugging / developing
 			slog.Debug("Ignoring message", "channel", m.ChannelID)
 			return
@@ -217,7 +216,7 @@ func generateAnswer(m *discordgo.MessageCreate, imageURLs []string) (string, err
 		shuffledBehaviors[i], shuffledBehaviors[j] = shuffledBehaviors[j], shuffledBehaviors[i]
 	})
 
-	chatHistory, err := getLastNMessagesFromDatabase(m, 30)
+	chatHistory, err := getLastNMessagesFromDatabase(m.ChannelID, 30)
 	if err != nil {
 		slog.Error("Error while getting chat history", "error", err)
 		chatHistory = []LLMChatMessage{}

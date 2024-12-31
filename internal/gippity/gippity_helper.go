@@ -25,12 +25,12 @@ func convertLLMChatMessageToLLMCompatibleFlowingText(message LLMChatMessage) str
 }
 
 func convertDiscordMessageToLLMCompatibleFlowingText(m *discordgo.MessageCreate) string {
-	if iDtoNameCache[m.Author.ID] == "" {
-		iDtoNameCache[m.Author.ID] = util.GetUsernameInGuild(discordSession, m)
+	if idToNameCache[m.Author.ID] == "" {
+		idToNameCache[m.Author.ID] = util.GetUsernameInGuild(discordSession, m)
 	}
 	llmChatMessage := LLMChatMessage{
 		Message:         m.Message.Content,
-		Username:        iDtoNameCache[m.Author.ID],
+		Username:        idToNameCache[m.Author.ID],
 		TimestampString: m.Timestamp.Format("2006-01-02 15:04:05"),
 	}
 	return convertLLMChatMessageToLLMCompatibleFlowingText(llmChatMessage)
