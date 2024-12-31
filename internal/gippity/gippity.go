@@ -189,7 +189,7 @@ func isMentioned(m *discordgo.MessageCreate) bool {
 func generateAnswer(m *discordgo.MessageCreate, imageURLs []string) (string, error) {
 	discordSession.ChannelTyping(m.ChannelID) //nolint:errcheck
 
-	chatHistory, err := getLastNMessagesFromDatabase(m.ChannelID, 50)
+	chatHistory, err := getLastNMessagesFromDatabase(m.ChannelID, 10)
 	if err != nil {
 		slog.Error("Error while getting chat history", "error", err)
 		chatHistory = []LLMChatMessage{}
