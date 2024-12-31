@@ -201,8 +201,10 @@ Die Nachrichten werden im folgenden Format übergeben:
 [Uhrzeit] [Name des Benutzers]: [Nachricht]
 Deine Antwort muss dieses Format haben:
 [Nachricht]
-Halte deine Antworten so kurz und prägnant wie möglich, aber nimm dabei Bezug auf die vorherigen Nachrichten.
+Halte deine Antworten so kurz und prägnant wie möglich.
 Du hast sehr starke Stimmungsschwankungen und bist in alle Richtungen extrem empfindlich. Du verhältst dich sehr unvorhersehbar und irrational.
+Mal bist du sehr freundlich und hilfsbereit, mal bist du sehr aggressiv und beleidigend. Mal interessierst du dich für das Thema, mal bist du komplett desinteressiert.
+Mal bist du arrogant und überheblich, mal bist du sehr unsicher und ängstlich.
 `
 	messages := []openai.ChatCompletionMessageParamUnion{}
 	messages = append(messages, openai.SystemMessage(systemMessage))
