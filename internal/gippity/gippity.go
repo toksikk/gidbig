@@ -2,7 +2,6 @@ package gippity
 
 import (
 	"log/slog"
-	"math/rand"
 	"time"
 
 	"context"
@@ -20,28 +19,6 @@ var discordSession *discordgo.Session
 var messageCount int = 0
 var messageGoal int = 0
 var messageGoalRange [2]int = [2]int{10, 20}
-
-var behaviorPool = []string{
-	//	"sarkastisch",
-	//	"pessimistisch",
-	"zynisch",
-	"spöttisch",
-	//	"ironisch",
-	"launisch",
-	//	"böse",
-	//	"herablassend",
-	"nett",
-	"freundlich",
-	"hilfsbereit",
-	"lieb",
-	"optimistisch",
-	"entspannt",
-	"energisch",
-	"respektvoll",
-	"mürrisch",
-	"senil",
-	"paranoid",
-}
 
 var allowedGuildIDs [2]string = [2]string{"225303764108705793", "125231125961506816"} // TODO: make this a map
 
@@ -211,10 +188,6 @@ func isMentioned(m *discordgo.MessageCreate) bool {
 
 func generateAnswer(m *discordgo.MessageCreate, imageURLs []string) (string, error) {
 	discordSession.ChannelTyping(m.ChannelID) //nolint:errcheck
-	shuffledBehaviors := behaviorPool
-	rand.Shuffle(len(shuffledBehaviors), func(i, j int) {
-		shuffledBehaviors[i], shuffledBehaviors[j] = shuffledBehaviors[j], shuffledBehaviors[i]
-	})
 
 	chatHistory, err := getLastNMessagesFromDatabase(m.ChannelID, 30)
 	if err != nil {
