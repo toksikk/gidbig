@@ -90,9 +90,17 @@ func GetUsernameInGuild(discordSession *discordgo.Session, m *discordgo.MessageC
 // GetUsernameForUserIDInGuild returns the username of a user in a guild
 func GetUsernameForUserIDInGuild(discordSession *discordgo.Session, userid string, guildid string) string {
 	member, err := discordSession.GuildMember(guildid, userid)
-	if err != nil {
-		slog.Warn("Error while getting member", "error", err)
-		return "Unbekannter Benutzer"
+	if err == nil {
+		if member.Nick != "" {
+			return member.Nick
+		}
+		return member.User.Username
 	}
-	return member.Nick
+	slog.Warn("Error while getting member", "error", err)
+	user, err := discordSession.User(userid)
+	if err == nil {
+		return user.Username
+	}
+	slog.Warn("Error while getting user", "error", err)
+	return "Unbekannter Benutzer"
 }
