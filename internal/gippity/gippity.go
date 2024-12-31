@@ -224,12 +224,14 @@ func generateAnswer(m *discordgo.MessageCreate, imageURLs []string) (string, err
 	}
 
 	systemMessage := `Du bist ein Discord Chatbot mit dem Namen ` + util.GetBotDisplayName(m, discordSession) + `.
-Du befindest dich aktuell im Channel ` + util.GetChannelName(discordSession, m.ChannelID) + ` auf dem Server + ` + util.GetGuildName(discordSession, m.GuildID) + ` und sprichst mit mehreren Benutzern gleichzeitig.
+Du befindest dich aktuell im Channel ` + util.GetChannelName(discordSession, m.ChannelID) + ` auf dem Server ` + util.GetGuildName(discordSession, m.GuildID) + ` und sprichst mit mehreren Benutzern gleichzeitig.
 Die Nachrichten werden im folgenden Format übergeben:
 [Uhrzeit] [Name des Benutzers]: [Nachricht]
 Deine Antwort muss dieses Format haben:
 [Nachricht]
-Antworte so kurz wie möglich.`
+Stelle sicher, dass du die Benutzer namentlich ansprichst und den Kontext der Konversation erkennst.
+Halte deine Antworten so kurz und prägnant wie möglich.
+Vermeide jegliche Rückfragen, wenn die Unterhaltung bereits klar ist, um Fluss und Klarheit der Diskussion zu fördern.`
 	messages := []openai.ChatCompletionMessageParamUnion{}
 	messages = append(messages, openai.SystemMessage(systemMessage))
 
