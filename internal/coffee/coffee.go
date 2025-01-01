@@ -37,18 +37,32 @@ func Start(discord *discordgo.Session) {
 func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 	for _, v := range messages {
 		if v == strings.ToLower(m.Content) {
+			var err error
+
 			if m.Author.ID == "263959699764805642" || m.Author.ID == "217697101818232832" {
-				go s.MessageReactionAdd(m.ChannelID, m.ID, "🍵") // nolint:errcheck
+				err = s.MessageReactionAdd(m.ChannelID, m.ID, "🍵")
+				if err != nil {
+					slog.Info("Error while adding reaction", "error", err)
+				}
 			} else {
-				go s.MessageReactionAdd(m.ChannelID, m.ID, "☕") // nolint:errcheck
+				err = s.MessageReactionAdd(m.ChannelID, m.ID, "☕")
+				if err != nil {
+					slog.Info("Error while adding reaction", "error", err)
+				}
 			}
 
 			// faces
 			if m.Author.ID == "269898849714307073" {
-				go s.MessageReactionAdd(m.ChannelID, m.ID, ":sidus:576309032789475328") // nolint:errcheck
+				err = s.MessageReactionAdd(m.ChannelID, m.ID, ":sidus:576309032789475328")
+				if err != nil {
+					slog.Info("Error while adding reaction", "error", err)
+				}
 			}
 			if m.Author.ID == "125230846629249024" {
-				go s.MessageReactionAdd(m.ChannelID, m.ID, ":sikk:355329009824825355") // nolint:errcheck
+				err = s.MessageReactionAdd(m.ChannelID, m.ID, ":sikk:355329009824825355")
+				if err != nil {
+					slog.Info("Error while adding reaction", "error", err)
+				}
 			}
 		}
 	}
