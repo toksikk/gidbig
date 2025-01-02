@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/toksikk/gidbig/internal/util"
 )
 
 // Start the plugin
@@ -30,7 +31,7 @@ func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 		stoll := fmt.Sprintf("%s", line) // nolint:gosimple
 		msg, err := s.ChannelMessageSend(m.ChannelID, stoll)
 		if err == nil {
-			_ = s.MessageReactionAdd(msg.ChannelID, msg.ID, ":stoll:747387878916751421")
+			util.ReactOnMessage(s, msg.ChannelID, msg.ID, ":stoll:747387878916751421", "add")
 		}
 	}
 }

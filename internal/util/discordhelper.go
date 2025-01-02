@@ -8,6 +8,16 @@ import (
 	"github.com/bwmarrin/discordgo"
 )
 
+type reactionItem struct {
+	session      *discordgo.Session
+	channelid    string
+	messageid    string
+	emoji        string
+	reactionType string
+}
+
+var reactionItemChannel chan (reactionItem)
+
 // GetChannelName returns the name of a channel
 func GetChannelName(discordSession *discordgo.Session, channelID string) string {
 	channel, err := discordSession.Channel(channelID)
@@ -103,4 +113,30 @@ func GetUsernameForUserIDInGuild(discordSession *discordgo.Session, userid strin
 	}
 	slog.Warn("Error while getting user", "error", err)
 	return "Unbekannter Benutzer"
+}
+
+// ReactOnMessage reacts to a message with an emoji concurrently
+func ReactOnMessage(session *discordgo.Session, channelid string, messageid string, emoji string, reactionType string) {
+	if reactionItemChannel == nil {
+		reactionItemChannel = make(chan reactionItem)
+		go messageReactionWorkerLoop()
+	}
+	switch reactionType {
+	case "add":
+		reactionItemChannel <- reactionItem{session: session, channelid: channelid, messageid: messageid, emoji: emoji, reactionType: reactionType}
+	case "remove":
+		reactionItemChannel <- reactionItem{session: session, channelid: channelid, messageid: messageid, emoji: emoji, reactionType: reactionType}
+	}
+}
+
+func messageReactionWorkerLoop() {
+	for {
+		reaction := <-reactionItemChannel
+		switch reaction.reactionType {
+		case "add":
+			go reaction.session.MessageReactionAdd(reaction.channelid, reaction.messageid, reaction.emoji) // nolint:errcheck
+		case "remove":
+			go reaction.session.MessageReactionRemove(reaction.channelid, reaction.messageid, reaction.emoji, reaction.session.State.User.ID) // nolint:errcheck
+		}
+	}
 }

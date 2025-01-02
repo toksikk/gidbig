@@ -266,34 +266,34 @@ func renewReactions(game datastore.Game) {
 	}
 
 	for _, v := range earlybirds {
-		_ = session.MessageReactionRemove(game.ChannelID, v.MessageID, lol, session.State.User.ID)
-		_ = session.MessageReactionRemove(game.ChannelID, v.MessageID, notamused, session.State.User.ID)
-		_ = session.MessageReactionRemove(game.ChannelID, v.MessageID, wat, session.State.User.ID)
+		util.ReactOnMessage(session, game.ChannelID, v.MessageID, lol, "remove")
+		util.ReactOnMessage(session, game.ChannelID, v.MessageID, notamused, "remove")
+		util.ReactOnMessage(session, game.ChannelID, v.MessageID, wat, "remove")
 		if isScoreInScoreArray(v, zonks) {
-			_ = session.MessageReactionAdd(game.ChannelID, v.MessageID, lol)
+			util.ReactOnMessage(session, game.ChannelID, v.MessageID, lol, "add")
 		} else if isScoreInScoreArray(v, winners) {
-			_ = session.MessageReactionAdd(game.ChannelID, v.MessageID, notamused)
+			util.ReactOnMessage(session, game.ChannelID, v.MessageID, notamused, "add")
 		} else {
-			_ = session.MessageReactionAdd(game.ChannelID, v.MessageID, wat)
+			util.ReactOnMessage(session, game.ChannelID, v.MessageID, wat, "add")
 		}
 	}
 
 	for i, v := range winners {
-		_ = session.MessageReactionRemove(game.ChannelID, v.MessageID, firstPlace, session.State.User.ID)
-		_ = session.MessageReactionRemove(game.ChannelID, v.MessageID, secondPlace, session.State.User.ID)
-		_ = session.MessageReactionRemove(game.ChannelID, v.MessageID, thirdPlace, session.State.User.ID)
+		util.ReactOnMessage(session, game.ChannelID, v.MessageID, firstPlace, "remove")
+		util.ReactOnMessage(session, game.ChannelID, v.MessageID, secondPlace, "remove")
+		util.ReactOnMessage(session, game.ChannelID, v.MessageID, thirdPlace, "remove")
 		if i == 0 {
-			_ = session.MessageReactionAdd(game.ChannelID, v.MessageID, firstPlace)
+			util.ReactOnMessage(session, game.ChannelID, v.MessageID, firstPlace, "add")
 		} else if i == 1 {
-			_ = session.MessageReactionAdd(game.ChannelID, v.MessageID, secondPlace)
+			util.ReactOnMessage(session, game.ChannelID, v.MessageID, secondPlace, "add")
 		} else if i == 2 {
-			_ = session.MessageReactionAdd(game.ChannelID, v.MessageID, thirdPlace)
+			util.ReactOnMessage(session, game.ChannelID, v.MessageID, thirdPlace, "add")
 		}
 	}
 
 	for _, v := range zonks {
-		_ = session.MessageReactionRemove(game.ChannelID, v.MessageID, zonk, session.State.User.ID)
-		_ = session.MessageReactionAdd(game.ChannelID, v.MessageID, zonk)
+		util.ReactOnMessage(session, game.ChannelID, v.MessageID, zonk, "remove")
+		util.ReactOnMessage(session, game.ChannelID, v.MessageID, zonk, "add")
 	}
 
 	renewReactionsLock = false
@@ -391,7 +391,7 @@ func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 				return false
 			}
 			if !hasPlayerClockReaction() {
-				_ = s.MessageReactionAdd(m.ChannelID, m.ID, "⏰")
+				util.ReactOnMessage(s, m.ChannelID, m.ID, "⏰", "add")
 				playersWithClockReactions = append(playersWithClockReactions, message.Author.ID)
 			}
 		}
