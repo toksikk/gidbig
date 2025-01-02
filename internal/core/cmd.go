@@ -22,6 +22,7 @@ import (
 	"github.com/toksikk/gidbig/internal/gippity"
 	"github.com/toksikk/gidbig/internal/leetoclock"
 	"github.com/toksikk/gidbig/internal/stoll"
+	"github.com/toksikk/gidbig/internal/wttrin"
 )
 
 var (
@@ -289,6 +290,7 @@ func StartGidbig() {
 	gippity.Start(discord)
 	leetoclock.Start(discord)
 	stoll.Start(discord)
+	wttrin.Start(discord)
 
 	gbploader.LoadPlugins(discord)
 
