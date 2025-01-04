@@ -294,15 +294,12 @@ func StartGidbig() {
 
 	gbploader.LoadPlugins(discord)
 
-	// We're running!
 	Banner(nil, *gbploader.GetLoadedPlugins())
-	slog.Info("Gidbig is ready. Quit with CTRL-C.")
+	Banner(new(bytes.Buffer), *gbploader.GetLoadedPlugins())
 
-	banner := new(bytes.Buffer)
-	Banner(banner, *gbploader.GetLoadedPlugins())
+	slog.Info("Gidbig is ready. Quit with CTRL-C.")
 	setStartedStatus()
 
-	// Wait for a signal to quit
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
 	<-c
