@@ -134,9 +134,9 @@ func messageReactionWorkerLoop() {
 		reaction := <-reactionItemChannel
 		switch reaction.reactionType {
 		case "add":
-			go reaction.session.MessageReactionAdd(reaction.channelid, reaction.messageid, reaction.emoji) // nolint:errcheck
+			reaction.session.MessageReactionAdd(reaction.channelid, reaction.messageid, reaction.emoji) // nolint:errcheck
 		case "remove":
-			go reaction.session.MessageReactionRemove(reaction.channelid, reaction.messageid, reaction.emoji, reaction.session.State.User.ID) // nolint:errcheck
+			reaction.session.MessageReactionRemove(reaction.channelid, reaction.messageid, reaction.emoji, reaction.session.State.User.ID) // nolint:errcheck
 		}
 	}
 }
