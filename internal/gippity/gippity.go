@@ -219,6 +219,7 @@ Bleibe immer wachsam und kontrolliere jede Variable, um sicherzustellen, dass al
 			messages = append(messages, openai.ChatCompletionMessageParamUnion(openai.AssistantMessage(message.Message)))
 		} else {
 			replaceAllUserIDsWithUsernamesInMessage(&message)
+			removeSpoilerTagContent(&message)
 			messages = append(messages, openai.ChatCompletionMessageParamUnion(openai.UserMessage(convertLLMChatMessageToLLMCompatibleFlowingText(message))))
 		}
 	}
@@ -230,11 +231,12 @@ Bleibe immer wachsam und kontrolliere jede Variable, um sicherzustellen, dass al
 	}
 
 	if m.Content == "" {
+		sanitizedString := convertDiscordMessageToLLMCompatibleFlowingText(m)
+		sanitizedString = removeSpoilerTagContentInStringMessage(sanitizedString)
+		sanitizedString = replaceAllUserIDsWithUsernamesInStringMessage(sanitizedString, m.GuildID)
 		// TODO: this could potentially break if we chose to no include user ids in message later
 		// TODO2: we could use m.ContentWithMentionsReplaced() instead of this, but only this, as this is still a raw discord.Message
-		messages = append(messages, openai.ChatCompletionMessageParamUnion(openai.UserMessage(
-			replaceAllUserIDsWithUsernamesInStringMessage(
-				convertDiscordMessageToLLMCompatibleFlowingText(m), m.GuildID))))
+		messages = append(messages, openai.ChatCompletionMessageParamUnion(openai.UserMessage(sanitizedString)))
 	}
 
 	if slog.Default().Enabled(context.Background(), slog.LevelDebug) {

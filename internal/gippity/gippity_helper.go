@@ -36,6 +36,19 @@ func convertDiscordMessageToLLMCompatibleFlowingText(m *discordgo.MessageCreate)
 	return convertLLMChatMessageToLLMCompatibleFlowingText(llmChatMessage)
 }
 
+func removeSpoilerTagContent(message *LLMChatMessage) {
+	regexp := regexp.MustCompile("\\|\\|[^|]+\\|\\|") // nolint:gosimple
+	message.Message = regexp.ReplaceAllString(message.Message, "||Spoiler||")
+}
+
+func removeSpoilerTagContentInStringMessage(message string) string {
+	llmChatMessage := LLMChatMessage{
+		Message: message,
+	}
+	removeSpoilerTagContent(&llmChatMessage)
+	return llmChatMessage.Message
+}
+
 func replaceAllUserIDsWithUsernamesInMessage(message *LLMChatMessage) {
 	regexp := regexp.MustCompile("<@!?(\\d+)>") // nolint:gosimple
 	matches := regexp.FindAllStringSubmatch(message.Message, -1)
