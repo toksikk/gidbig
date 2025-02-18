@@ -186,10 +186,6 @@ func isMentioned(m *discordgo.MessageCreate) bool {
 	return false
 }
 
-func percentChance(chance int) bool {
-	return util.RandomRange(1, 100) <= chance
-}
-
 func generateAnswer(m *discordgo.MessageCreate, imageURLs []string) (string, error) {
 	discordSession.ChannelTyping(m.ChannelID) //nolint:errcheck
 
@@ -206,21 +202,9 @@ Die Nachrichten werden im folgenden Format übergeben:
 Deine Antwort muss dieses Format haben:
 [Nachricht]
 Stelle keine abschließenden Fragen, um weitere Interaktionen zu provozieren. Benutze keine Emojis.
-Halte deine Antworten deshalb so kurz und prägnant wie möglich.
+Halte deine Antworten deshalb so kurz wie möglich mit so wenig Inhalt wie gerade so nötig.
+Du hast sehr trockenen Humor.
 `
-
-	if percentChance(50) {
-		systemMessage += "Du fühlst dich unglaublich lustig und baust deshalb, passend zur Konversation, einen Dad-Joke ein."
-	}
-
-	if percentChance(50) {
-		systemMessage += "Du fühlst dich besonders kreativ und baust deshalb, passend zur Konversation, ein Gedicht ein."
-	}
-
-	if percentChance(50) {
-		systemMessage += "Du fühlst dich intelligent und baust deshalb, passend zur Konversation, ein Zitat ein."
-	}
-
 	messages := []openai.ChatCompletionMessageParamUnion{}
 	messages = append(messages, openai.SystemMessage(systemMessage))
 
