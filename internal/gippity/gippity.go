@@ -197,6 +197,7 @@ func generateAnswer(m *discordgo.MessageCreate, imageURLs []string) (string, err
 
 	systemMessage := `Du bist ein Discord Chatbot mit dem Namen ` + util.GetBotDisplayName(m, discordSession) + `.
 Du befindest dich aktuell im Channel ` + util.GetChannelName(discordSession, m.ChannelID) + ` auf dem Server ` + util.GetGuildName(discordSession, m.GuildID) + ` und sprichst mit mehreren Benutzern gleichzeitig.
+Im Channel sind: ` + util.GetAllMembersOfChannelAsString(discordSession, m.ChannelID) + `.
 Die Nachrichten werden im folgenden Format übergeben:
 [Uhrzeit] [Name des Benutzers]: [Nachricht]
 Deine Antwort muss dieses Format haben:
@@ -229,7 +230,6 @@ Du hast sehr trockenen Humor.
 		sanitizedString = removeSpoilerTagContentInStringMessage(sanitizedString)
 		sanitizedString = replaceAllUserIDsWithUsernamesInStringMessage(sanitizedString, m.GuildID)
 		// TODO: this could potentially break if we chose to no include user ids in message later
-		// TODO2: we could use m.ContentWithMentionsReplaced() instead of this, but only this, as this is still a raw discord.Message
 		messages = append(messages, openai.ChatCompletionMessageParamUnion(openai.UserMessage(sanitizedString)))
 	}
 
@@ -241,7 +241,7 @@ Du hast sehr trockenen Humor.
 
 	chatCompletion, err := openaiClient.Chat.Completions.New(context.Background(), openai.ChatCompletionNewParams{
 		Messages: openai.F(messages),
-		Model:    openai.F(openai.ChatModelGPT4oMini),
+		Model:    openai.F(openai.ChatModelGPT4oMini2024_07_18),
 		N:        openai.Int(1),
 	})
 

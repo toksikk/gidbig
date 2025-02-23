@@ -18,6 +18,63 @@ type reactionItem struct {
 
 var reactionItemChannel chan (reactionItem)
 
+func getAllMembersOfChannel(discordSession *discordgo.Session, channelID string) ([]*discordgo.Member, error) {
+	channel, err := discordSession.Channel(channelID)
+	if err != nil {
+		slog.Error("Could not retrieve Channel", "channelID", channelID)
+		return nil, err
+	}
+	guild, err := discordSession.Guild(channel.GuildID)
+	if err != nil {
+		slog.Error("Could not retrieve Guild", "guildID", channel.GuildID)
+		return nil, err
+	}
+	members := []*discordgo.Member{}
+
+	for _, member := range guild.Members {
+		permissions, err := discordSession.State.UserChannelPermissions(member.User.ID, channelID)
+		if err != nil {
+			slog.Error("Could not get permissions of user for channel", "userID", member.User.ID, "channelID", channelID)
+			return nil, err
+		}
+		if permissions&discordgo.PermissionViewChannel != 0 {
+			members = append(members, member)
+		}
+	}
+
+	return members, nil
+}
+
+// GetAllMembersOfChannelAsString retrieves all members of a specified Discord channel
+// and returns their display names as a comma-separated string.
+//
+// Parameters:
+//   - discordSession: A pointer to the discordgo.Session instance.
+//   - channelID: The ID of the Discord channel.
+//
+// Returns:
+//
+//	A string containing the display names of all members in the specified channel,
+//	separated by commas. If an error occurs, an empty string is returned.
+func GetAllMembersOfChannelAsString(discordSession *discordgo.Session, channelID string) string {
+	members, err := getAllMembersOfChannel(discordSession, channelID)
+	if err != nil {
+		slog.Error("Could not get members of channel", "channelID", channelID)
+		return ""
+	}
+
+	membersString := ""
+
+	for i, member := range members {
+		membersString += member.DisplayName()
+		if i != len(members)-1 {
+			membersString += ", "
+		}
+	}
+
+	return membersString
+}
+
 // GetChannelName returns the name of a channel
 func GetChannelName(discordSession *discordgo.Session, channelID string) string {
 	channel, err := discordSession.Channel(channelID)
