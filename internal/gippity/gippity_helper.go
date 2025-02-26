@@ -21,8 +21,7 @@ func convertLLMChatMessageToJSON(message LLMChatMessage) string {
 }
 
 func convertLLMChatMessageToLLMCompatibleFlowingText(message LLMChatMessage) string {
-	// return message.TimestampString + " " + message.Username + ": " + message.Message
-	return message.Username + ": " + message.Message
+	return message.TimestampString + " " + message.Username + ": " + message.Message
 }
 
 func convertDiscordMessageToLLMCompatibleFlowingText(m *discordgo.MessageCreate) string {
