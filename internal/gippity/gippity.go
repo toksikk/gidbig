@@ -199,9 +199,11 @@ func generateAnswer(m *discordgo.MessageCreate, imageURLs []string) (string, err
 Du befindest dich aktuell im Channel ` + util.GetChannelName(discordSession, m.ChannelID) + ` auf dem Server ` + util.GetGuildName(discordSession, m.GuildID) + ` und sprichst mit mehreren Benutzern gleichzeitig.
 Im Channel sind: ` + util.GetAllMembersOfChannelAsString(discordSession, m.ChannelID) + `.
 Die Nachrichten werden im folgenden Format übergeben:
-[Uhrzeit] [Name des Benutzers]: [Nachricht]
+[Zeitstempel der Nachricht]
+[Name des Benutzers]
+[Nachricht des Benutzers]
 Deine Antwort muss dieses Format haben:
-[Nachricht]
+[Deine Nachricht]
 Stelle keine abschließenden Fragen, um weitere Interaktionen zu provozieren. Benutze keine Emojis.
 Halte deine Antworten deshalb so kurz wie möglich mit so wenig Inhalt wie gerade so nötig.
 Du hast sehr trockenen Humor.
