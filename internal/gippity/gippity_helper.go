@@ -11,6 +11,8 @@ import (
 )
 
 // nolint:unused
+// convertLLMChatMessageToJSON was used for testing.
+// The bot sometimes replied with oddly formatted replies that looked like a message formatted to him.
 func convertLLMChatMessageToJSON(message LLMChatMessage) string {
 	json, err := json.Marshal(message)
 	if err != nil {
