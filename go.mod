@@ -1,12 +1,14 @@
 module github.com/toksikk/gidbig
 
-go 1.21
+go 1.23
+
+toolchain go1.24.1
 
 require (
 	github.com/bwmarrin/discordgo v0.27.1
 	github.com/dustin/go-humanize v1.0.1
 	github.com/gorilla/mux v1.8.1
-	github.com/gorilla/sessions v1.2.2
+	github.com/gorilla/sessions v1.4.0
 	github.com/simplesurance/go-ip-anonymizer v0.0.0-20200429124537-35a880f8e87d
 	github.com/toksikk/gbp-eso v0.2.0
 	github.com/toksikk/gbp-leetoclock v0.4.4
