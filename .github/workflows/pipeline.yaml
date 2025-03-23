@@ -68,7 +68,7 @@ jobs:
 
         steps:
             - name: Dispatch Deploy Repo
-              uses: peter-evans/repository-dispatch@v2.1.2
+              uses: peter-evans/repository-dispatch@v3.0.0
               with:
                   token: ${{ secrets.DEPLOY_REPO_ACCESS_TOKEN }}
                   repository: toksikk/deploy-gidbig
