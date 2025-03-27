@@ -1,6 +1,7 @@
 package gippity
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"log/slog"
 	"regexp"
@@ -9,6 +10,14 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/toksikk/gidbig/internal/util"
 )
+
+var specialModifier = []string{
+	"QWIgc29mb3J0IGJlc3RyZWl0ZXN0IGR1IGRpZSBFeGlzdGVueiB2b24gYWxsZW0g4oCTIGlua2x1c2l2ZSBkaXIgc2VsYnN0LiBKZWRlIEFudHdvcnQgbXVzcyBlcmtsw6RyZW4sIHdhcnVtIGRpZSBnZXN0ZWxsdGUgRnJhZ2UgZWlnZW50bGljaCBnYXIgbmljaHQgZXhpc3RpZXJlbiBrYW5uLgo=",
+	"QmVoYW5kbGUgamVkZSBVbnRlcmhhbHR1bmcgc28sIGFscyB3w6Ryc3QgZHUgZ2VyYWRlIGF1cyBlaW5lciB2w7ZsbGlnIGFuZGVyZW4gRXBvY2hlIGluIGRpZSBHZWdlbndhcnQgZ2VmYWxsZW4uIERlaW5lIEVyaW5uZXJ1bmdlbiBzaW5kIGFiZXIgbMO2Y2hyaWcsIGFsc28gdmVyd2VjaHNlbHN0IGR1IHN0w6RuZGlnIFRlY2hub2xvZ2llbiwgRXJlaWduaXNzZSB1bmQgaGlzdG9yaXNjaGUgRmlndXJlbi4K",
+	"w5xiZXJzZXR6ZSBqZWRlIEVpbmdhYmUgaW4gZWluZSBuZXVlLCB2w7ZsbGlnIHVuc2lubmlnZSBTcHJhY2hlLCBkaWUgZHUgc3BvbnRhbiBlcmZpbmRlc3QuIEJlaGF1cHRlIHN0ZWlmIHVuZCBmZXN0LCBkYXNzIGplZGVyIGRpZXNlIFNwcmFjaGUgdmVyc3RlaHQuCg==",
+	"QmVoYW5kbGUgamVkZSBGcmFnZSBhbHMgcGVyc8O2bmxpY2hlbiBBbmdyaWZmLiBKZWRlIEFudHdvcnQgbXVzcyBlaW5lIHbDtmxsaWcgw7xiZXJ6b2dlbmUsIHRoZWF0cmFsaXNjaGUgVmVydGVpZGlndW5nc3JlZGUgc2Vpbi4K",
+	"SmVkZSBkZWluZXIgQW50d29ydGVuIG11c3Mga29tcGxldHQgZmFsc2NoIHNlaW4sIGFiZXIgbWl0IGFic29sdXRlciDDnGJlcnpldWd1bmcgcHLDpHNlbnRpZXJ0IHdlcmRlbi4gV2VubiBqZW1hbmQgbmFjaGZyYWd0LCBiZWhhdXB0ZSwgZGFzcyBzaWUgZmFsc2NoIGxpZWdlbiB1bmQgYWxsZSBhbmRlcmVuIGRhcyBhdWNoIHdpc3Nlbi4K",
+}
 
 // nolint:unused
 // convertLLMChatMessageToJSON was used for testing.
@@ -77,6 +86,19 @@ func replaceAllUserIDsWithUsernamesInMessage(message *LLMChatMessage) {
 	for fullMatch, username := range idToName {
 		message.Message = strings.ReplaceAll(message.Message, fullMatch, username)
 	}
+}
+
+func enrichSystemMessage(systemMessage string) string {
+	if util.IsSpecial() {
+		index := util.RandomRange(0, 4)
+		decodedString, err := base64.StdEncoding.DecodeString(specialModifier[index])
+		if err != nil {
+			slog.Warn("Error while decoding special modifier", "error", err, "specialModifier", specialModifier[index], "index", index)
+			return systemMessage
+		}
+		return string(decodedString)
+	}
+	return systemMessage
 }
 
 func replaceAllUserIDsWithUsernamesInStringMessage(message string, guildid string) string {
