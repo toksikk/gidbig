@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/toksikk/gidbig/internal/util"
 )
 
 // Start the plugin
@@ -59,7 +60,11 @@ func setIdleStatus(discord *discordgo.Session) {
 		if err != nil {
 			slog.Error("Could not set streaming status", "error", err)
 		}
-		err = discord.UpdateGameStatus(0, games[randomRange(0, len(games))])
+		if util.IsSpecial() {
+			err = discord.UpdateGameStatus(0, string(util.Cl))
+		} else {
+			err = discord.UpdateGameStatus(0, games[randomRange(0, len(games))])
+		}
 		if err != nil {
 			slog.Error("Could not set game status", "error", err)
 		}
