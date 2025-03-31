@@ -39,6 +39,7 @@ func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 	for _, v := range messages {
 		if v == strings.ToLower(m.Content) {
 			if util.IsSpecial() {
+				util.ReactOnMessage(s, m.ChannelID, m.ID, string(util.Ae[util.RandomRange(0, len(util.Ae))]), "add")
 				util.ReactOnMessage(s, m.ChannelID, m.ID, string(util.Cl), "add")
 			} else {
 				if m.Author.ID == "263959699764805642" || m.Author.ID == "217697101818232832" {
