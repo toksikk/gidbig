@@ -90,7 +90,7 @@ func replaceAllUserIDsWithUsernamesInMessage(message *LLMChatMessage) {
 
 func enrichSystemMessage(systemMessage string) string {
 	if util.IsSpecial() {
-		index := util.RandomRange(0, 4)
+		index := util.RandomRange(0, len(specialModifier))
 		decodedString, err := base64.StdEncoding.DecodeString(specialModifier[index])
 		if err != nil {
 			slog.Warn("Error while decoding special modifier", "error", err, "specialModifier", specialModifier[index], "index", index)
