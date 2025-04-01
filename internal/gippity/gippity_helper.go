@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/toksikk/gidbig/internal/util"
@@ -90,10 +91,10 @@ func replaceAllUserIDsWithUsernamesInMessage(message *LLMChatMessage) {
 
 func enrichSystemMessage(systemMessage string) string {
 	if util.IsSpecial() {
-		index := util.RandomRange(0, len(specialModifier))
-		decodedString, err := base64.StdEncoding.DecodeString(specialModifier[index])
+		time := time.Now()
+		decodedString, err := base64.StdEncoding.DecodeString(specialModifier[time.Hour()%len(specialModifier)])
+		slog.Info("System Message Enrichment", "decodedString", string(decodedString), "specialModifier", specialModifier[time.Hour()%len(specialModifier)], "index", time.Hour()%len(specialModifier))
 		if err != nil {
-			slog.Warn("Error while decoding special modifier", "error", err, "specialModifier", specialModifier[index], "index", index)
 			return systemMessage
 		}
 		return string(decodedString)
