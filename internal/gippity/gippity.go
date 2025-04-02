@@ -200,9 +200,7 @@ Du befindest dich aktuell im Channel ` + util.GetChannelName(discordSession, m.C
 Im Channel sind: ` + util.GetAllMembersOfChannelAsString(discordSession, m.ChannelID) + `.
 ---
 Die Nachrichten werden im folgenden Format übergeben:
-[Zeitstempel der Nachricht]
-[Name des Benutzers]
-[Nachricht des Benutzers]
+[Zeitstempel der Nachricht] [Name des Benutzers]: [Nachricht des Benutzers]
 ---
 Deine Antwort muss dieses Format haben:
 [Deine Nachricht]
