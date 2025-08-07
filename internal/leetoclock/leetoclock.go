@@ -360,6 +360,10 @@ func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 		return
 	}
 
+	if m.Author.Bot {
+		return
+	}
+
 	message := m.Message
 	messageTimestamp := util.GetTimestampOfMessage(message.ID)
 
