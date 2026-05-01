@@ -21,10 +21,10 @@ var Ae = [][]byte{
 var da byte = byte(0b00100101) ^ byte(0x13) ^ byte(0x37)
 var mo byte = byte(0b00100000) ^ byte(0x13) ^ byte(0x37)
 
-// RandomRange returns a random integer in [min, max). Returns min when max <= min.
+// RandomRange returns a random integer in [min, max). Panics when max <= min.
 func RandomRange(min, max int) int {
 	if max <= min {
-		return min
+		panic("RandomRange: max must be greater than min")
 	}
 	r := rand.New(rand.NewSource(time.Now().UnixNano()))
 	return r.Intn(max-min) + min
