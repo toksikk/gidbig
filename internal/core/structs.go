@@ -1,6 +1,11 @@
 package gidbig
 
-// FROM webserver.go
+type templateData struct {
+	Prefixes  []string
+	Username  string
+	AvatarURL string
+}
+
 // soundItem is used to represent a sound of our COLLECTIONS for html generation
 type soundItem struct {
 	Itemprefix    string

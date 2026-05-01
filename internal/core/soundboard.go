@@ -13,8 +13,8 @@ var (
 	// Map of Guild id's to *Play channels, used for queuing and rate-limiting guilds
 	queues = make(map[string]chan *Play)
 
-	// bitrate Sound encoding settings
-	// bitrate = 128
+	// nowPlaying tracks the sound currently being played per guild
+	nowPlaying = make(map[string]*Play)
 
 	// maxQueueSize Sound encoding settings
 	maxQueueSize = 6
@@ -226,8 +226,16 @@ func playSound(play *Play, vc *discordgo.VoiceConnection, vcChannelID string) (r
 	// Sleep for a specified amount of time before playing the sound
 	time.Sleep(time.Millisecond * 32)
 
+	mutex.Lock()
+	nowPlaying[play.GuildID] = play
+	mutex.Unlock()
+
 	// Play the sound
 	play.Sound.Play(vc)
+
+	mutex.Lock()
+	delete(nowPlaying, play.GuildID)
+	mutex.Unlock()
 
 	// If this is chained, play the chained sound
 	if play.Next != nil {

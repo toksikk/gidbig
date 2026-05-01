@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"html/template"
@@ -72,6 +73,7 @@ func startWebServer(config *cfg.Config) {
 	r.HandleFunc("/discordLogin", handleDiscordLogin)
 	r.HandleFunc("/discordCallback", handleDiscordCallback)
 	r.HandleFunc("/playsound", handlePlaySound)
+	r.HandleFunc("/api/queue", handleAPIQueue)
 	http.Handle("/", r)
 	http.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("web/static"))))
 	err := http.ListenAndServe(":"+strconv.Itoa(config.Web.Port), nil)
@@ -130,13 +132,50 @@ func handlePlaySound(w http.ResponseWriter, r *http.Request) {
 	} else {
 		http.Error(w, http.StatusText(500), 500)
 	}
+}
 
+type guildQueueStatus struct {
+	GuildID     string `json:"guild_id"`
+	NowPlaying  string `json:"now_playing,omitempty"`
+	QueueLength int    `json:"queue_length"`
+}
+
+func handleAPIQueue(w http.ResponseWriter, r *http.Request) {
+	session, _ := store.Get(r, "gidbig-session")
+	if session.Values["discordUserID"] == nil {
+		http.Error(w, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
+		return
+	}
+
+	var guilds []guildQueueStatus
+	mutex.Lock()
+	for guildID, ch := range queues {
+		gs := guildQueueStatus{
+			GuildID:     guildID,
+			QueueLength: len(ch),
+		}
+		if np, ok := nowPlaying[guildID]; ok && np != nil && np.Sound != nil {
+			gs.NowPlaying = np.Sound.Name
+		}
+		guilds = append(guilds, gs)
+	}
+	mutex.Unlock()
+
+	if guilds == nil {
+		guilds = []guildQueueStatus{}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{"guilds": guilds})
 }
 
 func handleMain(w http.ResponseWriter, r *http.Request) {
 	logWebRequests(r)
 	session, _ := store.Get(r, "gidbig-session")
 	if session.Values["discordUsername"] != nil {
+		username, _ := session.Values["discordUsername"].(string)
+		avatarURL, _ := session.Values["discordAvatarURL"].(string)
+
 		var prefixes []string
 		var si []soundItem
 		for _, sc := range COLLECTIONS {
@@ -164,7 +203,14 @@ func handleMain(w http.ResponseWriter, r *http.Request) {
 				si = append(si, newSoundItem)
 			}
 		}
-		err := tmpls["internal.html"].ExecuteTemplate(w, "header", prefixes)
+
+		td := templateData{
+			Prefixes:  prefixes,
+			Username:  username,
+			AvatarURL: avatarURL,
+		}
+
+		err := tmpls["internal.html"].ExecuteTemplate(w, "header", td)
 		if err != nil {
 			fmt.Println(err)
 			return
@@ -223,7 +269,7 @@ func handleMain(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	err := tmpls["home.html"].ExecuteTemplate(w, "header", map[string]interface{}{})
+	err := tmpls["home.html"].ExecuteTemplate(w, "header", templateData{})
 	if err != nil {
 		slog.Error("unable to execute template", "error", err)
 		return
@@ -234,6 +280,7 @@ func handleMain(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 }
+
 func handleLogout(w http.ResponseWriter, r *http.Request) {
 	slog.Info("WebUI /logout Request", "Requesting IP", r.RemoteAddr)
 	cookie := &http.Cookie{
@@ -245,6 +292,7 @@ func handleLogout(w http.ResponseWriter, r *http.Request) {
 	http.SetCookie(w, cookie)
 	http.Redirect(w, r, "/", http.StatusFound)
 }
+
 func handleDiscordLogin(w http.ResponseWriter, r *http.Request) {
 	logWebRequests(r)
 	b := make([]byte, 16)
@@ -303,8 +351,14 @@ func handleDiscordCallback(w http.ResponseWriter, r *http.Request) {
 	}
 	user, _ := dg.User("@me")
 
+	avatarURL := ""
+	if user.Avatar != "" {
+		avatarURL = fmt.Sprintf("https://cdn.discordapp.com/avatars/%s/%s.png", user.ID, user.Avatar)
+	}
+
 	session.Values["discordUserID"] = user.ID
 	session.Values["discordUsername"] = user.Username
+	session.Values["discordAvatarURL"] = avatarURL
 	session.Values["accessToken"] = token.AccessToken
 	err = session.Save(r, w)
 	if err != nil {
