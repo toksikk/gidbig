@@ -81,6 +81,22 @@ func startWebServer(config *cfg.Config) {
 	}
 }
 
+func readSoundDescription(prefix, name string) (text, shortText string, ok bool) {
+	file, err := os.Open(fmt.Sprintf("audio/%v_%v.txt", prefix, name))
+	if err != nil {
+		return "", "", false
+	}
+	defer func() { _ = file.Close() }()
+	scanner := bufio.NewScanner(file)
+	scanner.Scan()
+	text = scanner.Text()
+	shortText = text
+	if len(text) > 20 {
+		shortText = text[0:20] + "..."
+	}
+	return text, shortText, true
+}
+
 func handlePlaySound(w http.ResponseWriter, r *http.Request) {
 	slog.Info("WebUI /playsound Request", "Requesting IP", r.RemoteAddr)
 	err := r.ParseForm()
@@ -141,17 +157,9 @@ func handleMain(w http.ResponseWriter, r *http.Request) {
 					Itemtext:      "!" + sc.Prefix + " " + snd.Name,
 					Itemshorttext: "!" + sc.Prefix + " " + snd.Name,
 				}
-				file, e := os.Open(fmt.Sprintf("audio/%v_%v.txt", sc.Prefix, snd.Name))
-				if e == nil {
-					scanner := bufio.NewScanner(file)
-					scanner.Scan()
-					text := scanner.Text()
+				if text, shortText, ok := readSoundDescription(sc.Prefix, snd.Name); ok {
 					newSoundItem.Itemtext = text
-					if len(text) > 20 {
-						text = text[0:20]
-						text += "..."
-					}
-					newSoundItem.Itemshorttext = text
+					newSoundItem.Itemshorttext = shortText
 				}
 				si = append(si, newSoundItem)
 			}
