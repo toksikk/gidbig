@@ -1,6 +1,7 @@
 package gidbig
 
 import (
+	"context"
 	"log/slog"
 	"time"
 
@@ -170,7 +171,7 @@ func enqueuePlay(user *discordgo.User, guild *discordgo.Guild, coll *soundCollec
 		mutex.Lock()
 		queues[guild.ID] = make(chan *Play, maxQueueSize)
 		mutex.Unlock()
-		err := playSound(play, nil)
+		_, _, err := playSound(play, nil, "")
 		if err != nil {
 			slog.Error("could not playSound", "error", err)
 		}
@@ -178,36 +179,47 @@ func enqueuePlay(user *discordgo.User, guild *discordgo.Guild, coll *soundCollec
 }
 
 // Play a sound
-func playSound(play *Play, vc *discordgo.VoiceConnection) (err error) {
+func playSound(play *Play, vc *discordgo.VoiceConnection, vcChannelID string) (retVC *discordgo.VoiceConnection, retChannelID string, err error) {
 	slog.Info("Playing sound", "play", play)
+
+	ctx := context.Background()
 
 	if vc != nil {
 		if vc.GuildID != play.GuildID {
-			err := vc.Disconnect()
-			if err != nil {
-				slog.Error("could not disconnect voice connection", "error", err)
+			if disconnErr := vc.Disconnect(ctx); disconnErr != nil {
+				slog.Error("could not disconnect voice connection", "error", disconnErr)
 			}
 			vc = nil
+			vcChannelID = ""
 		}
 	}
 
 	if vc == nil {
-		vc, err = discord.ChannelVoiceJoin(play.GuildID, play.ChannelID, false, true)
+		vc, err = discord.ChannelVoiceJoin(ctx, play.GuildID, play.ChannelID, false, true)
 		if err != nil {
 			slog.Error("Failed to play sound", "error", err)
 			mutex.Lock()
 			delete(queues, play.GuildID)
 			mutex.Unlock()
-			return err
+			return nil, "", err
 		}
+		vcChannelID = play.ChannelID
 	}
 
-	// If we need to change channels, do that now
-	if vc.ChannelID != play.ChannelID {
-		err := vc.ChangeChannel(play.ChannelID, false, true)
-		if err != nil {
-			slog.Error("could not change voice channel", "error", err)
+	// If we need to change channels, disconnect and rejoin
+	if vcChannelID != play.ChannelID {
+		if disconnErr := vc.Disconnect(ctx); disconnErr != nil {
+			slog.Error("could not disconnect voice connection", "error", disconnErr)
 		}
+		vc, err = discord.ChannelVoiceJoin(ctx, play.GuildID, play.ChannelID, false, true)
+		if err != nil {
+			slog.Error("could not join voice channel", "error", err)
+			mutex.Lock()
+			delete(queues, play.GuildID)
+			mutex.Unlock()
+			return nil, "", err
+		}
+		vcChannelID = play.ChannelID
 		time.Sleep(time.Millisecond * 125)
 	}
 
@@ -219,7 +231,7 @@ func playSound(play *Play, vc *discordgo.VoiceConnection) (err error) {
 
 	// If this is chained, play the chained sound
 	if play.Next != nil {
-		err := playSound(play.Next, vc)
+		vc, vcChannelID, err = playSound(play.Next, vc, vcChannelID)
 		if err != nil {
 			slog.Error("could not playSound", "error", err)
 		}
@@ -228,22 +240,20 @@ func playSound(play *Play, vc *discordgo.VoiceConnection) (err error) {
 	// If there is another song in the queue, recurse and play that
 	if len(queues[play.GuildID]) > 0 {
 		play = <-queues[play.GuildID]
-		err := playSound(play, vc)
+		vc, vcChannelID, err = playSound(play, vc, vcChannelID)
 		if err != nil {
 			slog.Error("could not playSound", "error", err)
 		}
-		return nil
+		return vc, vcChannelID, nil
 	}
 
 	// If the queue is empty, delete it
 	time.Sleep(time.Millisecond * time.Duration(play.Sound.PartDelay))
 	mutex.Lock()
 	delete(queues, play.GuildID)
-	err = vc.Disconnect()
-	if err != nil {
-		slog.Error("could not disconnect voice connection", "error", err)
-		return err
+	if disconnErr := vc.Disconnect(context.Background()); disconnErr != nil {
+		slog.Error("could not disconnect voice connection", "error", disconnErr)
 	}
 	mutex.Unlock()
-	return nil
+	return nil, "", nil
 }
