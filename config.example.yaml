@@ -8,5 +8,6 @@ web:
         client_id: "YOUR_OAUTH_CLIENT_ID"
         client_secret: "YOUR_OAUTH_CLIENT_SECRET"
         redirect_uri: "YOUR_REDIRECT_URI"
+    session_secret: "base64-encoded-32-random-bytes"
     port: 8080
 dev_mode: true

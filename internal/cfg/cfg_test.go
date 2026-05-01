@@ -65,6 +65,7 @@ discord:
   token: "tok"
 web:
   port: 9090
+  session_secret: "supersecret"
   oauth:
     client_id: "cid"
     client_secret: "csec"
@@ -79,5 +80,57 @@ web:
 	}
 	if cfg.Web.Oauth.ClientID != "cid" {
 		t.Errorf("client_id = %q, want %q", cfg.Web.Oauth.ClientID, "cid")
+	}
+	if cfg.Web.SessionSecret != "supersecret" {
+		t.Errorf("session_secret = %q, want %q", cfg.Web.SessionSecret, "supersecret")
+	}
+}
+
+func TestDecodeConfig_webEnabledMissingSessionSecret(t *testing.T) {
+	yaml := `
+discord:
+  token: "tok"
+web:
+  port: 8080
+  oauth:
+    client_id: "cid"
+    client_secret: "csec"
+    redirect_uri: "http://localhost/callback"
+`
+	_, err := decodeConfig(strings.NewReader(yaml))
+	if err == nil {
+		t.Fatal("expected error for missing session_secret when web is enabled, got nil")
+	}
+	if !strings.Contains(err.Error(), "session_secret") {
+		t.Errorf("error should mention session_secret, got: %v", err)
+	}
+}
+
+func TestDecodeConfig_webDisabledNoSessionSecretRequired(t *testing.T) {
+	// Web server not enabled (no port), session_secret not required
+	yaml := `
+discord:
+  token: "tok"
+`
+	_, err := decodeConfig(strings.NewReader(yaml))
+	if err != nil {
+		t.Fatalf("unexpected error when web server not configured: %v", err)
+	}
+}
+
+func TestDecodeConfig_webPortSetNoOAuthMissingSessionSecret(t *testing.T) {
+	// Port set but OAuth fields absent — session_secret must still be required
+	yaml := `
+discord:
+  token: "tok"
+web:
+  port: 8080
+`
+	_, err := decodeConfig(strings.NewReader(yaml))
+	if err == nil {
+		t.Fatal("expected error for missing session_secret when web.port is set without OAuth, got nil")
+	}
+	if !strings.Contains(err.Error(), "session_secret") {
+		t.Errorf("error should mention session_secret, got: %v", err)
 	}
 }
