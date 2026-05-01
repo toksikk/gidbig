@@ -40,6 +40,13 @@ jobs:
                         core.setFailed('CI still running: ' + pending.map(r => r.name).join(', '));
                         return;
                       }
+                      const stagingRun = relevant.find(r => r.name === 'Stage PR on testing');
+                      if (!stagingRun || stagingRun.conclusion !== 'success') {
+                        core.setFailed(stagingRun
+                          ? `Staging on test env failed (${stagingRun.conclusion}) — fix the issue and let CI re-run`
+                          : 'PR has not been staged on the test environment yet — wait for CI to complete');
+                        return;
+                      }
                       if (failed.length > 0) {
                         core.setFailed('CI failed: ' + failed.map(r => r.name).join(', '));
                         return;
@@ -110,6 +117,13 @@ jobs:
                       );
                       if (pending.length > 0) {
                         core.setFailed('CI still running: ' + pending.map(r => r.name).join(', '));
+                        return;
+                      }
+                      const stagingRun = relevant.find(r => r.name === 'Stage PR on testing');
+                      if (!stagingRun || stagingRun.conclusion !== 'success') {
+                        core.setFailed(stagingRun
+                          ? `Staging on test env failed (${stagingRun.conclusion}) — fix the issue and let CI re-run`
+                          : 'PR has not been staged on the test environment yet — wait for CI to complete');
                         return;
                       }
                       if (failed.length > 0) {
