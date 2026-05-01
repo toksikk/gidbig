@@ -1,10 +1,10 @@
 package gippity
 
 import (
-	"context"
 	"log/slog"
-	"sync"
 	"time"
+
+	"context"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/toksikk/gidbig/internal/util"
@@ -23,10 +23,10 @@ var messageGoalRange [2]int = [2]int{10, 20}
 var allowedGuildIDs [2]string = [2]string{"225303764108705793", "125231125961506816"} // TODO: make this a map
 
 var userMessageCount map[string]int
-var userMessageCountLastReset map[string]time.Time
-var userMessageMu sync.Mutex
 
 const userMessageLimit = 30
+
+var userMessageCountLastReset map[string]time.Time
 
 // Start the plugin
 func Start(discord *discordgo.Session) {
@@ -53,9 +53,6 @@ func idToNameCacheResetLoop() {
 }
 
 func isLimitedUser(m *discordgo.MessageCreate) bool {
-	userMessageMu.Lock()
-	defer userMessageMu.Unlock()
-
 	if _, exists := userMessageCount[m.Author.ID]; !exists {
 		userMessageCountLastReset[m.Author.ID] = time.Now()
 		userMessageCount[m.Author.ID] = 0
@@ -87,11 +84,7 @@ func limited(m *discordgo.MessageCreate) bool {
 	}
 
 	if isMentioned(m) && isLimitedUser(m) {
-		userMessageMu.Lock()
-		count := userMessageCount[m.Author.ID]
-		lastReset := userMessageCountLastReset[m.Author.ID]
-		userMessageMu.Unlock()
-		slog.Info("not answering because of user limitation", "userMessageCount", count, "userMessageLimit", userMessageLimit, "userMessageCountLastReset", lastReset)
+		slog.Info("not answering because of user limitation", "userMessageCount", userMessageCount[m.Author.ID], "userMessageLimit", userMessageLimit, "userMessageCountLastReset", userMessageCountLastReset[m.Author.ID])
 		_, err := discordSession.ChannelMessageSend(m.ChannelID, "Du hast heute schon genug Nachrichten geschrieben. Komm wann anders wieder.")
 		if err != nil {
 			slog.Info("Error while sending message", "error", err)

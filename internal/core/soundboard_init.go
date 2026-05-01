@@ -17,7 +17,7 @@ func createCollections() {
 	files, _ := os.ReadDir("./audio")
 	for _, f := range files {
 		if strings.Contains(f.Name(), ".dca") {
-			soundfile := strings.Split(strings.Replace(f.Name(), ".dca", "", -1), "_")
+			soundfile := strings.Split(strings.ReplaceAll(f.Name(), ".dca", ""), "_")
 			containsPrefix := false
 			containsSound := false
 

@@ -140,13 +140,14 @@ func buildScoreboardForGame(game datastore.Game) (string, []datastore.Score, []d
 
 	for i, winner := range winners {
 		var award string
-		if i == 0 {
+		switch i {
+		case 0:
 			award = firstPlace
-		} else if i == 1 {
+		case 1:
 			award = secondPlace
-		} else if i == 2 {
+		case 2:
 			award = thirdPlace
-		} else {
+		default:
 			award = otherPlace
 		}
 
@@ -282,11 +283,12 @@ func renewReactions(game datastore.Game) {
 		util.ReactOnMessage(session, game.ChannelID, v.MessageID, firstPlace, "remove")
 		util.ReactOnMessage(session, game.ChannelID, v.MessageID, secondPlace, "remove")
 		util.ReactOnMessage(session, game.ChannelID, v.MessageID, thirdPlace, "remove")
-		if i == 0 {
+		switch i {
+		case 0:
 			util.ReactOnMessage(session, game.ChannelID, v.MessageID, firstPlace, "add")
-		} else if i == 1 {
+		case 1:
 			util.ReactOnMessage(session, game.ChannelID, v.MessageID, secondPlace, "add")
-		} else if i == 2 {
+		case 2:
 			util.ReactOnMessage(session, game.ChannelID, v.MessageID, thirdPlace, "add")
 		}
 	}

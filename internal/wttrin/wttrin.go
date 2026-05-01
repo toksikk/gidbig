@@ -247,7 +247,7 @@ func Start(discord *discordgo.Session) {
 }
 
 func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
-	msg := strings.Replace(m.ContentWithMentionsReplaced(), s.State.Ready.User.Username, "username", 1)
+	msg := strings.Replace(m.ContentWithMentionsReplaced(), s.State.User.Username, "username", 1)
 	parts := strings.Split(msg, " ")
 	channel, err := s.State.Channel(m.ChannelID)
 	if channel == nil {
@@ -572,7 +572,7 @@ func httpGet(url string) (weatherResult wttrinResponse, err error) {
 		slog.Error("Failed to get weather", "URL", url, "Error", err)
 		return
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode == http.StatusNotFound {
 		slog.Info("Could not find requested location", "URL", url, "StatusCode", resp.StatusCode)

@@ -1,8 +1,6 @@
 package cfg
 
 import (
-	"errors"
-	"io"
 	"log/slog"
 	"os"
 
@@ -42,27 +40,14 @@ func loadFile() *Config {
 	configFile, err := os.Open("config.yaml")
 	if err != nil {
 		slog.Error("Could not load config file.", "error", err)
-		os.Exit(1)
 	}
-	defer configFile.Close()
+	defer func() { _ = configFile.Close() }()
 
-	cfg, err := decodeConfig(configFile)
-	if err != nil {
-		slog.Error(err.Error())
-		os.Exit(1)
+	configDecoder := yaml.NewDecoder(configFile)
+
+	if err := configDecoder.Decode(&initializedConfig); err != nil {
+		slog.Error("could not decode config.", "error", err)
 	}
-	initializedConfig = *cfg
+
 	return &initializedConfig
-}
-
-// decodeConfig decodes YAML from r into a Config and validates required fields.
-func decodeConfig(r io.Reader) (*Config, error) {
-	var cfg Config
-	if err := yaml.NewDecoder(r).Decode(&cfg); err != nil {
-		return nil, errors.New("could not decode config: " + err.Error())
-	}
-	if cfg.Discord.Token == "" {
-		return nil, errors.New("discord.token is required but not set in config.yaml")
-	}
-	return &cfg, nil
 }

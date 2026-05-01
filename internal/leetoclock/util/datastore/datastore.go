@@ -116,7 +116,7 @@ func (s *Store) EnsureSeason(date time.Time) (*Season, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	var season Season = Season{StartDate: getSeasonStartDateForDate(date), EndDate: getSeasonEndDateForDate(date)}
+	season := Season{StartDate: getSeasonStartDateForDate(date), EndDate: getSeasonEndDateForDate(date)}
 	result := s.db.Where("start_date <= ? AND end_date >= ?", date, date).First(&season)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
@@ -177,7 +177,7 @@ func (s *Store) CreatePlayer(userID string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	var player Player = Player{UserID: userID}
+	player := Player{UserID: userID}
 	result := s.db.Create(&player)
 	if result.Error != nil {
 		return result.Error
@@ -190,7 +190,7 @@ func (s *Store) EnsurePlayer(userID string) (*Player, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	var player Player = Player{UserID: userID}
+	player := Player{UserID: userID}
 	result := s.db.Where("user_id = ?", userID).First(&player)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
@@ -251,7 +251,7 @@ func (s *Store) CreateGame(channelID string, guildID string, gameDate time.Time,
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	var game Game = Game{ChannelID: channelID, GuildID: guildID, GameDate: gameDate, SeasonID: seasonID}
+	game := Game{ChannelID: channelID, GuildID: guildID, GameDate: gameDate, SeasonID: seasonID}
 	result := s.db.FirstOrCreate(&game)
 	if result.Error != nil {
 		return result.Error
@@ -264,7 +264,7 @@ func (s *Store) EnsureGame(channelID string, guildID string, gameDate time.Time,
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	var game Game = Game{ChannelID: channelID, GuildID: guildID, GameDate: gameDate, SeasonID: seasonID}
+	game := Game{ChannelID: channelID, GuildID: guildID, GameDate: gameDate, SeasonID: seasonID}
 	result := s.db.Where("channel_id = ? AND guild_id = ? AND game_date = ? AND season_id = ?", channelID, guildID, gameDate, seasonID).First(&game)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
@@ -371,7 +371,7 @@ func (s *Store) CreateScore(messageID string, playerID uint, score int, gameID u
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	var scoreObj Score = Score{MessageID: messageID, PlayerID: playerID, Score: score, GameID: gameID}
+	scoreObj := Score{MessageID: messageID, PlayerID: playerID, Score: score, GameID: gameID}
 	result := s.db.Create(&scoreObj)
 	if result.Error != nil {
 		return result.Error
@@ -425,7 +425,7 @@ func (s *Store) CreateHighscore(playerID uint, scoreID uint, seasonID uint) erro
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	var highscore Highscore = Highscore{PlayerID: playerID, ScoreID: scoreID, SeasonID: seasonID}
+	highscore := Highscore{PlayerID: playerID, ScoreID: scoreID, SeasonID: seasonID}
 	result := s.db.Create(&highscore)
 	if result.Error != nil {
 		return result.Error
