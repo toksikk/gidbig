@@ -9,6 +9,16 @@ import (
 	"github.com/toksikk/gidbig/internal/util"
 )
 
+const (
+	// daveHandshakeWarmup is the minimum time to wait after joining a voice channel
+	// before sending Opus frames.  Discord now enforces DAVE (E2EE) on all voice
+	// channels: ChannelVoiceJoin returns when the transport is ready (OP4) but the
+	// DAVE key exchange (Welcome → PrepareTransition → ExecuteTransition) needs an
+	// additional 100–300 ms.  Frames sent before the exchange completes are discarded
+	// by Discord clients.  500 ms gives ample margin even on slow connections.
+	daveHandshakeWarmup = 500 * time.Millisecond
+)
+
 var (
 	// Map of Guild id's to *Play channels, used for queuing and rate-limiting guilds
 	queues = make(map[string]chan *Play)
@@ -216,6 +226,12 @@ func playSound(play *Play, vc *discordgo.VoiceConnection, vcChannelID string) (r
 			return nil, "", err
 		}
 		vcChannelID = play.ChannelID
+		// Discord now enforces DAVE (E2EE) on all voice channels. ChannelVoiceJoin
+		// returns as soon as the transport is ready (OP4), but the DAVE key exchange
+		// (Welcome → PrepareTransition → ExecuteTransition) takes an additional
+		// 100–300 ms. Audio sent before that exchange completes is dropped by Discord
+		// clients.  Wait long enough for the handshake to finish before sending frames.
+		time.Sleep(daveHandshakeWarmup)
 	}
 
 	// If we need to change channels, disconnect and rejoin
@@ -232,10 +248,11 @@ func playSound(play *Play, vc *discordgo.VoiceConnection, vcChannelID string) (r
 			return nil, "", err
 		}
 		vcChannelID = play.ChannelID
-		time.Sleep(time.Millisecond * 125)
+		// Same DAVE warmup needed after a channel change.
+		time.Sleep(daveHandshakeWarmup)
 	}
 
-	// Sleep for a specified amount of time before playing the sound
+	// Small buffer before starting playback.
 	time.Sleep(time.Millisecond * 32)
 
 	mutex.Lock()
