@@ -25,6 +25,16 @@ jobs:
                   script: |
                       const pr = context.payload.pull_request;
 
+                      const { data: testingRef } = await github.rest.git.getRef({
+                        owner: context.repo.owner,
+                        repo: context.repo.repo,
+                        ref: 'heads/testing',
+                      });
+                      if (testingRef.object.sha !== pr.head.sha) {
+                        core.setFailed('testing branch is not at this PR\'s HEAD — wait for staging to complete');
+                        return;
+                      }
+
                       const { data: { check_runs } } = await github.rest.checks.listForRef({
                         owner: context.repo.owner,
                         repo: context.repo.repo,
@@ -38,13 +48,6 @@ jobs:
                       );
                       if (pending.length > 0) {
                         core.setFailed('CI still running: ' + pending.map(r => r.name).join(', '));
-                        return;
-                      }
-                      const stagingRun = relevant.find(r => r.name === 'Stage PR on testing');
-                      if (!stagingRun || stagingRun.conclusion !== 'success') {
-                        core.setFailed(stagingRun
-                          ? `Staging on test env failed (${stagingRun.conclusion}) — fix the issue and let CI re-run`
-                          : 'PR has not been staged on the test environment yet — wait for CI to complete');
                         return;
                       }
                       if (failed.length > 0) {
@@ -104,6 +107,16 @@ jobs:
                         return;
                       }
 
+                      const { data: testingRef } = await github.rest.git.getRef({
+                        owner: context.repo.owner,
+                        repo: context.repo.repo,
+                        ref: 'heads/testing',
+                      });
+                      if (testingRef.object.sha !== pr.head.sha) {
+                        core.setFailed('testing branch is not at this PR\'s HEAD — wait for staging to complete');
+                        return;
+                      }
+
                       const { data: { check_runs } } = await github.rest.checks.listForRef({
                         owner: context.repo.owner,
                         repo: context.repo.repo,
@@ -117,13 +130,6 @@ jobs:
                       );
                       if (pending.length > 0) {
                         core.setFailed('CI still running: ' + pending.map(r => r.name).join(', '));
-                        return;
-                      }
-                      const stagingRun = relevant.find(r => r.name === 'Stage PR on testing');
-                      if (!stagingRun || stagingRun.conclusion !== 'success') {
-                        core.setFailed(stagingRun
-                          ? `Staging on test env failed (${stagingRun.conclusion}) — fix the issue and let CI re-run`
-                          : 'PR has not been staged on the test environment yet — wait for CI to complete');
                         return;
                       }
                       if (failed.length > 0) {

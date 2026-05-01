@@ -79,13 +79,22 @@ jobs:
             contents: write
 
         steps:
+            - name: Resolve SHA
+              id: sha
+              run: |
+                  if [ "${{ github.event_name }}" = "pull_request" ]; then
+                    echo "sha=${{ github.event.pull_request.head.sha }}" >> $GITHUB_OUTPUT
+                  else
+                    echo "sha=${{ github.sha }}" >> $GITHUB_OUTPUT
+                  fi
+
             - uses: actions/checkout@v6
               with:
-                  ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+                  ref: ${{ steps.sha.outputs.sha }}
                   fetch-depth: 0
 
-            - name: Force-push PR to testing
-              run: git push origin ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}:refs/heads/testing --force
+            - name: Force-push to testing
+              run: git push origin ${{ steps.sha.outputs.sha }}:refs/heads/testing --force
 
             - name: Dispatch deploy
               uses: peter-evans/repository-dispatch@v4.0.1
