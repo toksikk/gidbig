@@ -53,6 +53,15 @@ func initDB() {
 	}
 }
 
+// CloseDB closes the gippity chat history database.
+func CloseDB() {
+	if database != nil {
+		if err := database.Close(); err != nil {
+			slog.Error("error closing gippity database", "error", err)
+		}
+	}
+}
+
 func addMessageToDatabase(m *discordgo.MessageCreate) {
 	stmt, err := database.Prepare("INSERT INTO chat_history (user_id, channel_id, timestamp, message, message_id, guild_id) VALUES (?, ?, ?, ?, ?, ?)")
 	if err != nil {

@@ -37,6 +37,15 @@ var announcementChannels = []string{}
 
 var store *datastore.Store
 
+// Shutdown closes the leetoclock database connection.
+func Shutdown() {
+	if store != nil {
+		if err := store.Close(); err != nil {
+			slog.Error("error closing leetoclock database", "error", err)
+		}
+	}
+}
+
 // Start the plugin
 func Start(discord *discordgo.Session) {
 	session = discord
