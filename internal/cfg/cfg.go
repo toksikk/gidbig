@@ -23,7 +23,8 @@ type Config struct {
 			ClientSecret string `yaml:"client_secret"`
 			RedirectURI  string `yaml:"redirect_uri"`
 		} `yaml:"oauth"`
-		Port int `yaml:"port,omitempty" default:"8080"`
+		SessionSecret string `yaml:"session_secret"`
+		Port          int    `yaml:"port,omitempty" default:"8080"`
 	} `yaml:"web"`
 	DevMode bool `yaml:"dev_mode,omitempty" default:"false"`
 }
@@ -63,6 +64,10 @@ func decodeConfig(r io.Reader) (*Config, error) {
 	}
 	if cfg.Discord.Token == "" {
 		return nil, errors.New("discord.token is required but not set in config.yaml")
+	}
+	webEnabled := cfg.Web.Port != 0 && cfg.Web.Oauth.ClientID != "" && cfg.Web.Oauth.ClientSecret != ""
+	if webEnabled && cfg.Web.SessionSecret == "" {
+		return nil, errors.New("web.session_secret is required when the web server is enabled")
 	}
 	return &cfg, nil
 }

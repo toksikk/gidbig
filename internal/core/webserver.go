@@ -44,7 +44,6 @@ var (
 	}
 	tmpls = map[string]*template.Template{}
 
-	// TODO change secret
 	store *sessions.CookieStore
 
 	ipAnonymizer = ipanonymizer.NewWithMask(
@@ -62,7 +61,7 @@ func startWebServer(config *cfg.Config) {
 	tmpls["itemrowend.html"] = template.Must(template.ParseFiles(templateDir + "itemrowend.html"))
 	tmpls["collwrapstart.html"] = template.Must(template.ParseFiles(templateDir + "collwrapstart.html"))
 	tmpls["collwrapend.html"] = template.Must(template.ParseFiles(templateDir + "collwrapend.html"))
-	store = sessions.NewCookieStore([]byte(config.Web.Oauth.ClientSecret))
+	store = sessions.NewCookieStore([]byte(config.Web.SessionSecret))
 	discordOauthConfig.ClientID = config.Web.Oauth.ClientID
 	discordOauthConfig.ClientSecret = config.Web.Oauth.ClientSecret
 	discordOauthConfig.RedirectURL = config.Web.Oauth.RedirectURI + "/discordCallback"
