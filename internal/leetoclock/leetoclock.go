@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"sort"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
@@ -96,13 +97,9 @@ func isScoreInScoreArray(s datastore.Score, a []datastore.Score) bool {
 }
 
 func sortScoreArrayByScore(a []datastore.Score) []datastore.Score {
-	for i := 0; i < len(a); i++ {
-		for j := i + 1; j < len(a); j++ {
-			if a[j].Score < a[i].Score {
-				a[i], a[j] = a[j], a[i]
-			}
-		}
-	}
+	sort.Slice(a, func(i, j int) bool {
+		return a[i].Score < a[j].Score
+	})
 	return a
 }
 
