@@ -22,6 +22,9 @@ var (
 
 // Random select sound
 func (sc *soundCollection) Random() *soundClip {
+	if len(sc.Sounds) == 0 {
+		return nil
+	}
 	var (
 		i      int
 		number = util.RandomRange(0, sc.soundRange)
@@ -136,12 +139,17 @@ func createPlay(user *discordgo.User, guild *discordgo.Guild, coll *soundCollect
 
 	// If the collection is a chained one, set the next sound
 	if coll.ChainWith != nil {
-		play.Next = &Play{
-			GuildID:   play.GuildID,
-			ChannelID: play.ChannelID,
-			UserID:    play.UserID,
-			Sound:     coll.ChainWith.Random(),
-			Forced:    play.Forced,
+		nextSound := coll.ChainWith.Random()
+		if nextSound == nil {
+			slog.Warn("chained collection is empty, skipping next sound", "prefix", coll.ChainWith.Prefix)
+		} else {
+			play.Next = &Play{
+				GuildID:   play.GuildID,
+				ChannelID: play.ChannelID,
+				UserID:    play.UserID,
+				Sound:     nextSound,
+				Forced:    play.Forced,
+			}
 		}
 	}
 
