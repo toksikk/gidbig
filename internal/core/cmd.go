@@ -303,4 +303,23 @@ func StartGidbig() {
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
 	<-c
+
+	slog.Info("shutting down")
+
+	shutdownDone := make(chan struct{})
+	go func() {
+		defer close(shutdownDone)
+		if err := discord.Close(); err != nil {
+			slog.Error("error closing discord session", "error", err)
+		}
+		gippity.CloseDB()
+		leetoclock.Shutdown()
+	}()
+
+	select {
+	case <-shutdownDone:
+		slog.Info("shutdown complete")
+	case <-time.After(10 * time.Second):
+		slog.Warn("shutdown timed out after 10s, forcing exit")
+	}
 }

@@ -85,6 +85,15 @@ func NewStore(db *gorm.DB) *Store {
 	return &Store{db: db}
 }
 
+// Close closes the underlying database connection.
+func (s *Store) Close() error {
+	sqlDB, err := s.db.DB()
+	if err != nil {
+		return err
+	}
+	return sqlDB.Close()
+}
+
 // HELPER
 
 func getSeasonStartDateForDate(date time.Time) time.Time {

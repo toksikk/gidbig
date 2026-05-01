@@ -3,7 +3,7 @@ module github.com/toksikk/gidbig
 go 1.25.0
 
 require (
-	github.com/bwmarrin/discordgo v0.29.0
+	github.com/bwmarrin/discordgo v0.0.0-20260324114955-7a1c64e5eb96
 	github.com/dustin/go-humanize v1.0.1
 	github.com/gorilla/mux v1.8.1
 	github.com/gorilla/sessions v1.4.0
