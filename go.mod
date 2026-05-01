@@ -9,6 +9,7 @@ require (
 	github.com/gorilla/sessions v1.4.0
 	github.com/mattn/go-sqlite3 v1.14.44
 	github.com/openai/openai-go v1.12.0
+	github.com/openai/openai-go/v3 v3.33.0
 	github.com/simplesurance/go-ip-anonymizer v0.0.0-20200429124537-35a880f8e87d
 	golang.org/x/oauth2 v0.36.0
 	gopkg.in/yaml.v3 v3.0.1
@@ -30,7 +31,6 @@ require (
 require (
 	github.com/gorilla/securecookie v1.1.2 // indirect
 	github.com/gorilla/websocket v1.5.3 // indirect
-	github.com/openai/openai-go/v3 v3.33.0
 	golang.org/x/crypto v0.50.0 // indirect
 	golang.org/x/sys v0.43.0 // indirect
 )
