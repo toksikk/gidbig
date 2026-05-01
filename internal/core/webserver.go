@@ -262,6 +262,15 @@ func handleMain(w http.ResponseWriter, r *http.Request) {
 			i++
 		}
 
+		// Explicitly close the last collection (loop only closes previous ones on prefix change)
+		if i > 0 {
+			err = tmpls["collwrapend.html"].Execute(w, nil)
+			if err != nil {
+				fmt.Println(err)
+				return
+			}
+		}
+
 		err = tmpls["internal.html"].ExecuteTemplate(w, "footer", map[string]interface{}{})
 		if err != nil {
 			fmt.Println(err)
