@@ -33,6 +33,12 @@ jobs:
               with:
                   go-version: ${{ needs.preparation.outputs.go_version }}
 
+            - name: Install dependencies
+              run: |
+                  go version
+                  go get -u golang.org/x/lint/golint
+                  export PATH=${PATH}:$(go env GOPATH)/bin
+
             - name: Lint
               uses: golangci/golangci-lint-action@v6
 
