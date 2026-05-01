@@ -9,7 +9,7 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/toksikk/gidbig/internal/util"
 
-	openai "github.com/openai/openai-go"
+	openai "github.com/openai/openai-go/v3"
 )
 
 var openaiClient openai.Client
