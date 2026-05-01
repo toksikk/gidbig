@@ -1,18 +1,102 @@
 {{ define "sessionHandler" }}
-<script type="text/javascript">
-    function playSound(cmd, sndnm) {
-        var data = {
-            command: cmd,
-            soundname: sndnm
-        };
-        $.post("/playsound", data, function(data, success) {});
+<div class="mb-3">
+    <input type="text" id="sound-search" class="form-control" placeholder="Search sounds…" autocomplete="off">
+</div>
+
+<div aria-live="polite" aria-atomic="true" class="position-fixed top-0 end-0 p-3" style="z-index: 1100">
+    <div id="toast-container"></div>
+</div>
+
+<div id="queue-panel" class="card shadow-sm d-none">
+    <div class="card-header py-1 px-2 d-flex justify-content-between align-items-center">
+        <small class="fw-bold">Now Playing</small>
+        <button type="button" class="btn-close btn-close-sm" onclick="document.getElementById('queue-panel').classList.add('d-none')"></button>
+    </div>
+    <div class="card-body py-1 px-2" id="queue-body">
+        <small class="text-muted">Nothing playing</small>
+    </div>
+</div>
+
+<script>
+function showToast(message, type) {
+    var container = document.getElementById('toast-container');
+    var id = 'toast-' + Date.now();
+    var bg = type === 'success' ? 'bg-success' : 'bg-danger';
+    container.insertAdjacentHTML('beforeend',
+        '<div id="' + id + '" class="toast align-items-center text-white ' + bg + ' border-0 mb-2" role="alert" aria-live="assertive">' +
+        '<div class="d-flex"><div class="toast-body">' + message + '</div>' +
+        '<button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button></div></div>'
+    );
+    var el = document.getElementById(id);
+    var toast = new bootstrap.Toast(el, {delay: 3000});
+    toast.show();
+    el.addEventListener('hidden.bs.toast', function() { el.remove(); });
+}
+
+function playSound(cmd, sndnm) {
+    var btn = event && event.target;
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = '…';
     }
-    $(document).ready(function(){
-        $('[data-toggle="popover"]').popover();
+    var body = new URLSearchParams();
+    body.append('command', cmd);
+    body.append('soundname', sndnm);
+    fetch('/playsound', {method: 'POST', body: body})
+        .then(function(res) {
+            if (btn) { btn.disabled = false; btn.textContent = 'Play!'; }
+            if (res.ok) {
+                var label = sndnm ? cmd + ' ' + sndnm : cmd + ' (random)';
+                showToast('&#9654; Playing ' + label, 'success');
+            } else if (res.status === 401) {
+                showToast('Not logged in — please refresh the page.', 'error');
+            } else {
+                showToast('Could not play sound — are you in a voice channel?', 'error');
+            }
+        })
+        .catch(function() {
+            if (btn) { btn.disabled = false; btn.textContent = 'Play!'; }
+            showToast('Request failed — check your connection.', 'error');
+        });
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    var searchInput = document.getElementById('sound-search');
+    searchInput.addEventListener('input', function() {
+        var q = this.value.toLowerCase().trim();
+        document.querySelectorAll('.col-sm-3').forEach(function(col) {
+            var text = col.textContent.toLowerCase();
+            col.classList.toggle('sound-hidden', q !== '' && !text.includes(q));
+        });
     });
-    $(document).ready(function(){
-        $('[data-toggle="tooltip"]').tooltip();
-    });
+
+    function pollQueue() {
+        fetch('/api/queue')
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                var panel = document.getElementById('queue-panel');
+                var body = document.getElementById('queue-body');
+                var active = data.guilds && data.guilds.some(function(g) { return g.now_playing || g.queue_length > 0; });
+                if (active) {
+                    panel.classList.remove('d-none');
+                    var html = '';
+                    data.guilds.forEach(function(g) {
+                        if (g.now_playing || g.queue_length > 0) {
+                            html += '<small>';
+                            if (g.now_playing) html += '&#9654; <strong>' + g.now_playing + '</strong>';
+                            if (g.queue_length > 0) html += ' (+' + g.queue_length + ' queued)';
+                            html += '</small><br>';
+                        }
+                    });
+                    body.innerHTML = html || '<small class="text-muted">Nothing playing</small>';
+                } else {
+                    panel.classList.add('d-none');
+                }
+            })
+            .catch(function() {});
+    }
+    setInterval(pollQueue, 2500);
+    pollQueue();
+});
 </script>
-<a href="/logout">Logout</a><br/>
 {{ end }}
