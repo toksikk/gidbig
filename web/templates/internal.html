@@ -1,102 +1,107 @@
 {{ define "sessionHandler" }}
-<div class="mb-3">
-    <input type="text" id="sound-search" class="form-control" placeholder="Search sounds…" autocomplete="off">
-</div>
+<div class="inner-wrap">
+  <div class="search-bar">
+    <svg class="search-bar-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+    <input type="text" id="sound-search" placeholder="Search sounds…" autocomplete="off" spellcheck="false">
+  </div>
 
-<div aria-live="polite" aria-atomic="true" class="position-fixed top-0 end-0 p-3" style="z-index: 1100">
-    <div id="toast-container"></div>
-</div>
+  <div id="toast-stack"></div>
 
-<div id="queue-panel" class="card shadow-sm d-none">
-    <div class="card-header py-1 px-2 d-flex justify-content-between align-items-center">
-        <small class="fw-bold">Now Playing</small>
-        <button type="button" class="btn-close btn-close-sm" onclick="document.getElementById('queue-panel').classList.add('d-none')"></button>
+  <div id="queue-panel" class="d-none">
+    <div class="queue-panel-hd">
+      <span class="queue-dot"></span>
+      <span class="queue-panel-title">Now Playing</span>
+      <button class="queue-panel-close" onclick="document.getElementById('queue-panel').classList.add('d-none')" aria-label="Close">&#x2715;</button>
     </div>
-    <div class="card-body py-1 px-2" id="queue-body">
-        <small class="text-muted">Nothing playing</small>
-    </div>
-</div>
+    <div class="queue-panel-bd" id="queue-body"></div>
+  </div>
 
-<script>
-function showToast(message, type) {
-    var container = document.getElementById('toast-container');
-    var id = 'toast-' + Date.now();
-    var bg = type === 'success' ? 'bg-success' : 'bg-danger';
-    container.insertAdjacentHTML('beforeend',
-        '<div id="' + id + '" class="toast align-items-center text-white ' + bg + ' border-0 mb-2" role="alert" aria-live="assertive">' +
-        '<div class="d-flex"><div class="toast-body">' + message + '</div>' +
-        '<button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button></div></div>'
-    );
-    var el = document.getElementById(id);
-    var toast = new bootstrap.Toast(el, {delay: 3000});
-    toast.show();
-    el.addEventListener('hidden.bs.toast', function() { el.remove(); });
-}
+  <script>
+  function showToast(message, type) {
+    var stack = document.getElementById('toast-stack');
+    var item = document.createElement('div');
+    item.className = 'toast-item ' + (type === 'success' ? 'is-success' : 'is-error');
+    item.innerHTML =
+      '<span class="toast-dot"></span>' +
+      '<span class="toast-msg">' + message + '</span>' +
+      '<button class="toast-close" aria-label="Dismiss">&#x2715;</button>';
+    item.querySelector('.toast-close').addEventListener('click', function() { dismissToast(item); });
+    stack.appendChild(item);
+    setTimeout(function() { dismissToast(item); }, 3500);
+  }
 
-function playSound(cmd, sndnm) {
-    var btn = event && event.target;
-    if (btn) {
-        btn.disabled = true;
-        btn.textContent = '…';
-    }
-    var body = new URLSearchParams();
-    body.append('command', cmd);
-    body.append('soundname', sndnm);
-    fetch('/playsound', {method: 'POST', body: body})
+  function dismissToast(item) {
+    if (item.classList.contains('toast-out')) return;
+    item.classList.add('toast-out');
+    item.addEventListener('animationend', function() { item.remove(); }, { once: true });
+  }
+
+  document.addEventListener('DOMContentLoaded', function() {
+    document.getElementById('sound-search').addEventListener('input', function() {
+      var q = this.value.toLowerCase().trim();
+      document.querySelectorAll('.sound-pad-wrapper').forEach(function(el) {
+        var text = el.textContent.toLowerCase();
+        el.classList.toggle('sound-hidden', q !== '' && !text.includes(q));
+      });
+    });
+
+    document.addEventListener('click', function(e) {
+      var btn = e.target.closest('.pad-btn');
+      if (!btn) return;
+      var cmd = btn.dataset.cmd;
+      var snd = btn.dataset.snd;
+      btn.disabled = true;
+      btn.textContent = '…';
+      var body = new URLSearchParams();
+      body.append('command', cmd);
+      body.append('soundname', snd || '');
+      fetch('/playsound', { method: 'POST', body: body })
         .then(function(res) {
-            if (btn) { btn.disabled = false; btn.textContent = 'Play!'; }
-            if (res.ok) {
-                var label = sndnm ? cmd + ' ' + sndnm : cmd + ' (random)';
-                showToast('&#9654; Playing ' + label, 'success');
-            } else if (res.status === 401) {
-                showToast('Not logged in — please refresh the page.', 'error');
-            } else {
-                showToast('Could not play sound — are you in a voice channel?', 'error');
-            }
+          btn.disabled = false;
+          btn.textContent = 'Play';
+          if (res.ok) {
+            var label = snd ? cmd + ' ' + snd : cmd + ' (random)';
+            showToast('&#9654; ' + label, 'success');
+          } else if (res.status === 401) {
+            showToast('Not logged in — please refresh.', 'error');
+          } else {
+            showToast('Could not play — are you in a voice channel?', 'error');
+          }
         })
         .catch(function() {
-            if (btn) { btn.disabled = false; btn.textContent = 'Play!'; }
-            showToast('Request failed — check your connection.', 'error');
-        });
-}
-
-document.addEventListener('DOMContentLoaded', function() {
-    var searchInput = document.getElementById('sound-search');
-    searchInput.addEventListener('input', function() {
-        var q = this.value.toLowerCase().trim();
-        document.querySelectorAll('.col-sm-3').forEach(function(col) {
-            var text = col.textContent.toLowerCase();
-            col.classList.toggle('sound-hidden', q !== '' && !text.includes(q));
+          btn.disabled = false;
+          btn.textContent = 'Play';
+          showToast('Request failed — check your connection.', 'error');
         });
     });
 
     function pollQueue() {
-        fetch('/api/queue')
-            .then(function(r) { return r.json(); })
-            .then(function(data) {
-                var panel = document.getElementById('queue-panel');
-                var body = document.getElementById('queue-body');
-                var active = data.guilds && data.guilds.some(function(g) { return g.now_playing || g.queue_length > 0; });
-                if (active) {
-                    panel.classList.remove('d-none');
-                    var html = '';
-                    data.guilds.forEach(function(g) {
-                        if (g.now_playing || g.queue_length > 0) {
-                            html += '<small>';
-                            if (g.now_playing) html += '&#9654; <strong>' + g.now_playing + '</strong>';
-                            if (g.queue_length > 0) html += ' (+' + g.queue_length + ' queued)';
-                            html += '</small><br>';
-                        }
-                    });
-                    body.innerHTML = html || '<small class="text-muted">Nothing playing</small>';
-                } else {
-                    panel.classList.add('d-none');
-                }
-            })
-            .catch(function() {});
+      fetch('/api/queue')
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          var panel = document.getElementById('queue-panel');
+          var body = document.getElementById('queue-body');
+          var active = data.guilds && data.guilds.some(function(g) { return g.now_playing || g.queue_length > 0; });
+          if (active) {
+            panel.classList.remove('d-none');
+            var html = '';
+            data.guilds.forEach(function(g) {
+              if (g.now_playing || g.queue_length > 0) {
+                html += '<div class="queue-row">';
+                if (g.now_playing) html += '<span class="queue-row-name">' + g.now_playing + '</span>';
+                if (g.queue_length > 0) html += '<span class="queue-row-meta">+' + g.queue_length + ' queued</span>';
+                html += '</div>';
+              }
+            });
+            body.innerHTML = html || '<span style="font-size:.68rem;color:var(--text-2)">Nothing playing</span>';
+          } else {
+            panel.classList.add('d-none');
+          }
+        })
+        .catch(function() {});
     }
     setInterval(pollQueue, 2500);
     pollQueue();
-});
-</script>
+  });
+  </script>
 {{ end }}
