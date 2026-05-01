@@ -34,4 +34,4 @@ require (
 	golang.org/x/sys v0.43.0 // indirect
 )
 
-replace github.com/bwmarrin/discordgo => github.com/yeongaori/discordgo-fork v0.0.0-20260324114955-7a1c64e5eb96
+replace github.com/bwmarrin/discordgo => github.com/yeongaori/discordgo-fork v0.0.0-20260326072433-16ef34198ced
