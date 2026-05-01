@@ -65,9 +65,8 @@ func decodeConfig(r io.Reader) (*Config, error) {
 	if cfg.Discord.Token == "" {
 		return nil, errors.New("discord.token is required but not set in config.yaml")
 	}
-	webEnabled := cfg.Web.Port != 0 && cfg.Web.Oauth.ClientID != "" && cfg.Web.Oauth.ClientSecret != ""
-	if webEnabled && cfg.Web.SessionSecret == "" {
-		return nil, errors.New("web.session_secret is required when the web server is enabled")
+	if cfg.Web.Port != 0 && cfg.Web.SessionSecret == "" {
+		return nil, errors.New("web.session_secret is required when web.port is set")
 	}
 	return &cfg, nil
 }
