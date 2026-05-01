@@ -129,6 +129,10 @@ func createPlay(user *discordgo.User, guild *discordgo.Guild, coll *soundCollect
 		play.Sound = coll.Random()
 		play.Forced = false
 	}
+	if play.Sound == nil {
+		slog.Warn("sound collection is empty, nothing to play", "prefix", coll.Prefix)
+		return nil
+	}
 
 	// If the collection is a chained one, set the next sound
 	if coll.ChainWith != nil {

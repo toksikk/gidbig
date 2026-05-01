@@ -94,3 +94,28 @@ func TestSoundClipLoad_doesNotLeakFD(t *testing.T) {
 		}
 	}
 }
+
+func TestSoundCollectionRandom_emptyCollection(t *testing.T) {
+	sc := &soundCollection{Prefix: "empty", soundRange: 0}
+	if got := sc.Random(); got != nil {
+		t.Errorf("Random() on empty collection = %v, want nil", got)
+	}
+}
+
+func TestSoundCollectionRandom_returnsSound(t *testing.T) {
+	clip := &soundClip{Name: "beep", Weight: 1}
+	sc := &soundCollection{
+		Prefix:     "test",
+		Sounds:     []*soundClip{clip},
+		soundRange: 1,
+	}
+	for i := 0; i < 20; i++ {
+		got := sc.Random()
+		if got == nil {
+			t.Fatal("Random() returned nil for non-empty collection")
+		}
+		if got.Name != "beep" {
+			t.Errorf("Random() = %q, want %q", got.Name, "beep")
+		}
+	}
+}
