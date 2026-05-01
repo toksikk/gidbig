@@ -91,11 +91,16 @@ func handlePlaySound(w http.ResponseWriter, r *http.Request) {
 	}
 	sound, soundCollection := findSoundAndCollection(r.FormValue("command"), r.FormValue("soundname"))
 	session, _ := store.Get(r, "gidbig-session")
+	userID, ok := session.Values["discordUserID"].(string)
+	if !ok || userID == "" {
+		http.Error(w, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
+		return
+	}
 	var guild *discordgo.Guild
-	user, _ := discord.User(session.Values["discordUserID"].(string))
+	user, _ := discord.User(userID)
 	for _, g := range discord.State.Guilds {
 		for _, vs := range g.VoiceStates {
-			if vs.UserID == session.Values["discordUserID"].(string) {
+			if vs.UserID == userID {
 				guild = g
 			}
 		}
