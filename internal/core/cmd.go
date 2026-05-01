@@ -171,7 +171,7 @@ func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 		go deleteCommandMessage(s, m.ChannelID, m.ID)
 	}
 
-	msg := strings.Replace(m.ContentWithMentionsReplaced(), s.State.Ready.User.Username, "username", 1)
+	msg := strings.Replace(m.ContentWithMentionsReplaced(), s.State.User.Username, "username", 1)
 	parts := strings.Split(strings.ToLower(msg), " ")
 
 	channel, _ := discord.State.Channel(m.ChannelID)

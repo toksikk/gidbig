@@ -285,7 +285,7 @@ func handleDiscordCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !token.Valid() {
-		fmt.Fprintln(w, "retrieved invalid token")
+		_, _ = fmt.Fprintln(w, "retrieved invalid token")
 		return
 	}
 
