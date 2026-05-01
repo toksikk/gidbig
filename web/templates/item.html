@@ -1,1 +1,8 @@
-<div class="col-sm-3 text-center"><div class="sounditem" data-prefix="{{ .Itemprefix }}" data-sound="{{ .Itemsoundname }}"><div title="{{ .Itemtext }}">{{ .Itemcommand }} {{ .Itemsoundname }}<br/>{{ .Itemshorttext }}<br/><button class="btn btn-primary btn-sm" onclick="playSound('{{ .Itemcommand }}', '{{ .Itemsoundname }}')" role="button">Play!</button><br/></div></div></div>
+<div class="sound-pad-wrapper">
+  <div class="sound-pad">
+    <span class="pad-prefix">{{ .Itemcommand }}</span>
+    <span class="pad-name">{{ if .Itemsoundname }}{{ .Itemsoundname }}{{ else }}random{{ end }}</span>
+    <span class="pad-desc" title="{{ .Itemtext }}">{{ .Itemshorttext }}</span>
+    <button class="pad-btn" data-cmd="{{ .Itemcommand }}" data-snd="{{ .Itemsoundname }}">Play</button>
+  </div>
+</div>
