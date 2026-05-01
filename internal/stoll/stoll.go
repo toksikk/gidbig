@@ -1,7 +1,6 @@
 package stoll
 
 import (
-	"fmt"
 	"log/slog"
 	"math/rand"
 	"strings"
@@ -28,7 +27,7 @@ func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 			line += " "
 		}
 		line += "\n - Dr. Axel Stoll, promovierter Naturwissenschaftler"
-		stoll := fmt.Sprintf("%s", line) // nolint:gosimple
+		stoll := line
 		msg, err := s.ChannelMessageSend(m.ChannelID, stoll)
 		if err == nil {
 			util.ReactOnMessage(s, msg.ChannelID, msg.ID, ":stoll:747387878916751421", "add")

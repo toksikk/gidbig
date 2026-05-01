@@ -12,7 +12,7 @@ import (
 	openai "github.com/openai/openai-go"
 )
 
-var openaiClient *openai.Client
+var openaiClient openai.Client
 
 var discordSession *discordgo.Session
 
@@ -37,7 +37,7 @@ func Start(discord *discordgo.Session) {
 	userMessageCount = make(map[string]int, 0)
 	userMessageCountLastReset = make(map[string]time.Time, 0)
 
-	openaiClient = openai.NewClient() // option.WithAPIKey defaults to os.LookupEnv("OPENAI_API_KEY")
+	openaiClient = openai.NewClient()
 
 	discordSession = discord
 
@@ -200,9 +200,7 @@ Du befindest dich aktuell im Channel ` + util.GetChannelName(discordSession, m.C
 Im Channel sind: ` + util.GetAllMembersOfChannelAsString(discordSession, m.ChannelID) + `.
 ---
 Die Nachrichten werden im folgenden Format übergeben:
-[Zeitstempel der Nachricht]
-[Name des Benutzers]
-[Nachricht des Benutzers]
+[Zeitstempel der Nachricht] [Name des Benutzers]: [Nachricht des Benutzers]
 ---
 Deine Antwort muss dieses Format haben:
 [Deine Nachricht]
@@ -233,8 +231,20 @@ Du hast sehr trockenen Humor.
 
 	for _, imageURL := range imageURLs {
 		slog.Debug("Adding image to messages", "imageURL", imageURL)
-		image := openai.ImagePart(imageURL)
-		messages = append(messages, openai.ChatCompletionMessageParamUnion(openai.UserMessageParts(image)))
+		imageParam := openai.ChatCompletionContentPartImageImageURLParam{
+			URL: imageURL,
+		}
+		imageContent := openai.ImageContentPart(imageParam)
+		userMessage := openai.ChatCompletionUserMessageParam{
+			Content: openai.ChatCompletionUserMessageParamContentUnion{
+				OfArrayOfContentParts: []openai.ChatCompletionContentPartUnionParam{
+					imageContent,
+				},
+			},
+		}
+		messages = append(messages, openai.ChatCompletionMessageParamUnion{
+			OfUser: &userMessage,
+		})
 	}
 
 	if m.Content == "" {
@@ -252,8 +262,8 @@ Du hast sehr trockenen Humor.
 	}
 
 	chatCompletion, err := openaiClient.Chat.Completions.New(context.Background(), openai.ChatCompletionNewParams{
-		Messages: openai.F(messages),
-		Model:    openai.F(openai.ChatModelGPT4oMini2024_07_18),
+		Messages: messages,
+		Model:    openai.ChatModelGPT4oMini,
 		N:        openai.Int(1),
 	})
 

@@ -44,7 +44,6 @@ var (
 	}
 	tmpls = map[string]*template.Template{}
 
-	// TODO change secret
 	store *sessions.CookieStore
 
 	ipAnonymizer = ipanonymizer.NewWithMask(
@@ -62,7 +61,7 @@ func startWebServer(config *cfg.Config) {
 	tmpls["itemrowend.html"] = template.Must(template.ParseFiles(templateDir + "itemrowend.html"))
 	tmpls["collwrapstart.html"] = template.Must(template.ParseFiles(templateDir + "collwrapstart.html"))
 	tmpls["collwrapend.html"] = template.Must(template.ParseFiles(templateDir + "collwrapend.html"))
-	store = sessions.NewCookieStore([]byte(config.Web.Oauth.ClientSecret))
+	store = sessions.NewCookieStore([]byte(config.Web.SessionSecret))
 	discordOauthConfig.ClientID = config.Web.Oauth.ClientID
 	discordOauthConfig.ClientSecret = config.Web.Oauth.ClientSecret
 	discordOauthConfig.RedirectURL = config.Web.Oauth.RedirectURI + "/discordCallback"
@@ -91,11 +90,16 @@ func handlePlaySound(w http.ResponseWriter, r *http.Request) {
 	}
 	sound, soundCollection := findSoundAndCollection(r.FormValue("command"), r.FormValue("soundname"))
 	session, _ := store.Get(r, "gidbig-session")
+	userID, ok := session.Values["discordUserID"].(string)
+	if !ok || userID == "" {
+		http.Error(w, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
+		return
+	}
 	var guild *discordgo.Guild
-	user, _ := discord.User(session.Values["discordUserID"].(string))
+	user, _ := discord.User(userID)
 	for _, g := range discord.State.Guilds {
 		for _, vs := range g.VoiceStates {
-			if vs.UserID == session.Values["discordUserID"].(string) {
+			if vs.UserID == userID {
 				guild = g
 			}
 		}
@@ -158,8 +162,8 @@ func handleMain(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		var currentPrefix string = ""
-		var i int = 0
+		currentPrefix := ""
+		i := 0
 		for _, snd := range si {
 			if snd.Itemprefix != currentPrefix {
 				if i != 0 {
@@ -258,11 +262,11 @@ func handleDiscordCallback(w http.ResponseWriter, r *http.Request) {
 	logWebRequests(r)
 	session, err := store.Get(r, "gidbig-session")
 	if err != nil {
-		fmt.Fprintln(w, "aborted")
+		_, _ = fmt.Fprintln(w, "aborted")
 		return
 	}
 	if r.URL.Query().Get("state") != session.Values["state"] {
-		fmt.Fprintln(w, "no state match; possible csrf OR cookies not enabled")
+		_, _ = fmt.Fprintln(w, "no state match; possible csrf OR cookies not enabled")
 		return
 	}
 
@@ -275,12 +279,12 @@ func handleDiscordCallback(w http.ResponseWriter, r *http.Request) {
 
 	token, err := discordOauthConfig.Exchange(context.Background(), r.FormValue("code"))
 	if err != nil {
-		fmt.Fprintln(w, "Code exchange (could not get token) failed with ", err)
+		_, _ = fmt.Fprintln(w, "Code exchange (could not get token) failed with ", err)
 		return
 	}
 
 	if !token.Valid() {
-		fmt.Fprintln(w, "retrieved invalid token")
+		_, _ = fmt.Fprintln(w, "retrieved invalid token")
 		return
 	}
 
@@ -300,7 +304,7 @@ func handleDiscordCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	dg.Close()
+	_ = dg.Close()
 
 	http.Redirect(w, r, "/", http.StatusTemporaryRedirect)
 }
