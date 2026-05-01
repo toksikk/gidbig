@@ -92,6 +92,7 @@ func (s *soundClip) Load(c *soundCollection) error {
 		slog.Error("error opening dca file", "error", err)
 		return err
 	}
+	defer func() { _ = file.Close() }()
 
 	var opuslen int16
 
