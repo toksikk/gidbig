@@ -163,8 +163,8 @@ func handleMain(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		var currentPrefix string = ""
-		var i int = 0
+		currentPrefix := ""
+		i := 0
 		for _, snd := range si {
 			if snd.Itemprefix != currentPrefix {
 				if i != 0 {
@@ -263,11 +263,11 @@ func handleDiscordCallback(w http.ResponseWriter, r *http.Request) {
 	logWebRequests(r)
 	session, err := store.Get(r, "gidbig-session")
 	if err != nil {
-		fmt.Fprintln(w, "aborted")
+		_, _ = fmt.Fprintln(w, "aborted")
 		return
 	}
 	if r.URL.Query().Get("state") != session.Values["state"] {
-		fmt.Fprintln(w, "no state match; possible csrf OR cookies not enabled")
+		_, _ = fmt.Fprintln(w, "no state match; possible csrf OR cookies not enabled")
 		return
 	}
 
@@ -280,7 +280,7 @@ func handleDiscordCallback(w http.ResponseWriter, r *http.Request) {
 
 	token, err := discordOauthConfig.Exchange(context.Background(), r.FormValue("code"))
 	if err != nil {
-		fmt.Fprintln(w, "Code exchange (could not get token) failed with ", err)
+		_, _ = fmt.Fprintln(w, "Code exchange (could not get token) failed with ", err)
 		return
 	}
 
@@ -305,7 +305,7 @@ func handleDiscordCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	dg.Close()
+	_ = dg.Close()
 
 	http.Redirect(w, r, "/", http.StatusTemporaryRedirect)
 }

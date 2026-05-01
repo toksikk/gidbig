@@ -66,7 +66,7 @@ func displayBotStats(cid string) {
 	runtime.ReadMemStats(&stats)
 
 	users := 0
-	for _, guild := range discord.State.Ready.Guilds {
+	for _, guild := range discord.State.Guilds {
 		users += len(guild.Members)
 	}
 
@@ -114,7 +114,7 @@ Loaded Plugins:
 		humanize.Bytes(stats.HeapAlloc), humanize.Bytes(stats.HeapInuse), humanize.Bytes(stats.HeapSys),
 		humanize.Bytes(stats.HeapIdle), humanize.Bytes(stats.HeapReleased),
 		humanize.Bytes(stats.StackInuse), humanize.Bytes(stats.StackSys),
-		stats.Lookups, runtime.NumGoroutine(), len(discord.State.Ready.Guilds), users, len(*gbploader.GetLoadedPlugins()), uptime, startDateTime)
+		stats.Lookups, runtime.NumGoroutine(), len(discord.State.Guilds), users, len(*gbploader.GetLoadedPlugins()), uptime, startDateTime)
 
 	for n, p := range *gbploader.GetLoadedPlugins() {
 		statusMessage += fmt.Sprintf("%s %s\n", n, p[0])

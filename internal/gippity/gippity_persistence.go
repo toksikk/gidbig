@@ -59,7 +59,7 @@ func addMessageToDatabase(m *discordgo.MessageCreate) {
 		slog.Error("Error while preparing statement", "error", err)
 		return
 	}
-	defer stmt.Close()
+	defer func() { _ = stmt.Close() }()
 
 	_, err = stmt.Exec(m.Author.ID, m.ChannelID, util.GetTimestampOfMessage(m.ID).Unix(), m.Content, m.ID, m.GuildID)
 	if err != nil {
@@ -83,14 +83,14 @@ func getLastNMessagesFromDatabase(channelID string, n int) ([]LLMChatMessage, er
 		slog.Error("Error while preparing statement", "error", err)
 		return nil, err
 	}
-	defer stmt.Close()
+	defer func() { _ = stmt.Close() }()
 
 	rows, err := stmt.Query(channelID, n)
 	if err != nil {
 		slog.Error("Error while querying database", "error", err)
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	llmMessages := make([]LLMChatMessage, 0, n)
 	for rows.Next() {

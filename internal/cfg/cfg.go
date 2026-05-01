@@ -41,7 +41,7 @@ func loadFile() *Config {
 	if err != nil {
 		slog.Error("Could not load config file.", "error", err)
 	}
-	defer configFile.Close()
+	defer func() { _ = configFile.Close() }()
 
 	configDecoder := yaml.NewDecoder(configFile)
 

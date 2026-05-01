@@ -40,7 +40,7 @@ func convertDiscordMessageToLLMCompatibleFlowingText(m *discordgo.MessageCreate)
 		idToNameCache[m.Author.ID] = util.GetUsernameInGuild(discordSession, m)
 	}
 	llmChatMessage := LLMChatMessage{
-		Message:         m.Message.Content,
+		Message:         m.Content,
 		Username:        idToNameCache[m.Author.ID],
 		TimestampString: m.Timestamp.Format("2006-01-02 15:04:05"),
 	}
@@ -48,7 +48,7 @@ func convertDiscordMessageToLLMCompatibleFlowingText(m *discordgo.MessageCreate)
 }
 
 func removeSpoilerTagContent(message *LLMChatMessage) {
-	regexp := regexp.MustCompile("\\|\\|[^|]+\\|\\|") // nolint:gosimple
+	regexp := regexp.MustCompile(`\|\|[^|]+\|\|`)
 	message.Message = regexp.ReplaceAllString(message.Message, "||Spoiler||")
 }
 
@@ -61,7 +61,7 @@ func removeSpoilerTagContentInStringMessage(message string) string {
 }
 
 func replaceAllUserIDsWithUsernamesInMessage(message *LLMChatMessage) {
-	regexp := regexp.MustCompile("<@!?(\\d+)>") // nolint:gosimple
+	regexp := regexp.MustCompile(`<@!?(\d+)>`)
 	matches := regexp.FindAllStringSubmatch(message.Message, -1)
 	idToName := make(map[string]string)
 
