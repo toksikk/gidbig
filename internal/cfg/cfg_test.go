@@ -107,7 +107,6 @@ web:
 }
 
 func TestDecodeConfig_webDisabledNoSessionSecretRequired(t *testing.T) {
-	// Web server not enabled (no port), session_secret not required
 	yaml := `
 discord:
   token: "tok"
@@ -119,7 +118,6 @@ discord:
 }
 
 func TestDecodeConfig_webPortSetNoOAuthMissingSessionSecret(t *testing.T) {
-	// Port set but OAuth fields absent — session_secret must still be required
 	yaml := `
 discord:
   token: "tok"
