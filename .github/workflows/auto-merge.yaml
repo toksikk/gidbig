@@ -12,18 +12,19 @@ jobs:
         if: |
             github.event_name == 'pull_request_review' &&
             github.event.review.state == 'approved' &&
-            github.event.pull_request.base.ref == 'testing' &&
+            github.event.pull_request.base.ref == 'master' &&
             github.event.review.user.login == github.repository_owner
         runs-on: ubuntu-latest
         permissions:
             contents: write
             pull-requests: write
         steps:
-            - name: Check CI and squash merge
+            - name: Squash merge and reset testing
               uses: actions/github-script@v7
               with:
                   script: |
                       const pr = context.payload.pull_request;
+
                       const { data: { check_runs } } = await github.rest.checks.listForRef({
                         owner: context.repo.owner,
                         repo: context.repo.repo,
@@ -43,13 +44,27 @@ jobs:
                         core.setFailed('CI failed: ' + failed.map(r => r.name).join(', '));
                         return;
                       }
+
                       await github.rest.pulls.merge({
                         owner: context.repo.owner,
                         repo: context.repo.repo,
                         pull_number: pr.number,
                         merge_method: 'squash',
                       });
-                      core.info(`PR #${pr.number} squash-merged to testing`);
+
+                      const { data: masterRef } = await github.rest.git.getRef({
+                        owner: context.repo.owner,
+                        repo: context.repo.repo,
+                        ref: 'heads/master',
+                      });
+                      await github.rest.git.updateRef({
+                        owner: context.repo.owner,
+                        repo: context.repo.repo,
+                        ref: 'heads/testing',
+                        sha: masterRef.object.sha,
+                        force: true,
+                      });
+                      core.info(`PR #${pr.number} squash-merged to master; testing reset to master`);
 
     merge-on-comment:
         name: Merge on keyword comment
@@ -68,7 +83,7 @@ jobs:
             contents: write
             pull-requests: read
         steps:
-            - name: Check CI and squash merge
+            - name: Squash merge and reset testing
               uses: actions/github-script@v7
               with:
                   script: |
@@ -77,10 +92,11 @@ jobs:
                         repo: context.repo.repo,
                         pull_number: context.payload.issue.number,
                       });
-                      if (pr.base.ref !== 'testing') {
-                        core.info('PR does not target testing, skipping');
+                      if (pr.base.ref !== 'master') {
+                        core.info('PR does not target master, skipping');
                         return;
                       }
+
                       const { data: { check_runs } } = await github.rest.checks.listForRef({
                         owner: context.repo.owner,
                         repo: context.repo.repo,
@@ -100,10 +116,24 @@ jobs:
                         core.setFailed('CI failed: ' + failed.map(r => r.name).join(', '));
                         return;
                       }
+
                       await github.rest.pulls.merge({
                         owner: context.repo.owner,
                         repo: context.repo.repo,
                         pull_number: pr.number,
                         merge_method: 'squash',
                       });
-                      core.info(`PR #${pr.number} squash-merged to testing`);
+
+                      const { data: masterRef } = await github.rest.git.getRef({
+                        owner: context.repo.owner,
+                        repo: context.repo.repo,
+                        ref: 'heads/master',
+                      });
+                      await github.rest.git.updateRef({
+                        owner: context.repo.owner,
+                        repo: context.repo.repo,
+                        ref: 'heads/testing',
+                        sha: masterRef.object.sha,
+                        force: true,
+                      });
+                      core.info(`PR #${pr.number} squash-merged to master; testing reset to master`);

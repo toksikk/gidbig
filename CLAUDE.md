@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ### Git and GitHub
 Operate git and GitHub autonomously — create branches, commit, push, open/merge PRs, comment on issues, close issues — without asking for confirmation first. The only exceptions are force-pushes to `master` and destructive operations (reset --hard, branch -D with unmerged work).
 
-All PRs target the `testing` branch. Only merge to `master` when explicitly asked.
+PRs target `master`. `testing` is a staging branch — after CI passes on a PR, the PR branch is automatically force-pushed to `testing` and deployed to the test environment for manual verification. Once testing confirms the change works, approve the PR or comment `LGTM` / `looks good` / `/merge` / `ship it` to squash-merge it to `master` (which also resets `testing` to `master`).
 
 Prefer a linear, readable history: use `--squash` when merging PRs, rebase feature branches onto their base rather than merging, and never create merge commits.
 
@@ -94,4 +94,4 @@ Web server only starts when `web.port`, `web.oauth.client_id`, and `web.oauth.cl
 
 ### Deployment
 
-The `testing` branch triggers an automatic deploy via GitHub Actions dispatch to a separate `deploy-gidbig` repository.
+When a PR targeting `master` passes CI, `pipeline.yaml` force-pushes the PR branch to `testing` and dispatches a deploy event to the `deploy-gidbig` repository. The test environment therefore always runs the code from the current PR under review. Direct pushes to `testing` also trigger a deploy (for manual staging).
