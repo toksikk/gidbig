@@ -9,15 +9,19 @@ import (
 
 func openInMemoryStore(t *testing.T) {
 	t.Helper()
-	var err error
-	db, err = gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	gormDB, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("failed to open in-memory store: %v", err)
 	}
-	if err := db.AutoMigrate(&UserBeveragePreference{}); err != nil {
+	if err := gormDB.AutoMigrate(&UserBeveragePreference{}); err != nil {
 		t.Fatalf("failed to migrate: %v", err)
 	}
+	dbMu.Lock()
+	db = gormDB
+	dbMu.Unlock()
 	t.Cleanup(func() {
+		dbMu.Lock()
+		defer dbMu.Unlock()
 		sqlDB, _ := db.DB()
 		if err := sqlDB.Close(); err != nil {
 			t.Logf("warning: failed to close test DB: %v", err)
@@ -68,8 +72,9 @@ func TestSetBeverageEmoji_Upsert(t *testing.T) {
 		t.Errorf("got %q, want %q after upsert", emoji, "🧃")
 	}
 
+	d := getDB()
 	var count int64
-	db.Model(&UserBeveragePreference{}).Where("user_id = ?", "user2").Count(&count)
+	d.Model(&UserBeveragePreference{}).Where("user_id = ?", "user2").Count(&count)
 	if count != 1 {
 		t.Errorf("expected 1 row, got %d (upsert created duplicate)", count)
 	}
