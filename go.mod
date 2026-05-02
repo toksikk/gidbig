@@ -40,4 +40,4 @@ require (
 // for an OP22 execute_transition that Discord doesn't send for the initial
 // handshake — leaving DAVE in a "prepared" state forever, frames sent without
 // DAVE encryption, and Discord clients dropping them silently (#113).
-replace github.com/bwmarrin/discordgo => github.com/yeongaori/discordgo-fork v0.0.0-20260307131331-930441e7bd78
+replace github.com/bwmarrin/discordgo => github.com/yeongaori/discordgo-fork v0.0.0-20260326072433-16ef34198ced
