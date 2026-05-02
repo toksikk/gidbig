@@ -53,10 +53,14 @@ func TestSoundClipPlay_deliversAllFrames(t *testing.T) {
 }
 
 // TestSoundClipPlay_pacingMatchesFrameDuration verifies that Play takes
-// approximately N×opusFrameDuration to send N frames, ensuring that
+// approximately N*opusFrameDuration to send N frames, ensuring that
 // Speaking(false) is not called before the audio is sent.
 func TestSoundClipPlay_pacingMatchesFrameDuration(t *testing.T) {
-	const n = 3
+	const (
+		n              = 3
+		toleranceLow   = 2 // divisor: actual must be >= want/toleranceLow
+		toleranceHigh  = 2 // multiplier: actual must be <= want*toleranceHigh
+	)
 	frames := make([][]byte, n)
 	for i := range frames {
 		frames[i] = []byte{byte(i)}
@@ -70,9 +74,9 @@ func TestSoundClipPlay_pacingMatchesFrameDuration(t *testing.T) {
 	elapsed := time.Since(start)
 
 	want := time.Duration(n) * opusFrameDuration
-	// Allow ±50 % tolerance to keep the test robust under scheduling jitter.
-	low := want / 2
-	high := want * 2
+	// Allow +/-50 % tolerance to keep the test robust under scheduling jitter.
+	low := want / toleranceLow
+	high := want * toleranceHigh
 	if elapsed < low || elapsed > high {
 		t.Errorf("Play took %v; want in [%v, %v] for %d frames", elapsed, low, high, n)
 	}
