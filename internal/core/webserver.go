@@ -212,7 +212,7 @@ func handleMain(w http.ResponseWriter, r *http.Request) {
 
 		err := tmpls["internal.html"].ExecuteTemplate(w, "header", td)
 		if err != nil {
-			fmt.Println(err)
+			slog.Error("failed to execute template", "template", "internal.html/header", "error", err)
 			return
 		}
 
@@ -223,19 +223,19 @@ func handleMain(w http.ResponseWriter, r *http.Request) {
 				if i != 0 {
 					err = tmpls["itemrowend.html"].Execute(w, nil)
 					if err != nil {
-						fmt.Println(err)
+						slog.Error("failed to execute template", "template", "itemrowend.html", "error", err)
 						return
 					}
 					err = tmpls["collwrapend.html"].Execute(w, nil)
 					if err != nil {
-						fmt.Println(err)
+						slog.Error("failed to execute template", "template", "collwrapend.html", "error", err)
 						return
 					}
 					i = 0
 				}
 				err = tmpls["collwrapstart.html"].Execute(w, snd)
 				if err != nil {
-					fmt.Println(err)
+					slog.Error("failed to execute template", "template", "collwrapstart.html", "error", err)
 					return
 				}
 				currentPrefix = snd.Itemprefix
@@ -243,19 +243,19 @@ func handleMain(w http.ResponseWriter, r *http.Request) {
 			if i%4 == 0 {
 				err = tmpls["itemrowstart.html"].Execute(w, nil)
 				if err != nil {
-					fmt.Println(err)
+					slog.Error("failed to execute template", "template", "itemrowstart.html", "error", err)
 					return
 				}
 			}
 			err = tmpls["item.html"].Execute(w, snd)
 			if err != nil {
-				fmt.Println(err)
+				slog.Error("failed to execute template", "template", "item.html", "error", err)
 				return
 			}
 			if i%4 == 3 {
 				err = tmpls["itemrowend.html"].Execute(w, nil)
 				if err != nil {
-					fmt.Println(err)
+					slog.Error("failed to execute template", "template", "itemrowend.html", "error", err)
 					return
 				}
 			}
@@ -266,14 +266,14 @@ func handleMain(w http.ResponseWriter, r *http.Request) {
 		if i > 0 {
 			err = tmpls["collwrapend.html"].Execute(w, nil)
 			if err != nil {
-				fmt.Println(err)
+				slog.Error("failed to execute template", "template", "collwrapend.html", "error", err)
 				return
 			}
 		}
 
 		err = tmpls["internal.html"].ExecuteTemplate(w, "footer", map[string]interface{}{})
 		if err != nil {
-			fmt.Println(err)
+			slog.Error("failed to execute template", "template", "internal.html/footer", "error", err)
 			return
 		}
 		return
@@ -327,35 +327,39 @@ func handleDiscordCallback(w http.ResponseWriter, r *http.Request) {
 	logWebRequests(r)
 	session, err := store.Get(r, "gidbig-session")
 	if err != nil {
-		_, _ = fmt.Fprintln(w, "aborted")
+		slog.Error("failed to get session", "error", err)
+		http.Error(w, "aborted", http.StatusInternalServerError)
 		return
 	}
 	if r.URL.Query().Get("state") != session.Values["state"] {
-		_, _ = fmt.Fprintln(w, "no state match; possible csrf OR cookies not enabled")
+		slog.Warn("oauth state mismatch; possible CSRF or cookies disabled")
+		http.Error(w, "no state match; possible csrf OR cookies not enabled", http.StatusForbidden)
 		return
 	}
 
 	state := r.FormValue("state")
 	if state != oauthStateString {
-		fmt.Printf("invalid oauth state, expected '%s', got '%s'\n", oauthStateString, state)
+		slog.Warn("invalid oauth state", "expected", oauthStateString, "got", state)
 		http.Redirect(w, r, "/", http.StatusTemporaryRedirect)
 		return
 	}
 
 	token, err := discordOauthConfig.Exchange(context.Background(), r.FormValue("code"))
 	if err != nil {
-		_, _ = fmt.Fprintln(w, "Code exchange (could not get token) failed with ", err)
+		slog.Error("oauth code exchange failed", "error", err)
+		http.Error(w, "code exchange failed", http.StatusInternalServerError)
 		return
 	}
 
 	if !token.Valid() {
-		_, _ = fmt.Fprintln(w, "retrieved invalid token")
+		slog.Error("retrieved invalid oauth token")
+		http.Error(w, "retrieved invalid token", http.StatusInternalServerError)
 		return
 	}
 
 	dg, err := discordgo.New("Bearer " + token.AccessToken)
 	if err != nil {
-		fmt.Println("Error while creating discord session: ", err)
+		slog.Error("failed to create discord session", "error", err)
 		return
 	}
 	user, _ := dg.User("@me")
