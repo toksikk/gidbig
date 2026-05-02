@@ -266,6 +266,13 @@ func StartGidbig() {
 		return
 	}
 
+	// Surface the discordgo voice-protocol logs so #113 can be diagnosed from
+	// production: encryption mode negotiated, DAVE handshake progress, UDP
+	// errors, etc. Only on dev mode — LogDebug is very verbose.
+	if conf.DevMode {
+		discord.LogLevel = discordgo.LogDebug
+	}
+
 	// Set sharding info
 	discord.ShardID = conf.Discord.ShardID
 	discord.ShardCount = conf.Discord.ShardCount

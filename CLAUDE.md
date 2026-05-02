@@ -95,3 +95,7 @@ Web server only starts when `web.port`, `web.oauth.client_id`, and `web.oauth.cl
 ### Deployment
 
 When a PR is merged to `master`, `pipeline.yaml` dispatches a deploy event to the `deploy-gidbig` repository and deploys the new `master` HEAD.
+
+### Pinned dependencies
+
+`go.mod` pins `bwmarrin/discordgo` to fork commit `yeongaori/discordgo-fork@930441e7` (2026-03-07) via a `replace` directive. Don't bump it without verifying voice playback in a DAVE-enabled Discord channel: every fork release after `c77a807b` (2026-03-08) removed the immediate `HandleExecuteTransition` call from the DAVE Welcome handler, so DAVE never activates, frames are sent without DAVE encryption, and Discord clients silently drop them — see #113. Reasoning is also in the `go.mod` comment above the `replace` line.

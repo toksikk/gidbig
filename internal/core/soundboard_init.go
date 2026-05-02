@@ -95,6 +95,7 @@ func (s *soundClip) Load(c *soundCollection) error {
 	defer func() { _ = file.Close() }()
 
 	var opuslen int16
+	var minLen, maxLen, totalBytes int
 
 	for {
 		// read opus frame length from dca file
@@ -102,12 +103,21 @@ func (s *soundClip) Load(c *soundCollection) error {
 
 		// If this is the end of the file, just return
 		if err == io.EOF || err == io.ErrUnexpectedEOF {
-			return nil
+			break
 		}
 
 		if err != nil {
 			slog.Error("error reading from dca file", "error", err)
 			return err
+		}
+
+		// A negative or absurdly large frame length means we lost framing —
+		// most often because the file has a DCA1 JSON header that the loader
+		// doesn't strip.  Surface this loudly instead of corrupting the buffer.
+		if opuslen <= 0 || opuslen > 4000 {
+			slog.Error("dca frame length out of range — file is likely DCA1 or corrupted",
+				"path", path, "opuslen", opuslen, "frameIndex", len(s.buffer))
+			return fmt.Errorf("invalid opus frame length %d in %s", opuslen, path)
 		}
 
 		// read encoded pcm from dca file
@@ -120,7 +130,24 @@ func (s *soundClip) Load(c *soundCollection) error {
 			return err
 		}
 
+		l := int(opuslen)
+		if minLen == 0 || l < minLen {
+			minLen = l
+		}
+		if l > maxLen {
+			maxLen = l
+		}
+		totalBytes += l
+
 		// append encoded pcm data to the buffer
 		s.buffer = append(s.buffer, InBuf)
 	}
+
+	slog.Debug("dca loaded",
+		"path", path,
+		"frames", len(s.buffer),
+		"bytes", totalBytes,
+		"minFrame", minLen,
+		"maxFrame", maxLen)
+	return nil
 }
