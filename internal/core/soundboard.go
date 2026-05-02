@@ -90,6 +90,10 @@ func findAndPlaySound(s *discordgo.Session, m *discordgo.MessageCreate, parts []
 	}
 }
 
+// opusFrameDuration is the duration of a single Opus frame at 48 kHz with 960 samples per frame.
+// Discord voice requires one frame every 20 ms.
+const opusFrameDuration = 20 * time.Millisecond
+
 // Play plays this sound over the specified VoiceConnection
 func (s *soundClip) Play(vc *discordgo.VoiceConnection) {
 	err := vc.Speaking(true)
@@ -105,6 +109,7 @@ func (s *soundClip) Play(vc *discordgo.VoiceConnection) {
 
 	for _, buff := range s.buffer {
 		vc.OpusSend <- buff
+		time.Sleep(opusFrameDuration)
 	}
 }
 
@@ -175,7 +180,7 @@ func enqueuePlay(user *discordgo.User, guild *discordgo.Guild, coll *soundCollec
 	if sound != nil {
 		slog.Info("Playing sound", "username", user.Username, "prefix", coll.Prefix, "soundname", sound.Name, "server", guild.Name, "channel", play.ChannelID)
 	} else {
-		slog.Info("Playing random sound", "username", user.Username, "prefix", coll.Prefix, "soundname", sound.Name, "server", guild.Name, "channel", play.ChannelID)
+		slog.Info("Playing random sound", "username", user.Username, "prefix", coll.Prefix, "soundname", play.Sound.Name, "server", guild.Name, "channel", play.ChannelID)
 	}
 	// Check if we already have a connection to this guild
 	// this should be threadsafe
