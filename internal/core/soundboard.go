@@ -9,15 +9,12 @@ import (
 	"github.com/toksikk/gidbig/internal/util"
 )
 
-const (
-	// daveHandshakeWarmup is the minimum time to wait after joining a voice channel
-	// before sending Opus frames.  Discord now enforces DAVE (E2EE) on all voice
-	// channels: ChannelVoiceJoin returns when the transport is ready (OP4) but the
-	// DAVE key exchange (Welcome → PrepareTransition → ExecuteTransition) needs an
-	// additional 100–300 ms.  Frames sent before the exchange completes are discarded
-	// by Discord clients.  500 ms gives ample margin even on slow connections.
-	daveHandshakeWarmup = 500 * time.Millisecond
-)
+// playStartDelay matches the pre-roll used by the upstream airhorn example.
+// ChannelVoiceJoin returns when Status==Ready (AEAD cipher up, opusSender
+// goroutine running), but on DAVE-enabled channels the Welcome handshake
+// finishes a few hundred ms after Ready.  A short pause here gives that
+// handshake time to complete before the first frame is queued.
+const playStartDelay = 250 * time.Millisecond
 
 var (
 	// Map of Guild id's to *Play channels, used for queuing and rate-limiting guilds
@@ -90,27 +87,37 @@ func findAndPlaySound(s *discordgo.Session, m *discordgo.MessageCreate, parts []
 	}
 }
 
-// opusFrameDuration is the duration of a single Opus frame at 48 kHz with 960 samples per frame.
-// Discord voice requires one frame every 20 ms.
-const opusFrameDuration = 20 * time.Millisecond
-
-// Play plays this sound over the specified VoiceConnection
+// Play plays this sound over the specified VoiceConnection.
+//
+// discordgo's opusSender drives the 20 ms transmit cadence with its own
+// time.Ticker — this loop only pushes Opus frames into the buffered OpusSend
+// channel and lets backpressure pace the writes.  Adding a per-frame sleep
+// here (as PR #110 did) duplicates the cadence and starves the sender's
+// channel between ticks, which is itself a plausible cause of the silent
+// audio reported in #113.
 func (s *soundClip) Play(vc *discordgo.VoiceConnection) {
-	err := vc.Speaking(true)
-	if err != nil {
-		slog.Error("error setting setting speaking to true")
+	slog.Debug("Play start", "frames", len(s.buffer), "guildID", vc.GuildID, "status", vc.Status)
+
+	if err := vc.Speaking(true); err != nil {
+		slog.Error("error setting speaking to true", "error", err)
 	}
 	defer func() {
-		err := vc.Speaking(false)
-		if err != nil {
-			slog.Error("error setting setting speaking to false")
+		if err := vc.Speaking(false); err != nil {
+			slog.Error("error setting speaking to false", "error", err)
 		}
 	}()
 
-	for _, buff := range s.buffer {
-		vc.OpusSend <- buff
-		time.Sleep(opusFrameDuration)
+	for i, buff := range s.buffer {
+		select {
+		case vc.OpusSend <- buff:
+		case <-time.After(time.Second):
+			slog.Error("OpusSend stalled — sender goroutine is not draining frames",
+				"guildID", vc.GuildID, "frameIndex", i, "totalFrames", len(s.buffer), "status", vc.Status)
+			return
+		}
 	}
+
+	slog.Debug("Play done", "frames", len(s.buffer), "guildID", vc.GuildID)
 }
 
 // Attempts to find the current users voice channel inside a given guild
@@ -231,12 +238,7 @@ func playSound(play *Play, vc *discordgo.VoiceConnection, vcChannelID string) (r
 			return nil, "", err
 		}
 		vcChannelID = play.ChannelID
-		// Discord now enforces DAVE (E2EE) on all voice channels. ChannelVoiceJoin
-		// returns as soon as the transport is ready (OP4), but the DAVE key exchange
-		// (Welcome → PrepareTransition → ExecuteTransition) takes an additional
-		// 100–300 ms. Audio sent before that exchange completes is dropped by Discord
-		// clients.  Wait long enough for the handshake to finish before sending frames.
-		time.Sleep(daveHandshakeWarmup)
+		time.Sleep(playStartDelay)
 	}
 
 	// If we need to change channels, disconnect and rejoin
@@ -253,12 +255,8 @@ func playSound(play *Play, vc *discordgo.VoiceConnection, vcChannelID string) (r
 			return nil, "", err
 		}
 		vcChannelID = play.ChannelID
-		// Same DAVE warmup needed after a channel change.
-		time.Sleep(daveHandshakeWarmup)
+		time.Sleep(playStartDelay)
 	}
-
-	// Small buffer before starting playback.
-	time.Sleep(time.Millisecond * 32)
 
 	mutex.Lock()
 	nowPlaying[play.GuildID] = play

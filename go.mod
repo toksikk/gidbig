@@ -34,4 +34,10 @@ require (
 	golang.org/x/sys v0.43.0 // indirect
 )
 
-replace github.com/bwmarrin/discordgo => github.com/yeongaori/discordgo-fork v0.0.0-20260326072433-16ef34198ced
+// Pinned to 930441e7 (2026-03-07): the last fork commit where DAVE actually
+// activates after the Welcome message.  Commit c77a807b (2026-03-08) and later
+// removed the immediate HandleExecuteTransition call after Welcome and waited
+// for an OP22 execute_transition that Discord doesn't send for the initial
+// handshake — leaving DAVE in a "prepared" state forever, frames sent without
+// DAVE encryption, and Discord clients dropping them silently (#113).
+replace github.com/bwmarrin/discordgo => github.com/yeongaori/discordgo-fork v0.0.0-20260307131331-930441e7bd78

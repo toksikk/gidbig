@@ -8,23 +8,9 @@ import (
 	"github.com/bwmarrin/discordgo"
 )
 
-// TestDAVEHandshakeWarmup_minimum verifies that the DAVE warmup constant is at
-// least 400 ms.  Discord's DAVE (E2EE) key exchange requires roughly 100–300 ms
-// (two gateway round-trips: key-package → Welcome, then ReadyForTransition →
-// ExecuteTransition).  Frames sent before ExecuteTransition is processed are
-// discarded by Discord clients in DAVE-enabled channels.  A warmup below 400 ms
-// risks the exchange not completing before audio starts, especially on connections
-// with higher latency.
-func TestDAVEHandshakeWarmup_minimum(t *testing.T) {
-	const minWarmup = 400 * time.Millisecond
-	if daveHandshakeWarmup < minWarmup {
-		t.Errorf("daveHandshakeWarmup = %v; must be >= %v to cover the DAVE key exchange on slow connections", daveHandshakeWarmup, minWarmup)
-	}
-}
-
 // newTestVoiceConnection creates a minimal VoiceConnection suitable for unit-testing
 // the Play method.  Speaking() calls will fail (no WebSocket), but the OpusSend
-// channel is fully functional so frame delivery and timing can be verified.
+// channel is fully functional so frame delivery can be verified.
 func newTestVoiceConnection(bufSize int) *discordgo.VoiceConnection {
 	vc := &discordgo.VoiceConnection{}
 	vc.Cond = sync.NewCond(&sync.Mutex{})
@@ -52,15 +38,12 @@ func TestSoundClipPlay_deliversAllFrames(t *testing.T) {
 	}
 }
 
-// TestSoundClipPlay_pacingMatchesFrameDuration verifies that Play takes
-// approximately N*opusFrameDuration to send N frames, ensuring that
-// Speaking(false) is not called before the audio is sent.
-func TestSoundClipPlay_pacingMatchesFrameDuration(t *testing.T) {
-	const (
-		n             = 3
-		toleranceLow  = 2 // divisor: actual must be >= want/toleranceLow
-		toleranceHigh = 2 // multiplier: actual must be <= want*toleranceHigh
-	)
+// TestSoundClipPlay_doesNotSelfPace verifies that Play does not duplicate the
+// 20 ms transmit cadence that discordgo's opusSender already provides.  With a
+// channel buffer large enough to hold every frame, Play must finish well below
+// the time it would take if each iteration slept one frame's worth.
+func TestSoundClipPlay_doesNotSelfPace(t *testing.T) {
+	const n = 10
 	frames := make([][]byte, n)
 	for i := range frames {
 		frames[i] = []byte{byte(i)}
@@ -73,12 +56,11 @@ func TestSoundClipPlay_pacingMatchesFrameDuration(t *testing.T) {
 	s.Play(vc)
 	elapsed := time.Since(start)
 
-	want := time.Duration(n) * opusFrameDuration
-	// Allow +/-50 % tolerance to keep the test robust under scheduling jitter.
-	low := want / toleranceLow
-	high := want * toleranceHigh
-	if elapsed < low || elapsed > high {
-		t.Errorf("Play took %v; want in [%v, %v] for %d frames", elapsed, low, high, n)
+	// One frame interval is 20 ms.  If Play self-paces, n frames take >= n*20 ms.
+	// Pushing into a non-blocking channel should be orders of magnitude faster.
+	const maxAcceptable = 20 * time.Millisecond
+	if elapsed >= maxAcceptable {
+		t.Errorf("Play(%d frames) took %v; expected < %v (no self-pacing)", n, elapsed, maxAcceptable)
 	}
 }
 
@@ -95,8 +77,7 @@ func TestSoundClipPlay_emptyBuffer(t *testing.T) {
 	if len(vc.OpusSend) != 0 {
 		t.Errorf("expected 0 frames in OpusSend, got %d", len(vc.OpusSend))
 	}
-	// Should complete in well under one frame duration.
-	if elapsed > opusFrameDuration {
-		t.Errorf("empty Play took %v; expected < %v", elapsed, opusFrameDuration)
+	if elapsed > 5*time.Millisecond {
+		t.Errorf("empty Play took %v; expected near-instant", elapsed)
 	}
 }
