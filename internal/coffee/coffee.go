@@ -8,6 +8,20 @@ import (
 	"github.com/toksikk/gidbig/internal/util"
 )
 
+var defaultBeverages = map[string]string{
+	"263959699764805642": "🍵",
+	"217697101818232832": "🍵",
+}
+
+const fallbackBeverage = "☕"
+
+func beverageEmojiFor(userID string) string {
+	if emoji, ok := defaultBeverages[userID]; ok {
+		return emoji
+	}
+	return fallbackBeverage
+}
+
 var messages = []string{
 	"moin",
 	"hi",
@@ -42,11 +56,7 @@ func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 				util.ReactOnMessage(s, m.ChannelID, m.ID, string(util.Ae[util.RandomRange(0, len(util.Ae))]), "add")
 				util.ReactOnMessage(s, m.ChannelID, m.ID, string(util.Cl), "add")
 			} else {
-				if m.Author.ID == "263959699764805642" || m.Author.ID == "217697101818232832" {
-					util.ReactOnMessage(s, m.ChannelID, m.ID, "🍵", "add")
-				} else {
-					util.ReactOnMessage(s, m.ChannelID, m.ID, "☕", "add")
-				}
+				util.ReactOnMessage(s, m.ChannelID, m.ID, beverageEmojiFor(m.Author.ID), "add")
 				// faces
 				if m.Author.ID == "269898849714307073" {
 					util.ReactOnMessage(s, m.ChannelID, m.ID, ":sidus:576309032789475328", "add")
