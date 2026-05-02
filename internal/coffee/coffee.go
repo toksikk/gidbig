@@ -8,18 +8,10 @@ import (
 	"github.com/toksikk/gidbig/internal/util"
 )
 
-var defaultBeverages = map[string]string{
-	"263959699764805642": "🍵",
-	"217697101818232832": "🍵",
-}
-
 const fallbackBeverage = "☕"
 
 func beverageEmojiFor(userID string) string {
 	if emoji, ok := getBeverageEmoji(userID); ok {
-		return emoji
-	}
-	if emoji, ok := defaultBeverages[userID]; ok {
 		return emoji
 	}
 	return fallbackBeverage
