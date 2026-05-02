@@ -19,7 +19,7 @@ jobs:
             contents: write
             pull-requests: write
         steps:
-            - name: Squash merge and reset testing
+            - name: Squash merge
               uses: actions/github-script@v9
               with:
                   script: |
@@ -51,20 +51,7 @@ jobs:
                         pull_number: pr.number,
                         merge_method: 'squash',
                       });
-
-                      const { data: masterRef } = await github.rest.git.getRef({
-                        owner: context.repo.owner,
-                        repo: context.repo.repo,
-                        ref: 'heads/master',
-                      });
-                      await github.rest.git.updateRef({
-                        owner: context.repo.owner,
-                        repo: context.repo.repo,
-                        ref: 'heads/testing',
-                        sha: masterRef.object.sha,
-                        force: true,
-                      });
-                      core.info(`PR #${pr.number} squash-merged to master; testing reset to master`);
+                      core.info(`PR #${pr.number} squash-merged to master`);
 
     merge-on-comment:
         name: Merge on keyword comment
@@ -83,7 +70,7 @@ jobs:
             contents: write
             pull-requests: read
         steps:
-            - name: Squash merge and reset testing
+            - name: Squash merge
               uses: actions/github-script@v9
               with:
                   script: |
@@ -123,17 +110,4 @@ jobs:
                         pull_number: pr.number,
                         merge_method: 'squash',
                       });
-
-                      const { data: masterRef } = await github.rest.git.getRef({
-                        owner: context.repo.owner,
-                        repo: context.repo.repo,
-                        ref: 'heads/master',
-                      });
-                      await github.rest.git.updateRef({
-                        owner: context.repo.owner,
-                        repo: context.repo.repo,
-                        ref: 'heads/testing',
-                        sha: masterRef.object.sha,
-                        force: true,
-                      });
-                      core.info(`PR #${pr.number} squash-merged to master; testing reset to master`);
+                      core.info(`PR #${pr.number} squash-merged to master`);
