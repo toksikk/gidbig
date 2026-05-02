@@ -11,29 +11,20 @@ func TestRandomRange_normal(t *testing.T) {
 	}
 }
 
-func TestRandomRange_panicOnEqualMinMax(t *testing.T) {
-	defer func() {
-		if r := recover(); r == nil {
-			t.Error("expected panic for RandomRange(5,5), got none")
-		}
-	}()
-	RandomRange(5, 5)
+func TestRandomRange_equalMinMax(t *testing.T) {
+	if v := RandomRange(5, 5); v != 5 {
+		t.Errorf("RandomRange(5,5) = %d, want 5", v)
+	}
 }
 
-func TestRandomRange_panicOnMaxLessThanMin(t *testing.T) {
-	defer func() {
-		if r := recover(); r == nil {
-			t.Error("expected panic for RandomRange(7,3), got none")
-		}
-	}()
-	RandomRange(7, 3)
+func TestRandomRange_maxLessThanMin(t *testing.T) {
+	if v := RandomRange(7, 3); v != 7 {
+		t.Errorf("RandomRange(7,3) = %d, want 7", v)
+	}
 }
 
-func TestRandomRange_panicOnZeroRange(t *testing.T) {
-	defer func() {
-		if r := recover(); r == nil {
-			t.Error("expected panic for RandomRange(0,0), got none")
-		}
-	}()
-	RandomRange(0, 0)
+func TestRandomRange_zeroRange(t *testing.T) {
+	if v := RandomRange(0, 0); v != 0 {
+		t.Errorf("RandomRange(0,0) = %d, want 0", v)
+	}
 }
