@@ -16,6 +16,9 @@ var defaultBeverages = map[string]string{
 const fallbackBeverage = "☕"
 
 func beverageEmojiFor(userID string) string {
+	if emoji, ok := getBeverageEmoji(userID); ok {
+		return emoji
+	}
 	if emoji, ok := defaultBeverages[userID]; ok {
 		return emoji
 	}
@@ -46,7 +49,15 @@ var messages = []string{
 // Start the plugin
 func Start(discord *discordgo.Session) {
 	discord.AddHandler(onMessageCreate)
+	if err := openStore("coffee.db"); err != nil {
+		slog.Error("coffee: failed to open store", "error", err)
+	}
 	slog.Info("coffee function registered")
+}
+
+// Shutdown closes the beverage preference store.
+func Shutdown() {
+	closeStore()
 }
 
 func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {

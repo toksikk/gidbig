@@ -321,6 +321,7 @@ func StartGidbig() {
 		}
 		gippity.CloseDB()
 		leetoclock.Shutdown()
+		coffee.Shutdown()
 	}()
 
 	select {
