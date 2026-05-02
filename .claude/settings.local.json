@@ -33,7 +33,9 @@
       "Bash(git tag *)",
       "Bash(gh workflow *)",
       "Bash(awk '{print $1}')",
-      "Bash(xargs -I{} git diff-tree --no-commit-id -r --name-only {})"
+      "Bash(xargs -I{} git diff-tree --no-commit-id -r --name-only {})",
+      "mcp__claude_ai_Github__issue_read",
+      "Bash(git stash *)"
     ]
   },
   "enabledPlugins": {}
