@@ -9,3 +9,4 @@ bin
 plugins/*
 !plugins/README.md
 gippity.db
+.claude/scheduled_tasks.lock
