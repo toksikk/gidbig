@@ -19,7 +19,9 @@ func openInMemoryStore(t *testing.T) {
 	}
 	t.Cleanup(func() {
 		sqlDB, _ := db.DB()
-		sqlDB.Close()
+		if err := sqlDB.Close(); err != nil {
+			t.Logf("warning: failed to close test DB: %v", err)
+		}
 		db = nil
 	})
 }

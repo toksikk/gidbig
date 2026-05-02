@@ -44,3 +44,11 @@ docker: ## 🐳 Build Docker image
 
 test: ## 🧪 Run tests
 	go test -v ./...
+
+lint: ## 🔍 Run golangci-lint
+	golangci-lint run ./...
+
+install-hooks: ## 🪝 Install git pre-commit hook
+	@printf '#!/bin/sh\nset -e\ngolangci-lint run ./...\n' > .git/hooks/pre-commit
+	@chmod +x .git/hooks/pre-commit
+	@echo "pre-commit hook installed"
