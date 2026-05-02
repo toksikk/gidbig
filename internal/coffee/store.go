@@ -3,6 +3,7 @@ package coffee
 import (
 	"errors"
 	"log/slog"
+	"sync"
 
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -15,9 +16,20 @@ type UserBeveragePreference struct {
 	BeverageEmoji string `gorm:"not null"`
 }
 
-var db *gorm.DB
+var (
+	dbMu sync.RWMutex
+	db   *gorm.DB
+)
+
+func getDB() *gorm.DB {
+	dbMu.RLock()
+	defer dbMu.RUnlock()
+	return db
+}
 
 func openStore(path string) error {
+	dbMu.Lock()
+	defer dbMu.Unlock()
 	var err error
 	db, err = gorm.Open(sqlite.Open(path), &gorm.Config{})
 	if err != nil {
@@ -27,6 +39,8 @@ func openStore(path string) error {
 }
 
 func closeStore() {
+	dbMu.Lock()
+	defer dbMu.Unlock()
 	if db == nil {
 		return
 	}
@@ -38,14 +52,16 @@ func closeStore() {
 	if err := sqlDB.Close(); err != nil {
 		slog.Error("coffee: error closing database", "error", err)
 	}
+	db = nil
 }
 
 func getBeverageEmoji(userID string) (string, bool) {
-	if db == nil {
+	d := getDB()
+	if d == nil {
 		return "", false
 	}
 	var pref UserBeveragePreference
-	result := db.Where("user_id = ?", userID).First(&pref)
+	result := d.Where("user_id = ?", userID).First(&pref)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return "", false
@@ -57,10 +73,11 @@ func getBeverageEmoji(userID string) (string, bool) {
 }
 
 func setBeverageEmoji(userID, emoji string) error {
-	if db == nil {
+	d := getDB()
+	if d == nil {
 		return errors.New("store not initialized")
 	}
 	var pref UserBeveragePreference
-	result := db.Where(UserBeveragePreference{UserID: userID}).Assign(UserBeveragePreference{BeverageEmoji: emoji}).FirstOrCreate(&pref)
+	result := d.Where(UserBeveragePreference{UserID: userID}).Assign(UserBeveragePreference{BeverageEmoji: emoji}).FirstOrCreate(&pref)
 	return result.Error
 }
