@@ -57,9 +57,9 @@ func TestSoundClipPlay_deliversAllFrames(t *testing.T) {
 // Speaking(false) is not called before the audio is sent.
 func TestSoundClipPlay_pacingMatchesFrameDuration(t *testing.T) {
 	const (
-		n              = 3
-		toleranceLow   = 2 // divisor: actual must be >= want/toleranceLow
-		toleranceHigh  = 2 // multiplier: actual must be <= want*toleranceHigh
+		n             = 3
+		toleranceLow  = 2 // divisor: actual must be >= want/toleranceLow
+		toleranceHigh = 2 // multiplier: actual must be <= want*toleranceHigh
 	)
 	frames := make([][]byte, n)
 	for i := range frames {
