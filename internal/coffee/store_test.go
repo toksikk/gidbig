@@ -55,6 +55,38 @@ func TestSetAndGetBeverageEmoji(t *testing.T) {
 	if emoji != "🍺" {
 		t.Errorf("got %q, want %q", emoji, "🍺")
 	}
+
+	if !isUserIntroduced("user1") {
+		t.Error("expected user1 to be introduced after setting beverage")
+	}
+}
+
+func TestIsUserIntroduced_UnknownUser(t *testing.T) {
+	openInMemoryStore(t)
+	if isUserIntroduced("unknown") {
+		t.Error("expected false for unknown user")
+	}
+}
+
+func TestMarkUserIntroduced(t *testing.T) {
+	openInMemoryStore(t)
+
+	if err := markUserIntroduced("user_intro"); err != nil {
+		t.Fatalf("markUserIntroduced: %v", err)
+	}
+
+	if !isUserIntroduced("user_intro") {
+		t.Error("expected user_intro to be introduced")
+	}
+
+	// Verify it sets fallback beverage if it didn't exist
+	emoji, ok := getBeverageEmoji("user_intro")
+	if !ok {
+		t.Fatal("expected beverage to be set (fallback)")
+	}
+	if emoji != fallbackBeverage {
+		t.Errorf("got %q, want %q", emoji, fallbackBeverage)
+	}
 }
 
 func TestGetBeverageEmoji_UnknownUser(t *testing.T) {
