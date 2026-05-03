@@ -44,14 +44,15 @@ func Start(discord *discordgo.Session) {
 
 	config := cfg.GetConfig()
 	allowedGuildIDs = make(map[string]bool)
+	ignoredUserIDs = make(map[string]bool)
+	randomIgnoredGuildIDs = make(map[string]bool)
+
 	for _, id := range config.Gippity.AllowedGuilds {
 		allowedGuildIDs[id] = true
 	}
-	ignoredUserIDs = make(map[string]bool)
 	for _, id := range config.Gippity.IgnoredUsers {
 		ignoredUserIDs[id] = true
 	}
-	randomIgnoredGuildIDs = make(map[string]bool)
 	for _, id := range config.Gippity.RandomIgnoredGuilds {
 		randomIgnoredGuildIDs[id] = true
 	}

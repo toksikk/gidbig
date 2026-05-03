@@ -97,9 +97,9 @@ func hasGreetedToday(userID string) bool {
 		return false
 	}
 
-	now := nowFunc().Local()
+	now := nowFunc().UTC()
 	year, month, day := now.Date()
-	startOfToday := time.Date(year, month, day, 0, 0, 0, 0, now.Location())
+	startOfToday := time.Date(year, month, day, 0, 0, 0, 0, time.UTC)
 	startOfTomorrow := startOfToday.AddDate(0, 0, 1)
 
 	var count int64
@@ -118,8 +118,26 @@ func recordGreeting(userID string) error {
 	if d == nil {
 		return errors.New("store not initialized")
 	}
-	return d.Create(&UserGreeting{
-		UserID:    userID,
-		GreetedAt: nowFunc(),
-	}).Error
+
+	return d.Transaction(func(tx *gorm.DB) error {
+		now := nowFunc().UTC()
+		year, month, day := now.Date()
+		startOfToday := time.Date(year, month, day, 0, 0, 0, 0, time.UTC)
+		startOfTomorrow := startOfToday.AddDate(0, 0, 1)
+
+		var count int64
+		if err := tx.Model(&UserGreeting{}).
+			Where("user_id = ? AND greeted_at >= ? AND greeted_at < ?", userID, startOfToday, startOfTomorrow).
+			Count(&count).Error; err != nil {
+			return err
+		}
+		if count > 0 {
+			return nil // already greeted, skip insert
+		}
+
+		return tx.Create(&UserGreeting{
+			UserID:    userID,
+			GreetedAt: now,
+		}).Error
+	})
 }
