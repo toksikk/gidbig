@@ -7,6 +7,7 @@ import (
 	"context"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/toksikk/gidbig/internal/cfg"
 	"github.com/toksikk/gidbig/internal/util"
 
 	openai "github.com/openai/openai-go/v3"
@@ -20,7 +21,11 @@ var messageCount int = 0
 var messageGoal int = 0
 var messageGoalRange [2]int = [2]int{10, 20}
 
-var allowedGuildIDs [2]string = [2]string{"225303764108705793", "125231125961506816"} // TODO: make this a map
+var (
+	allowedGuildIDs       map[string]bool
+	ignoredUserIDs        map[string]bool
+	randomIgnoredGuildIDs map[string]bool
+)
 
 var userMessageCount map[string]int
 
@@ -36,6 +41,20 @@ func Start(discord *discordgo.Session) {
 
 	userMessageCount = make(map[string]int, 0)
 	userMessageCountLastReset = make(map[string]time.Time, 0)
+
+	config := cfg.GetConfig()
+	allowedGuildIDs = make(map[string]bool)
+	for _, id := range config.Gippity.AllowedGuilds {
+		allowedGuildIDs[id] = true
+	}
+	ignoredUserIDs = make(map[string]bool)
+	for _, id := range config.Gippity.IgnoredUsers {
+		ignoredUserIDs[id] = true
+	}
+	randomIgnoredGuildIDs = make(map[string]bool)
+	for _, id := range config.Gippity.RandomIgnoredGuilds {
+		randomIgnoredGuildIDs[id] = true
+	}
 
 	openaiClient = openai.NewClient()
 
@@ -79,6 +98,16 @@ func limited(m *discordgo.MessageCreate) bool {
 		return true
 	}
 
+	if ignoredUserIDs[m.Author.ID] {
+		slog.Info("ignoring message from ignored user", "user", m.Author.ID)
+		return true
+	}
+
+	if !allowedGuildIDs[m.GuildID] {
+		slog.Info("not using ai generated message in this guild", "guild", m.GuildID)
+		return true
+	}
+
 	if isMentioned(m) && !isLimitedUser(m) {
 		return false
 	}
@@ -92,21 +121,8 @@ func limited(m *discordgo.MessageCreate) bool {
 		return true
 	}
 
-	guildAllowed := false
-	for _, guild := range allowedGuildIDs {
-		if m.GuildID == guild {
-			guildAllowed = true
-		}
-	}
-
-	if !guildAllowed {
-		slog.Info("not using ai generated message in this guild")
-		return true
-	}
-
 	if messageCount >= messageGoal || messageGoal == 0 {
-		// TODO: implement an ignore list to config file
-		if m.GuildID == "125231125961506816" {
+		if randomIgnoredGuildIDs[m.GuildID] {
 			// they don't want the bot to answer randomly in this guild
 			return true
 		}

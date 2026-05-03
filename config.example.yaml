@@ -10,4 +10,9 @@ web:
         redirect_uri: "YOUR_REDIRECT_URI"
     session_secret: "base64-encoded-32-random-bytes"
     port: 8080
+gippity:
+    allowed_guilds:
+        - "YOUR_DISCORD_GUILD_ID"
+    ignored_users: []
+    random_ignored_guilds: []
 dev_mode: true

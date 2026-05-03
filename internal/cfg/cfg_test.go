@@ -10,6 +10,8 @@ func TestDecodeConfig_validConfig(t *testing.T) {
 discord:
   token: "test-token"
   owner_id: "123"
+gippity:
+  allowed_guilds: ["456"]
 dev_mode: true
 `
 	cfg, err := decodeConfig(strings.NewReader(yaml))
@@ -22,6 +24,9 @@ dev_mode: true
 	if cfg.Discord.OwnerID != "123" {
 		t.Errorf("owner_id = %q, want %q", cfg.Discord.OwnerID, "123")
 	}
+	if cfg.Gippity.AllowedGuilds[0] != "456" {
+		t.Errorf("allowed_guilds[0] = %q, want %q", cfg.Gippity.AllowedGuilds[0], "456")
+	}
 	if !cfg.DevMode {
 		t.Error("dev_mode should be true")
 	}
@@ -31,6 +36,8 @@ func TestDecodeConfig_missingToken(t *testing.T) {
 	yaml := `
 discord:
   owner_id: "123"
+gippity:
+  allowed_guilds: ["456"]
 `
 	_, err := decodeConfig(strings.NewReader(yaml))
 	if err == nil {
@@ -52,6 +59,8 @@ func TestDecodeConfig_emptyToken(t *testing.T) {
 	yaml := `
 discord:
   token: ""
+gippity:
+  allowed_guilds: ["456"]
 `
 	_, err := decodeConfig(strings.NewReader(yaml))
 	if err == nil {
@@ -70,6 +79,8 @@ web:
     client_id: "cid"
     client_secret: "csec"
     redirect_uri: "http://localhost/callback"
+gippity:
+  allowed_guilds: ["456"]
 `
 	cfg, err := decodeConfig(strings.NewReader(yaml))
 	if err != nil {
@@ -96,6 +107,8 @@ web:
     client_id: "cid"
     client_secret: "csec"
     redirect_uri: "http://localhost/callback"
+gippity:
+  allowed_guilds: ["456"]
 `
 	_, err := decodeConfig(strings.NewReader(yaml))
 	if err == nil {
@@ -110,6 +123,8 @@ func TestDecodeConfig_webDisabledNoSessionSecretRequired(t *testing.T) {
 	yaml := `
 discord:
   token: "tok"
+gippity:
+  allowed_guilds: ["456"]
 `
 	_, err := decodeConfig(strings.NewReader(yaml))
 	if err != nil {
@@ -123,6 +138,8 @@ discord:
   token: "tok"
 web:
   port: 8080
+gippity:
+  allowed_guilds: ["456"]
 `
 	_, err := decodeConfig(strings.NewReader(yaml))
 	if err == nil {
@@ -130,5 +147,19 @@ web:
 	}
 	if !strings.Contains(err.Error(), "session_secret") {
 		t.Errorf("error should mention session_secret, got: %v", err)
+	}
+}
+
+func TestDecodeConfig_missingGippityAllowedGuilds(t *testing.T) {
+	yaml := `
+discord:
+  token: "tok"
+`
+	_, err := decodeConfig(strings.NewReader(yaml))
+	if err == nil {
+		t.Fatal("expected error for missing gippity.allowed_guilds, got nil")
+	}
+	if !strings.Contains(err.Error(), "gippity.allowed_guilds") {
+		t.Errorf("error should mention gippity.allowed_guilds, got: %v", err)
 	}
 }
