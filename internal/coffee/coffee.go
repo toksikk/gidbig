@@ -14,6 +14,8 @@ const fallbackBeverage = "☕"
 var (
 	discordSession    *discordgo.Session
 	registeredCommand *discordgo.ApplicationCommand
+	isSpecialDay      = util.IsSpecial
+	reactOnMessage    = util.ReactOnMessage
 )
 
 func beverageEmojiFor(userID string) string {
@@ -86,19 +88,26 @@ func Shutdown() {
 func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 	for _, v := range messages {
 		if v == strings.ToLower(m.Content) {
-			if util.IsSpecial() {
-				util.ReactOnMessage(s, m.ChannelID, m.ID, string(util.Ae[util.RandomRange(0, len(util.Ae))]), "add")
-				util.ReactOnMessage(s, m.ChannelID, m.ID, string(util.Cl), "add")
+			if hasGreetedToday(m.Author.ID) {
+				return
+			}
+			if isSpecialDay() {
+				reactOnMessage(s, m.ChannelID, m.ID, string(util.Ae[util.RandomRange(0, len(util.Ae))]), "add")
+				reactOnMessage(s, m.ChannelID, m.ID, string(util.Cl), "add")
 			} else {
-				util.ReactOnMessage(s, m.ChannelID, m.ID, beverageEmojiFor(m.Author.ID), "add")
+				reactOnMessage(s, m.ChannelID, m.ID, beverageEmojiFor(m.Author.ID), "add")
 				// faces
 				if m.Author.ID == "269898849714307073" {
-					util.ReactOnMessage(s, m.ChannelID, m.ID, ":sidus:576309032789475328", "add")
+					reactOnMessage(s, m.ChannelID, m.ID, ":sidus:576309032789475328", "add")
 				}
 				if m.Author.ID == "125230846629249024" {
-					util.ReactOnMessage(s, m.ChannelID, m.ID, ":sikk:355329009824825355", "add")
+					reactOnMessage(s, m.ChannelID, m.ID, ":sikk:355329009824825355", "add")
 				}
 			}
+			if err := recordGreeting(m.Author.ID); err != nil {
+				slog.Error("coffee: failed to record daily greeting", "error", err, "userID", m.Author.ID)
+			}
+			return
 		}
 	}
 }

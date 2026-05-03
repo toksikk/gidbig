@@ -2,6 +2,7 @@ package coffee
 
 import (
 	"testing"
+	"time"
 
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -13,7 +14,7 @@ func openInMemoryStore(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to open in-memory store: %v", err)
 	}
-	if err := gormDB.AutoMigrate(&UserBeveragePreference{}); err != nil {
+	if err := gormDB.AutoMigrate(&UserBeveragePreference{}, &UserGreeting{}); err != nil {
 		t.Fatalf("failed to migrate: %v", err)
 	}
 	dbMu.Lock()
@@ -27,6 +28,17 @@ func openInMemoryStore(t *testing.T) {
 			t.Logf("warning: failed to close test DB: %v", err)
 		}
 		db = nil
+	})
+}
+
+func useNow(t *testing.T, now time.Time) {
+	t.Helper()
+	previous := nowFunc
+	nowFunc = func() time.Time {
+		return now
+	}
+	t.Cleanup(func() {
+		nowFunc = previous
 	})
 }
 
@@ -77,5 +89,50 @@ func TestSetBeverageEmoji_Upsert(t *testing.T) {
 	d.Model(&UserBeveragePreference{}).Where("user_id = ?", "user2").Count(&count)
 	if count != 1 {
 		t.Errorf("expected 1 row, got %d (upsert created duplicate)", count)
+	}
+}
+
+func TestHasGreetedToday_UnknownUser(t *testing.T) {
+	openInMemoryStore(t)
+	useNow(t, time.Date(2026, 5, 3, 10, 0, 0, 0, time.Local))
+
+	if hasGreetedToday("unknown") {
+		t.Fatal("expected false for unknown user")
+	}
+}
+
+func TestHasGreetedToday_SameLocalDay(t *testing.T) {
+	openInMemoryStore(t)
+	now := time.Date(2026, 5, 3, 10, 0, 0, 0, time.Local)
+	useNow(t, now)
+
+	d := getDB()
+	if err := d.Create(&UserGreeting{
+		UserID:    "user1",
+		GreetedAt: time.Date(2026, 5, 3, 7, 30, 0, 0, time.Local),
+	}).Error; err != nil {
+		t.Fatalf("failed to create greeting: %v", err)
+	}
+
+	if !hasGreetedToday("user1") {
+		t.Fatal("expected true for greeting earlier on the same local day")
+	}
+}
+
+func TestHasGreetedToday_PreviousLocalDay(t *testing.T) {
+	openInMemoryStore(t)
+	now := time.Date(2026, 5, 3, 10, 0, 0, 0, time.Local)
+	useNow(t, now)
+
+	d := getDB()
+	if err := d.Create(&UserGreeting{
+		UserID:    "user1",
+		GreetedAt: time.Date(2026, 5, 2, 23, 59, 0, 0, time.Local),
+	}).Error; err != nil {
+		t.Fatalf("failed to create greeting: %v", err)
+	}
+
+	if hasGreetedToday("user1") {
+		t.Fatal("expected false for greeting on the previous local day")
 	}
 }
