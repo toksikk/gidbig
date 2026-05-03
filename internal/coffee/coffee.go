@@ -16,6 +16,7 @@ var (
 	registeredCommand *discordgo.ApplicationCommand
 	isSpecialDay      = util.IsSpecial
 	reactOnMessage    = util.ReactOnMessage
+	sendIntroDM       = sendIntroDMFunc
 )
 
 func beverageEmojiFor(userID string) string {
@@ -91,11 +92,13 @@ func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 			if hasGreetedToday(m.Author.ID) {
 				return
 			}
+
+			emoji := beverageEmojiFor(m.Author.ID)
 			if isSpecialDay() {
 				reactOnMessage(s, m.ChannelID, m.ID, string(util.Ae[util.RandomRange(0, len(util.Ae))]), "add")
 				reactOnMessage(s, m.ChannelID, m.ID, string(util.Cl), "add")
 			} else {
-				reactOnMessage(s, m.ChannelID, m.ID, beverageEmojiFor(m.Author.ID), "add")
+				reactOnMessage(s, m.ChannelID, m.ID, emoji, "add")
 				// faces
 				if m.Author.ID == "269898849714307073" {
 					reactOnMessage(s, m.ChannelID, m.ID, ":sidus:576309032789475328", "add")
@@ -104,6 +107,14 @@ func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 					reactOnMessage(s, m.ChannelID, m.ID, ":sikk:355329009824825355", "add")
 				}
 			}
+
+			if !isUserIntroduced(m.Author.ID) {
+				sendIntroDM(s, m.Author.ID, emoji)
+				if err := markUserIntroduced(m.Author.ID); err != nil {
+					slog.Error("coffee: failed to mark user as introduced", "error", err, "userID", m.Author.ID)
+				}
+			}
+
 			if err := recordGreeting(m.Author.ID); err != nil {
 				slog.Error("coffee: failed to record daily greeting", "error", err, "userID", m.Author.ID)
 			}
@@ -141,6 +152,8 @@ func onInteractionCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		userID = i.User.ID
 	}
 
+	introducedBefore := isUserIntroduced(userID)
+
 	if err := setBeverageEmoji(userID, emoji); err != nil {
 		slog.Error("coffee: failed to set beverage emoji", "error", err, "userID", userID)
 		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
@@ -160,4 +173,22 @@ func onInteractionCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			Flags:   discordgo.MessageFlagsEphemeral,
 		},
 	})
+
+	if !introducedBefore {
+		sendIntroDM(s, userID, emoji)
+	}
+}
+
+func sendIntroDMFunc(s *discordgo.Session, userID string, emoji string) {
+	channel, err := s.UserChannelCreate(userID)
+	if err != nil {
+		slog.Error("coffee: failed to create DM channel", "error", err, "userID", userID)
+		return
+	}
+
+	content := fmt.Sprintf("Your morning beverage is now %s ☑️\n\nWhenever you say 'moin', 'hallo' or similar, I'll greet you with your preferred beverage! You can change this anytime using the `/setbeverage` command. Enjoy your morning! ☀️", emoji)
+	_, err = s.ChannelMessageSend(channel.ID, content)
+	if err != nil {
+		slog.Error("coffee: failed to send intro DM", "error", err, "userID", userID)
+	}
 }

@@ -69,6 +69,71 @@ func countGreetings(t *testing.T, userID string) int64 {
 	return count
 }
 
+type capturedDM struct {
+	userID string
+	emoji  string
+}
+
+func captureIntroDMs(t *testing.T) func() []capturedDM {
+	t.Helper()
+	previous := sendIntroDM
+	dms := []capturedDM{}
+	sendIntroDM = func(_ *discordgo.Session, userID string, emoji string) {
+		dms = append(dms, capturedDM{
+			userID: userID,
+			emoji:  emoji,
+		})
+	}
+	t.Cleanup(func() {
+		sendIntroDM = previous
+	})
+	return func() []capturedDM {
+		return dms
+	}
+}
+
+func TestOnMessageCreate_TriggersIntroDMOnFirstGreeting(t *testing.T) {
+	openInMemoryStore(t)
+	useNow(t, time.Date(2026, 5, 3, 9, 0, 0, 0, time.Local))
+	useSpecialDay(t, false)
+	_ = captureReactions(t)
+	getDMs := captureIntroDMs(t)
+
+	onMessageCreate(nil, greetingMessage("user_new", "moin"))
+
+	dms := getDMs()
+	if len(dms) != 1 {
+		t.Fatalf("expected 1 intro DM, got %d", len(dms))
+	}
+	if dms[0].userID != "user_new" {
+		t.Errorf("DM userID = %q, want user_new", dms[0].userID)
+	}
+	if dms[0].emoji != fallbackBeverage {
+		t.Errorf("DM emoji = %q, want %q", dms[0].emoji, fallbackBeverage)
+	}
+
+	if !isUserIntroduced("user_new") {
+		t.Error("expected user_new to be marked as introduced")
+	}
+}
+
+func TestOnMessageCreate_DoesNotTriggerIntroDMIfAlreadyIntroduced(t *testing.T) {
+	openInMemoryStore(t)
+	useNow(t, time.Date(2026, 5, 3, 9, 0, 0, 0, time.Local))
+	useSpecialDay(t, false)
+	_ = captureReactions(t)
+	getDMs := captureIntroDMs(t)
+
+	_ = setBeverageEmoji("user_old", "🧃") // sets introduced=true
+
+	onMessageCreate(nil, greetingMessage("user_old", "moin"))
+
+	dms := getDMs()
+	if len(dms) != 0 {
+		t.Fatalf("expected 0 intro DMs for introduced user, got %d", len(dms))
+	}
+}
+
 func isSpecialGreetingEmoji(emoji string) bool {
 	for _, ae := range util.Ae {
 		if emoji == string(ae) {
@@ -132,6 +197,7 @@ func TestOnMessageCreate_FirstGreetingReactsAndRecordsGreeting(t *testing.T) {
 	useNow(t, time.Date(2026, 5, 3, 9, 0, 0, 0, time.Local))
 	useSpecialDay(t, false)
 	getReactions := captureReactions(t)
+	_ = captureIntroDMs(t)
 
 	onMessageCreate(nil, greetingMessage("user1", "moin"))
 
@@ -155,6 +221,7 @@ func TestOnMessageCreate_DuplicateSameDayGreetingIsSuppressed(t *testing.T) {
 	useNow(t, time.Date(2026, 5, 3, 9, 0, 0, 0, time.Local))
 	useSpecialDay(t, false)
 	getReactions := captureReactions(t)
+	_ = captureIntroDMs(t)
 
 	onMessageCreate(nil, greetingMessage("user1", "moin"))
 	onMessageCreate(nil, greetingMessage("user1", "hi"))
@@ -173,6 +240,7 @@ func TestOnMessageCreate_PriorDayGreetingAllowsNextDayReaction(t *testing.T) {
 	useNow(t, time.Date(2026, 5, 3, 9, 0, 0, 0, time.Local))
 	useSpecialDay(t, false)
 	getReactions := captureReactions(t)
+	_ = captureIntroDMs(t)
 
 	d := getDB()
 	if err := d.Create(&UserGreeting{
@@ -198,6 +266,7 @@ func TestOnMessageCreate_SpecialDayFirstGreetingReactsAndRecordsGreeting(t *test
 	useNow(t, time.Date(2026, 5, 3, 9, 0, 0, 0, time.Local))
 	useSpecialDay(t, true)
 	getReactions := captureReactions(t)
+	_ = captureIntroDMs(t)
 
 	onMessageCreate(nil, greetingMessage("user1", "moin"))
 

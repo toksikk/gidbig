@@ -15,6 +15,7 @@ type UserBeveragePreference struct {
 	gorm.Model
 	UserID        string `gorm:"not null;uniqueIndex"`
 	BeverageEmoji string `gorm:"not null"`
+	HasSeenIntro  bool   `gorm:"not null;default:false"`
 }
 
 // UserGreeting records when a Discord user received their daily greeting reaction.
@@ -81,13 +82,41 @@ func getBeverageEmoji(userID string) (string, bool) {
 	return pref.BeverageEmoji, true
 }
 
+func isUserIntroduced(userID string) bool {
+	d := getDB()
+	if d == nil {
+		return false
+	}
+	var pref UserBeveragePreference
+	result := d.Where("user_id = ?", userID).First(&pref)
+	if result.Error != nil {
+		return false
+	}
+	return pref.HasSeenIntro
+}
+
+func markUserIntroduced(userID string) error {
+	d := getDB()
+	if d == nil {
+		return errors.New("store not initialized")
+	}
+	var pref UserBeveragePreference
+	// If it doesn't exist, we create it with fallbackBeverage and HasSeenIntro = true
+	return d.Where(UserBeveragePreference{UserID: userID}).
+		Attrs(UserBeveragePreference{BeverageEmoji: fallbackBeverage}).
+		Assign(UserBeveragePreference{HasSeenIntro: true}).
+		FirstOrCreate(&pref).Error
+}
+
 func setBeverageEmoji(userID, emoji string) error {
 	d := getDB()
 	if d == nil {
 		return errors.New("store not initialized")
 	}
 	var pref UserBeveragePreference
-	result := d.Where(UserBeveragePreference{UserID: userID}).Assign(UserBeveragePreference{BeverageEmoji: emoji}).FirstOrCreate(&pref)
+	result := d.Where(UserBeveragePreference{UserID: userID}).
+		Assign(UserBeveragePreference{BeverageEmoji: emoji, HasSeenIntro: true}).
+		FirstOrCreate(&pref)
 	return result.Error
 }
 
