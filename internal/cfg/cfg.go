@@ -26,17 +26,22 @@ type Config struct {
 		SessionSecret string `yaml:"session_secret"`
 		Port          int    `yaml:"port,omitempty" default:"8080"`
 	} `yaml:"web"`
+	Gippity struct {
+		AllowedGuilds       []string `yaml:"allowed_guilds"`
+		IgnoredUsers        []string `yaml:"ignored_users"`
+		RandomIgnoredGuilds []string `yaml:"random_ignored_guilds"`
+	} `yaml:"gippity"`
 	DevMode bool `yaml:"dev_mode,omitempty" default:"false"`
 }
 
-var initializedConfig Config = Config{}
+var initializedConfig *Config
 
 // GetConfig returns the config struct
 func GetConfig() *Config {
-	if initializedConfig == (Config{}) {
-		initializedConfig = *loadFile()
+	if initializedConfig == nil {
+		initializedConfig = loadFile()
 	}
-	return &initializedConfig
+	return initializedConfig
 }
 
 func loadFile() *Config {
@@ -52,8 +57,8 @@ func loadFile() *Config {
 		slog.Error(err.Error())
 		os.Exit(1)
 	}
-	initializedConfig = *cfg
-	return &initializedConfig
+	initializedConfig = cfg
+	return initializedConfig
 }
 
 // decodeConfig decodes YAML from r into a Config and validates required fields.
@@ -67,6 +72,9 @@ func decodeConfig(r io.Reader) (*Config, error) {
 	}
 	if cfg.Web.Port != 0 && cfg.Web.SessionSecret == "" {
 		return nil, errors.New("web.session_secret is required when web.port is set")
+	}
+	if len(cfg.Gippity.AllowedGuilds) == 0 {
+		return nil, errors.New("gippity.allowed_guilds is required and cannot be empty")
 	}
 	return &cfg, nil
 }
