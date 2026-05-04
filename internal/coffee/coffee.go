@@ -14,15 +14,30 @@ import (
 const fallbackBeverage = "☕"
 
 var (
-	discordSession      *discordgo.Session
-	registeredCommand   *discordgo.ApplicationCommand
-	registeredBrewCmd   *discordgo.ApplicationCommand
-	isSpecialDay        = util.IsSpecial
-	reactOnMessage      = util.ReactOnMessage
-	sendIntroDM         = sendIntroDMFunc
-	detectLanguage      = llm.DetectChannelLanguage
-	generateLLMGreeting = llm.GenerateMessage
+	discordSession     *discordgo.Session
+	registeredCommand  *discordgo.ApplicationCommand
+	registeredBrewCmd  *discordgo.ApplicationCommand
+	isSpecialDay       = util.IsSpecial
+	reactOnMessage     = util.ReactOnMessage
+	sendIntroDM        = sendIntroDMFunc
+	detectLanguage     = llm.DetectChannelLanguage
+	generateLLMMessage = llm.GenerateMessage
 )
+
+// generateInteractionMessage detects the channel language and uses the LLM to generate
+// a response for the given scenario. Returns fallback on any error.
+func generateInteractionMessage(s *discordgo.Session, channelID, scenario, fallback string) string {
+	lang, _ := detectLanguage(s, channelID)
+	if lang == "" {
+		lang = "English"
+	}
+	systemPrompt := "You are a Discord bot managing a coffee station in a community chat. " + llm.Personality + " Respond in " + lang + "."
+	msg, err := generateLLMMessage(context.Background(), systemPrompt, scenario)
+	if err != nil || strings.TrimSpace(msg) == "" {
+		return fallback
+	}
+	return strings.TrimSpace(msg)
+}
 
 func beverageEmojiFor(userID string) string {
 	if emoji, ok := getBeverageEmoji(userID); ok {
@@ -143,8 +158,6 @@ func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 				}
 			}
 
-			sendLLMGreeting(s, m)
-
 			if err := recordGreeting(m.Author.ID); err != nil {
 				slog.Error("coffee: failed to record daily greeting", "error", err, "userID", m.Author.ID)
 			}
@@ -209,10 +222,13 @@ func onInteractionCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		return
 	}
 
+	confirmMsg := generateInteractionMessage(s, i.ChannelID,
+		fmt.Sprintf("Confirm to the user that their morning beverage is now set to %s.", emoji),
+		fmt.Sprintf("Your morning beverage is now %s ☑️", emoji))
 	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseChannelMessageWithSource,
 		Data: &discordgo.InteractionResponseData{
-			Content: fmt.Sprintf("Your morning beverage is now %s ☑️", emoji),
+			Content: confirmMsg,
 			Flags:   discordgo.MessageFlagsEphemeral,
 		},
 	})
@@ -224,20 +240,27 @@ func onInteractionCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {
 
 func handleBrewInteraction(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	alreadyBrewing, readyAt := startBrew(s, i.GuildID, i.ChannelID)
+	ts := fmt.Sprintf("<t:%d:R>", readyAt.Unix())
 	if alreadyBrewing {
+		msg := generateInteractionMessage(s, i.ChannelID,
+			"Coffee is already brewing. Tell the user in one short sentence.",
+			"☕ Coffee is already brewing!") + " " + ts
 		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
-				Content: fmt.Sprintf("☕ Coffee is already brewing! Ready <t:%d:R>", readyAt.Unix()),
+				Content: msg,
 				Flags:   discordgo.MessageFlagsEphemeral,
 			},
 		})
 		return
 	}
+	msg := generateInteractionMessage(s, i.ChannelID,
+		"A user just started brewing coffee. It will be ready in about 3 minutes. Announce this in one short sentence.",
+		"☕ Brewing coffee... Ready") + " " + ts
 	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseChannelMessageWithSource,
 		Data: &discordgo.InteractionResponseData{
-			Content: fmt.Sprintf("☕ Brewing coffee... Check back in ~3 minutes! <t:%d:R>", readyAt.Unix()),
+			Content: msg,
 		},
 	})
 }
@@ -253,59 +276,45 @@ func handleGrabCoffeeButton(s *discordgo.Session, i *discordgo.InteractionCreate
 	result := grabCoffee(i.GuildID, i.ChannelID, userID)
 
 	if result.notReady {
+		msg := generateInteractionMessage(s, i.ChannelID,
+			"A user tried to grab coffee but the pot is empty or not ready. Tell them in one short sentence.",
+			"Too late — the coffee pot is empty! ☕")
 		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
-				Content: "Too late — the coffee pot is empty! ☕",
+				Content: msg,
 				Flags:   discordgo.MessageFlagsEphemeral,
 			},
 		})
 		return
 	}
 	if result.alreadyTaken {
+		msg := generateInteractionMessage(s, i.ChannelID,
+			"A user already grabbed their coffee and tried again. Tell them in one short sentence.",
+			"You already grabbed your coffee! ☕")
 		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
-				Content: "You already grabbed your coffee! ☕",
+				Content: msg,
 				Flags:   discordgo.MessageFlagsEphemeral,
 			},
 		})
 		return
 	}
+	grabMsg := generateInteractionMessage(s, i.ChannelID,
+		fmt.Sprintf("<@%s> grabbed a ~%.0fml cup of coffee. %s. Announce this.", userID, result.cupML*1000, result.summary),
+		fmt.Sprintf("☕ <@%s> grabbed a cup (~%.0fml)! %s", userID, result.cupML*1000, result.summary))
 	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseChannelMessageWithSource,
 		Data: &discordgo.InteractionResponseData{
-			Content: fmt.Sprintf("☕ <@%s> grabbed a cup (~%.0fml)! %s", userID, result.cupML*1000, result.summary),
+			Content: grabMsg,
 		},
 	})
 	if result.isEmpty {
-		sendBrewMessage(s, i.ChannelID, "The coffee pot is empty!")
-	}
-}
-
-func sendLLMGreeting(s *discordgo.Session, m *discordgo.MessageCreate) {
-	if s == nil {
-		return
-	}
-	lang, err := detectLanguage(s, m.ChannelID)
-	if err != nil {
-		slog.Warn("coffee: language detection failed", "error", err)
-		lang = "English"
-	}
-
-	systemPrompt := "You are a Discord bot in a community chat. Generate a morning greeting that feels warm and fits the channel vibe. Mention coffee or a morning beverage if it feels natural. " + llm.Personality + " Respond in " + lang + "."
-	userPrompt := "A user just said: " + m.Content
-
-	msg, err := generateLLMGreeting(context.Background(), systemPrompt, userPrompt)
-	if err != nil {
-		slog.Warn("coffee: LLM greeting failed, skipping", "error", err)
-		return
-	}
-	if msg == "" {
-		return
-	}
-	if _, err := s.ChannelMessageSend(m.ChannelID, msg); err != nil {
-		slog.Error("coffee: failed to send LLM greeting", "error", err)
+		emptyMsg := generateInteractionMessage(s, i.ChannelID,
+			"The coffee pot is now empty. Announce this in one short sentence.",
+			"The coffee pot is empty!")
+		sendBrewMessage(s, i.ChannelID, emptyMsg)
 	}
 }
 
