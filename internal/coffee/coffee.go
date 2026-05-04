@@ -107,7 +107,9 @@ func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 		return
 	}
 
-	handleBrewMessage(s, m.GuildID, m.ChannelID, m.ID, m.Author.ID)
+	if hasActiveBrew(m.GuildID, m.ChannelID) {
+		handleBrewMessage(s, m.GuildID, m.ChannelID, m.ID, m.Author.ID)
+	}
 
 	for _, v := range messages {
 		if v == strings.ToLower(m.Content) {
@@ -146,9 +148,17 @@ func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 }
 
 func onInteractionCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	if i.Type != discordgo.InteractionApplicationCommand {
+	switch i.Type {
+	case discordgo.InteractionMessageComponent:
+		if i.MessageComponentData().CustomID == "grab_coffee" {
+			handleGrabCoffeeButton(s, i)
+		}
+		return
+	case discordgo.InteractionApplicationCommand:
+	default:
 		return
 	}
+
 	data := i.ApplicationCommandData()
 	switch data.Name {
 	case "brew":
@@ -224,6 +234,47 @@ func handleBrewInteraction(s *discordgo.Session, i *discordgo.InteractionCreate)
 			Content: fmt.Sprintf("☕ Brewing coffee... Check back in ~3 minutes! <t:%d:R>", readyAt.Unix()),
 		},
 	})
+}
+
+func handleGrabCoffeeButton(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	var userID string
+	if i.Member != nil {
+		userID = i.Member.User.ID
+	} else if i.User != nil {
+		userID = i.User.ID
+	}
+
+	result := grabCoffee(i.GuildID, i.ChannelID, userID)
+
+	if result.notReady {
+		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Content: "Too late — the coffee pot is empty! ☕",
+				Flags:   discordgo.MessageFlagsEphemeral,
+			},
+		})
+		return
+	}
+	if result.alreadyTaken {
+		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Content: "You already grabbed your coffee! ☕",
+				Flags:   discordgo.MessageFlagsEphemeral,
+			},
+		})
+		return
+	}
+	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Content: fmt.Sprintf("☕ <@%s> grabbed a cup (~%.0fml)! %s", userID, result.cupML*1000, result.summary),
+		},
+	})
+	if result.isEmpty {
+		sendBrewMessage(s, i.ChannelID, "The coffee pot is empty!")
+	}
 }
 
 func sendIntroDMFunc(s *discordgo.Session, userID string, emoji string) {
