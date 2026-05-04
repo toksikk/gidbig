@@ -168,11 +168,11 @@ func onInteractionCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	case discordgo.InteractionMessageComponent:
 		switch i.MessageComponentData().CustomID {
 		case "grab_coffee":
-			handleGrabCoffeeButton(s, i, false, false)
+			handleGrabCoffeeButton(s, i)
 		case "grab_milk":
-			handleGrabCoffeeButton(s, i, true, false)
+			handleModifyLastCupButton(s, i, true, false)
 		case "grab_sugar":
-			handleGrabCoffeeButton(s, i, false, true)
+			handleModifyLastCupButton(s, i, false, true)
 		}
 		return
 	case discordgo.InteractionApplicationCommand:
@@ -267,7 +267,7 @@ func handleBrewInteraction(s *discordgo.Session, i *discordgo.InteractionCreate)
 	})
 }
 
-func handleGrabCoffeeButton(s *discordgo.Session, i *discordgo.InteractionCreate, milk, sugar bool) {
+func handleGrabCoffeeButton(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	var userID string
 	if i.Member != nil {
 		userID = i.Member.User.ID
@@ -275,7 +275,7 @@ func handleGrabCoffeeButton(s *discordgo.Session, i *discordgo.InteractionCreate
 		userID = i.User.ID
 	}
 
-	result := grabCoffee(i.GuildID, i.ChannelID, userID, milk, sugar)
+	result := grabCoffee(i.GuildID, i.ChannelID, userID)
 
 	if result.notReady {
 		msg := generateInteractionMessage(s, i.ChannelID,
@@ -291,39 +291,88 @@ func handleGrabCoffeeButton(s *discordgo.Session, i *discordgo.InteractionCreate
 		return
 	}
 
-	// Keep buttons while the pot still has coffee; remove them when empty.
-	var components []discordgo.MessageComponent
-	if !result.isEmpty {
-		components = []discordgo.MessageComponent{
-			discordgo.ActionsRow{
-				Components: []discordgo.MessageComponent{
-					discordgo.Button{
-						Label:    result.buttonLabels[0],
-						Style:    discordgo.PrimaryButton,
-						CustomID: "grab_coffee",
-					},
-					discordgo.Button{
-						Label:    result.buttonLabels[1],
-						Style:    discordgo.SecondaryButton,
-						CustomID: "grab_milk",
-					},
-					discordgo.Button{
-						Label:    result.buttonLabels[2],
-						Style:    discordgo.SecondaryButton,
-						CustomID: "grab_sugar",
-					},
-				},
+	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseUpdateMessage,
+		Data: &discordgo.InteractionResponseData{
+			Content:    result.updatedMsg,
+			Components: brewComponents(result.buttonLabels, result.isEmpty),
+		},
+	})
+}
+
+// handleModifyLastCupButton adds milk or sugar to the user's most recent cup without
+// pouring a new one. Shows an ephemeral error if the user has no cup in this brew.
+func handleModifyLastCupButton(s *discordgo.Session, i *discordgo.InteractionCreate, milk, sugar bool) {
+	var userID string
+	if i.Member != nil {
+		userID = i.Member.User.ID
+	} else if i.User != nil {
+		userID = i.User.ID
+	}
+
+	result := addToLastCup(i.GuildID, i.ChannelID, userID, milk, sugar)
+
+	if result.notReady {
+		msg := generateInteractionMessage(s, i.ChannelID,
+			"A user tried to add milk or sugar but the coffee pot is no longer available. Tell them in one short sentence.",
+			"No coffee available! ☕")
+		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Content: msg,
+				Flags:   discordgo.MessageFlagsEphemeral,
 			},
-		}
+		})
+		return
+	}
+	if result.noCup {
+		msg := generateInteractionMessage(s, i.ChannelID,
+			"A user tried to add milk or sugar but hasn't grabbed a cup yet. Tell them to grab a cup first, in one short sentence.",
+			"Grab a cup first! ☕")
+		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Content: msg,
+				Flags:   discordgo.MessageFlagsEphemeral,
+			},
+		})
+		return
 	}
 
 	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseUpdateMessage,
 		Data: &discordgo.InteractionResponseData{
 			Content:    result.updatedMsg,
-			Components: components,
+			Components: brewComponents(result.buttonLabels, false),
 		},
 	})
+}
+
+func brewComponents(labels [3]string, empty bool) []discordgo.MessageComponent {
+	if empty {
+		return nil
+	}
+	return []discordgo.MessageComponent{
+		discordgo.ActionsRow{
+			Components: []discordgo.MessageComponent{
+				discordgo.Button{
+					Label:    labels[0],
+					Style:    discordgo.PrimaryButton,
+					CustomID: "grab_coffee",
+				},
+				discordgo.Button{
+					Label:    labels[1],
+					Style:    discordgo.SecondaryButton,
+					CustomID: "grab_milk",
+				},
+				discordgo.Button{
+					Label:    labels[2],
+					Style:    discordgo.SecondaryButton,
+					CustomID: "grab_sugar",
+				},
+			},
+		},
+	}
 }
 
 func buildBrewButtonLabels(s *discordgo.Session, channelID string) [3]string {

@@ -39,6 +39,7 @@ type brewState struct {
 
 type grabResult struct {
 	notReady     bool
+	noCup        bool // tried to add milk/sugar but user has no cup in this brew
 	isEmpty      bool
 	cupML        float64
 	updatedMsg   string
@@ -159,9 +160,10 @@ func markBrewReady(s *discordgo.Session, guildID, channelID string) {
 	}
 }
 
-// grabCoffee handles the state mutation for a user grabbing a cup of coffee.
-// Multiple grabs by the same user are allowed.
-func grabCoffee(guildID, channelID, userID string, milk, sugar bool) grabResult {
+// grabCoffee handles the state mutation for a user grabbing a plain cup of coffee.
+// Multiple grabs by the same user are allowed. Milk/sugar can be added afterwards
+// via addToLastCup.
+func grabCoffee(guildID, channelID, userID string) grabResult {
 	brewMu.Lock()
 	defer brewMu.Unlock()
 
@@ -170,7 +172,7 @@ func grabCoffee(guildID, channelID, userID string, milk, sugar bool) grabResult 
 	if !ok || !st.isReady || st.coffeeLiters < emptyThreshold {
 		return grabResult{notReady: true}
 	}
-	cup := CupTaken{ml: randCupSize(), milk: milk, sugar: sugar}
+	cup := CupTaken{ml: randCupSize()}
 	st.grabs = append(st.grabs, grabRecord{userID: userID, cup: cup})
 	st.coffeeLiters -= cup.ml
 	if st.coffeeLiters < 0 {
@@ -187,6 +189,39 @@ func grabCoffee(guildID, channelID, userID string, milk, sugar bool) grabResult 
 		isEmpty:      isEmpty,
 		updatedMsg:   updatedMsg,
 		buttonLabels: labels,
+	}
+}
+
+// addToLastCup adds milk and/or sugar to the most recent cup grabbed by userID in
+// this brew. Returns noCup=true if the user has not grabbed a cup yet.
+func addToLastCup(guildID, channelID, userID string, milk, sugar bool) grabResult {
+	brewMu.Lock()
+	defer brewMu.Unlock()
+
+	key := brewStateKey(guildID, channelID)
+	st, ok := brewStates[key]
+	if !ok || !st.isReady {
+		return grabResult{notReady: true}
+	}
+	lastIdx := -1
+	for i := len(st.grabs) - 1; i >= 0; i-- {
+		if st.grabs[i].userID == userID {
+			lastIdx = i
+			break
+		}
+	}
+	if lastIdx == -1 {
+		return grabResult{noCup: true}
+	}
+	if milk {
+		st.grabs[lastIdx].cup.milk = true
+	}
+	if sugar {
+		st.grabs[lastIdx].cup.sugar = true
+	}
+	return grabResult{
+		updatedMsg:   buildBrewMessage(st),
+		buttonLabels: st.buttonLabels,
 	}
 }
 
