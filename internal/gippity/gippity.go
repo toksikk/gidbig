@@ -16,14 +16,11 @@ import (
 
 var discordSession *discordgo.Session
 
-var messageCount int = 0
-var messageGoal int = 0
-var messageGoalRange [2]int = [2]int{10, 20}
+var generateAnswerFunc = generateAnswer
 
 var (
-	allowedGuildIDs       map[string]bool
-	ignoredUserIDs        map[string]bool
-	randomIgnoredGuildIDs map[string]bool
+	allowedGuildIDs map[string]bool
+	ignoredUserIDs  map[string]bool
 )
 
 var userMessageCount map[string]int
@@ -44,16 +41,12 @@ func Start(discord *discordgo.Session) {
 	config := cfg.GetConfig()
 	allowedGuildIDs = make(map[string]bool)
 	ignoredUserIDs = make(map[string]bool)
-	randomIgnoredGuildIDs = make(map[string]bool)
 
 	for _, id := range config.Gippity.AllowedGuilds {
 		allowedGuildIDs[id] = true
 	}
 	for _, id := range config.Gippity.IgnoredUsers {
 		ignoredUserIDs[id] = true
-	}
-	for _, id := range config.Gippity.RandomIgnoredGuilds {
-		randomIgnoredGuildIDs[id] = true
 	}
 
 	discordSession = discord
@@ -106,31 +99,18 @@ func limited(m *discordgo.MessageCreate) bool {
 		return true
 	}
 
-	if isMentioned(m) && !isLimitedUser(m) {
-		return false
-	}
-
-	if isMentioned(m) && isLimitedUser(m) {
-		slog.Info("not answering because of user limitation", "userMessageCount", userMessageCount[m.Author.ID], "userMessageLimit", userMessageLimit, "userMessageCountLastReset", userMessageCountLastReset[m.Author.ID])
-		_, err := discordSession.ChannelMessageSend(m.ChannelID, "Du hast heute schon genug Nachrichten geschrieben. Komm wann anders wieder.")
-		if err != nil {
-			slog.Info("Error while sending message", "error", err)
-		}
-		return true
-	}
-
-	if messageCount >= messageGoal || messageGoal == 0 {
-		if randomIgnoredGuildIDs[m.GuildID] {
-			// they don't want the bot to answer randomly in this guild
+	if isMentioned(m) {
+		if isLimitedUser(m) {
+			slog.Info("not answering because of user limitation", "userMessageCount", userMessageCount[m.Author.ID], "userMessageLimit", userMessageLimit, "userMessageCountLastReset", userMessageCountLastReset[m.Author.ID])
+			_, err := discordSession.ChannelMessageSend(m.ChannelID, "Du hast heute schon genug Nachrichten geschrieben. Komm wann anders wieder.")
+			if err != nil {
+				slog.Info("Error while sending message", "error", err)
+			}
 			return true
 		}
-		messageCount = 0
-		messageGoal = util.RandomRange(messageGoalRange[0], messageGoalRange[1])
 		return false
 	}
 
-	messageCount++
-	slog.Info("not answering because of message limitation", "messageCount", messageCount, "messageGoal", messageGoal)
 	return true
 }
 
@@ -161,7 +141,7 @@ func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 		}
 		if len(imageURLs) != 0 {
 			slog.Debug("Message has image attachments")
-			generatedAnswer, err = generateAnswer(m, imageURLs)
+			generatedAnswer, err = generateAnswerFunc(m, imageURLs)
 			if err != nil {
 				slog.Error("Could not generate answer")
 				return
@@ -171,7 +151,7 @@ func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 	if len(m.Attachments) == 0 && m.Content != "" {
 		slog.Debug("Message has content but no attachments")
-		generatedAnswer, err = generateAnswer(m, nil)
+		generatedAnswer, err = generateAnswerFunc(m, nil)
 		if err != nil {
 			slog.Error("Could not generate answer")
 			return
