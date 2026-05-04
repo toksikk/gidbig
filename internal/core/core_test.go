@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"strings"
 	"testing"
+
+	"github.com/bwmarrin/discordgo"
 )
 
 func TestScontains(t *testing.T) {
@@ -165,5 +167,52 @@ func TestAddNewSoundCollection(t *testing.T) {
 	}
 	if len(COLLECTIONS[0].Sounds) != 1 || COLLECTIONS[0].Sounds[0].Name != "sound1" {
 		t.Errorf("Sounds[0].Name = %q, want %q", COLLECTIONS[0].Sounds[0].Name, "sound1")
+	}
+}
+
+func TestStatusInteractionResponse_Owner(t *testing.T) {
+	ownerID := "owner123"
+	statsOutput := "some stats"
+
+	resp := statusInteractionResponse(ownerID, ownerID, func() string { return statsOutput })
+
+	if resp == nil {
+		t.Fatal("expected non-nil response")
+	}
+	if resp.Type != discordgo.InteractionResponseChannelMessageWithSource {
+		t.Errorf("Type = %v, want InteractionResponseChannelMessageWithSource", resp.Type)
+	}
+	if resp.Data.Flags != discordgo.MessageFlagsEphemeral {
+		t.Errorf("Flags = %v, want Ephemeral", resp.Data.Flags)
+	}
+	if !strings.Contains(resp.Data.Content, statsOutput) {
+		t.Errorf("Content %q does not contain stats output %q", resp.Data.Content, statsOutput)
+	}
+	if !strings.HasPrefix(resp.Data.Content, "```") || !strings.HasSuffix(resp.Data.Content, "```") {
+		t.Errorf("Content %q not wrapped in code block", resp.Data.Content)
+	}
+}
+
+func TestStatusInteractionResponse_NonOwner(t *testing.T) {
+	ownerID := "owner123"
+	callerID := "rando456"
+
+	called := false
+	resp := statusInteractionResponse(callerID, ownerID, func() string {
+		called = true
+		return "stats"
+	})
+
+	if resp == nil {
+		t.Fatal("expected non-nil response")
+	}
+	if called {
+		t.Error("buildStats should not be called for non-owner")
+	}
+	if resp.Data.Flags != discordgo.MessageFlagsEphemeral {
+		t.Errorf("Flags = %v, want Ephemeral", resp.Data.Flags)
+	}
+	if resp.Data.Content != "Access denied." {
+		t.Errorf("Content = %q, want %q", resp.Data.Content, "Access denied.")
 	}
 }
