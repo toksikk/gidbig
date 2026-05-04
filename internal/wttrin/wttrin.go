@@ -321,15 +321,15 @@ func buildLLMWeatherOutro(s *discordgo.Session, m *discordgo.MessageCreate, loca
 		lang = "English"
 	}
 
-	systemPrompt := "You are a Discord bot. Write one sentence introducing the current weather for the given location — set the mood without repeating the raw numbers. " + llm.Personality + " Respond in " + lang + "."
+	systemPrompt := "You are a Discord bot. Write one sentence describing the current weather for the given location — set the mood without repeating the raw numbers. " + llm.Personality + " Respond in " + lang + "."
 	userPrompt := "Location: " + location + "\n" + weatherData
 
-	intro, err := generateLLMIntro(context.Background(), systemPrompt, userPrompt)
+	outro, err := generateLLMIntro(context.Background(), systemPrompt, userPrompt)
 	if err != nil {
-		slog.Warn("wttrin: LLM intro failed, skipping", "error", err)
+		slog.Warn("wttrin: LLM outro generation failed", "error", err)
 		return ""
 	}
-	return strings.TrimSpace(intro)
+	return strings.TrimSpace(outro)
 }
 
 func getWindDirectionEmoji(winddirDegree int) (windDirectionEmoji string) {
