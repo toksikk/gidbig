@@ -70,8 +70,12 @@ func buildBotStatsMessage(s *discordgo.Session) string {
 	runtime.ReadMemStats(&stats)
 
 	users := 0
-	for _, guild := range s.State.Guilds {
-		users += len(guild.Members)
+	servers := 0
+	if s.State != nil {
+		servers = len(s.State.Guilds)
+		for _, guild := range s.State.Guilds {
+			users += len(guild.Members)
+		}
 	}
 
 	uptime := time.Since(startTime).Round(time.Second)
@@ -118,7 +122,7 @@ Loaded Plugins:
 		humanize.Bytes(stats.HeapAlloc), humanize.Bytes(stats.HeapInuse), humanize.Bytes(stats.HeapSys),
 		humanize.Bytes(stats.HeapIdle), humanize.Bytes(stats.HeapReleased),
 		humanize.Bytes(stats.StackInuse), humanize.Bytes(stats.StackSys),
-		stats.Lookups, runtime.NumGoroutine(), len(s.State.Guilds), users, len(*gbploader.GetLoadedPlugins()), uptime, startDateTime)
+		stats.Lookups, runtime.NumGoroutine(), servers, users, len(*gbploader.GetLoadedPlugins()), uptime, startDateTime)
 
 	var sb strings.Builder
 	sb.WriteString(msg)
