@@ -14,5 +14,4 @@ gippity:
     allowed_guilds:
         - "YOUR_DISCORD_GUILD_ID"
     ignored_users: []
-    random_ignored_guilds: []
 dev_mode: true

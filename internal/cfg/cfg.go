@@ -27,9 +27,8 @@ type Config struct {
 		Port          int    `yaml:"port,omitempty" default:"8080"`
 	} `yaml:"web"`
 	Gippity struct {
-		AllowedGuilds       []string `yaml:"allowed_guilds"`
-		IgnoredUsers        []string `yaml:"ignored_users"`
-		RandomIgnoredGuilds []string `yaml:"random_ignored_guilds"`
+		AllowedGuilds []string `yaml:"allowed_guilds"`
+		IgnoredUsers  []string `yaml:"ignored_users"`
 	} `yaml:"gippity"`
 	DevMode bool `yaml:"dev_mode,omitempty" default:"false"`
 }
