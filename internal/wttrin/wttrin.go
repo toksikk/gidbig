@@ -245,6 +245,7 @@ type wttrinResponse struct {
 var (
 	detectLanguage   = llm.DetectChannelLanguage
 	generateLLMIntro = llm.GenerateMessage
+	getWeatherFn     = getWeather
 )
 
 // Start the plugin
@@ -289,7 +290,7 @@ func constructDiscordMessage(s *discordgo.Session, m *discordgo.MessageCreate, p
 	}
 
 	location := strings.Join(parts[1:], "+")
-	weatherResult, err := getWeather(location)
+	weatherResult, err := getWeatherFn(location)
 	if err != nil {
 		slog.Error("Failed to get weather", "MessageID", m.ID, "Location", location, "Error", err)
 		discordErrorMessage, err := s.ChannelMessageSend(m.ChannelID, "Failed to get weather for "+location+": "+err.Error())
@@ -306,14 +307,14 @@ func constructDiscordMessage(s *discordgo.Session, m *discordgo.MessageCreate, p
 		structured = buildWeatherString(weatherResult)
 	}
 
-	intro := buildLLMWeatherIntro(s, m, location, structured)
-	if intro != "" {
-		return intro + "\n" + structured
+	outro := buildLLMWeatherOutro(s, m, location, structured)
+	if outro != "" {
+		return structured + "\n" + outro
 	}
 	return structured
 }
 
-func buildLLMWeatherIntro(s *discordgo.Session, m *discordgo.MessageCreate, location, weatherData string) string {
+func buildLLMWeatherOutro(s *discordgo.Session, m *discordgo.MessageCreate, location, weatherData string) string {
 	lang, err := detectLanguage(s, m.ChannelID)
 	if err != nil {
 		slog.Warn("wttrin: language detection failed", "error", err)
