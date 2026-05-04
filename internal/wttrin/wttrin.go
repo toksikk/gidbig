@@ -320,7 +320,7 @@ func buildLLMWeatherIntro(s *discordgo.Session, m *discordgo.MessageCreate, loca
 		lang = "English"
 	}
 
-	systemPrompt := "You are a friendly Discord bot. Write a single conversational sentence introducing current weather for the given location. Do not repeat the raw numbers; just set the mood. Respond in " + lang + "."
+	systemPrompt := "You are a Discord bot. Write one sentence introducing the current weather for the given location — set the mood without repeating the raw numbers. " + llm.Personality + " Respond in " + lang + "."
 	userPrompt := "Location: " + location + "\n" + weatherData
 
 	intro, err := generateLLMIntro(context.Background(), systemPrompt, userPrompt)
