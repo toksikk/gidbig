@@ -1,6 +1,8 @@
 package coffee
 
 import (
+	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -282,5 +284,43 @@ func TestOnMessageCreate_SpecialDayFirstGreetingReactsAndRecordsGreeting(t *test
 	}
 	if count := countGreetings(t, "user1"); count != 1 {
 		t.Errorf("expected 1 greeting row, got %d", count)
+	}
+}
+
+func stubLLMGreeting(t *testing.T, reply string, callErr error) func() []string {
+	t.Helper()
+	prevDetect := detectLanguage
+	prevGenerate := generateLLMGreeting
+	t.Cleanup(func() {
+		detectLanguage = prevDetect
+		generateLLMGreeting = prevGenerate
+	})
+	detectLanguage = func(_ *discordgo.Session, _ string) (string, error) {
+		return "English", nil
+	}
+	calls := []string{}
+	generateLLMGreeting = func(_ context.Context, _, userPrompt string) (string, error) {
+		calls = append(calls, userPrompt)
+		return reply, callErr
+	}
+	return func() []string { return calls }
+}
+
+func TestSendLLMGreeting_NilSessionIsNoop(t *testing.T) {
+	getCalls := stubLLMGreeting(t, "Good morning!", nil)
+	sendLLMGreeting(nil, greetingMessage("user1", "moin"))
+	if len(getCalls()) != 0 {
+		t.Error("LLM should not be called when session is nil")
+	}
+}
+
+func TestSendLLMGreeting_LLMErrorSkipsMessage(t *testing.T) {
+	session := &discordgo.Session{}
+	getCalls := stubLLMGreeting(t, "", fmt.Errorf("api failure"))
+	// sendLLMGreeting with real session will fail trying to send (no real Discord),
+	// but the LLM call should happen and then gracefully bail.
+	sendLLMGreeting(session, greetingMessage("user1", "moin"))
+	if len(getCalls()) != 1 {
+		t.Errorf("expected LLM to be called once, got %d", len(getCalls()))
 	}
 }

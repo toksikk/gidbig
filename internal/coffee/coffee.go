@@ -1,23 +1,27 @@
 package coffee
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"strings"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/toksikk/gidbig/internal/llm"
 	"github.com/toksikk/gidbig/internal/util"
 )
 
 const fallbackBeverage = "☕"
 
 var (
-	discordSession    *discordgo.Session
-	registeredCommand *discordgo.ApplicationCommand
-	registeredBrewCmd *discordgo.ApplicationCommand
-	isSpecialDay      = util.IsSpecial
-	reactOnMessage    = util.ReactOnMessage
-	sendIntroDM       = sendIntroDMFunc
+	discordSession      *discordgo.Session
+	registeredCommand   *discordgo.ApplicationCommand
+	registeredBrewCmd   *discordgo.ApplicationCommand
+	isSpecialDay        = util.IsSpecial
+	reactOnMessage      = util.ReactOnMessage
+	sendIntroDM         = sendIntroDMFunc
+	detectLanguage      = llm.DetectChannelLanguage
+	generateLLMGreeting = llm.GenerateMessage
 )
 
 func beverageEmojiFor(userID string) string {
@@ -138,6 +142,8 @@ func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 					slog.Error("coffee: failed to mark user as introduced", "error", err, "userID", m.Author.ID)
 				}
 			}
+
+			sendLLMGreeting(s, m)
 
 			if err := recordGreeting(m.Author.ID); err != nil {
 				slog.Error("coffee: failed to record daily greeting", "error", err, "userID", m.Author.ID)
@@ -274,6 +280,32 @@ func handleGrabCoffeeButton(s *discordgo.Session, i *discordgo.InteractionCreate
 	})
 	if result.isEmpty {
 		sendBrewMessage(s, i.ChannelID, "The coffee pot is empty!")
+	}
+}
+
+func sendLLMGreeting(s *discordgo.Session, m *discordgo.MessageCreate) {
+	if s == nil {
+		return
+	}
+	lang, err := detectLanguage(s, m.ChannelID)
+	if err != nil {
+		slog.Warn("coffee: language detection failed", "error", err)
+		lang = "English"
+	}
+
+	systemPrompt := "You are a friendly Discord bot. Generate a short, warm morning greeting (1-2 sentences) that fits a community chat. Mention coffee or a morning beverage if it feels natural. Do not use emojis. Respond in " + lang + "."
+	userPrompt := "A user just said: " + m.Content
+
+	msg, err := generateLLMGreeting(context.Background(), systemPrompt, userPrompt)
+	if err != nil {
+		slog.Warn("coffee: LLM greeting failed, skipping", "error", err)
+		return
+	}
+	if msg == "" {
+		return
+	}
+	if _, err := s.ChannelMessageSend(m.ChannelID, msg); err != nil {
+		slog.Error("coffee: failed to send LLM greeting", "error", err)
 	}
 }
 
