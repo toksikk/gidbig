@@ -70,6 +70,7 @@ var messages = []string{
 // Start the plugin
 func Start(discord *discordgo.Session) {
 	discordSession = discord
+	generateBrewButtonLabels = buildBrewButtonLabels
 	discord.AddHandler(onMessageCreate)
 	discord.AddHandler(onInteractionCreate)
 	if err := openStore("coffee.db"); err != nil {
@@ -126,10 +127,6 @@ func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 		return
 	}
 
-	if hasActiveBrew(m.GuildID, m.ChannelID) {
-		handleBrewMessage(s, m.GuildID, m.ChannelID, m.ID, m.Author.ID)
-	}
-
 	for _, v := range messages {
 		if v == strings.ToLower(m.Content) {
 			if hasGreetedToday(m.Author.ID) {
@@ -169,8 +166,13 @@ func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 func onInteractionCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	switch i.Type {
 	case discordgo.InteractionMessageComponent:
-		if i.MessageComponentData().CustomID == "grab_coffee" {
-			handleGrabCoffeeButton(s, i)
+		switch i.MessageComponentData().CustomID {
+		case "grab_coffee":
+			handleGrabCoffeeButton(s, i, false, false)
+		case "grab_milk":
+			handleGrabCoffeeButton(s, i, true, false)
+		case "grab_sugar":
+			handleGrabCoffeeButton(s, i, false, true)
 		}
 		return
 	case discordgo.InteractionApplicationCommand:
@@ -265,7 +267,7 @@ func handleBrewInteraction(s *discordgo.Session, i *discordgo.InteractionCreate)
 	})
 }
 
-func handleGrabCoffeeButton(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func handleGrabCoffeeButton(s *discordgo.Session, i *discordgo.InteractionCreate, milk, sugar bool) {
 	var userID string
 	if i.Member != nil {
 		userID = i.Member.User.ID
@@ -273,7 +275,7 @@ func handleGrabCoffeeButton(s *discordgo.Session, i *discordgo.InteractionCreate
 		userID = i.User.ID
 	}
 
-	result := grabCoffee(i.GuildID, i.ChannelID, userID)
+	result := grabCoffee(i.GuildID, i.ChannelID, userID, milk, sugar)
 
 	if result.notReady {
 		msg := generateInteractionMessage(s, i.ChannelID,
@@ -288,33 +290,62 @@ func handleGrabCoffeeButton(s *discordgo.Session, i *discordgo.InteractionCreate
 		})
 		return
 	}
-	if result.alreadyTaken {
-		msg := generateInteractionMessage(s, i.ChannelID,
-			"A user already grabbed their coffee and tried again. Tell them in one short sentence.",
-			"You already grabbed your coffee! ☕")
-		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-			Type: discordgo.InteractionResponseChannelMessageWithSource,
-			Data: &discordgo.InteractionResponseData{
-				Content: msg,
-				Flags:   discordgo.MessageFlagsEphemeral,
+
+	// Keep buttons while the pot still has coffee; remove them when empty.
+	var components []discordgo.MessageComponent
+	if !result.isEmpty {
+		components = []discordgo.MessageComponent{
+			discordgo.ActionsRow{
+				Components: []discordgo.MessageComponent{
+					discordgo.Button{
+						Label:    result.buttonLabels[0],
+						Style:    discordgo.PrimaryButton,
+						CustomID: "grab_coffee",
+					},
+					discordgo.Button{
+						Label:    result.buttonLabels[1],
+						Style:    discordgo.SecondaryButton,
+						CustomID: "grab_milk",
+					},
+					discordgo.Button{
+						Label:    result.buttonLabels[2],
+						Style:    discordgo.SecondaryButton,
+						CustomID: "grab_sugar",
+					},
+				},
 			},
-		})
-		return
+		}
 	}
-	grabMsg := generateInteractionMessage(s, i.ChannelID,
-		fmt.Sprintf("<@%s> grabbed a ~%.0fml cup of coffee. %s. Announce this.", userID, result.cupML*1000, result.summary),
-		fmt.Sprintf("☕ <@%s> grabbed a cup (~%.0fml)! %s", userID, result.cupML*1000, result.summary))
+
 	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Type: discordgo.InteractionResponseUpdateMessage,
 		Data: &discordgo.InteractionResponseData{
-			Content: grabMsg,
+			Content:    result.updatedMsg,
+			Components: components,
 		},
 	})
-	if result.isEmpty {
-		emptyMsg := generateInteractionMessage(s, i.ChannelID,
-			"The coffee pot is now empty. Announce this in one short sentence.",
-			"The coffee pot is empty!")
-		sendBrewMessage(s, i.ChannelID, emptyMsg)
+}
+
+func buildBrewButtonLabels(s *discordgo.Session, channelID string) [3]string {
+	fallback := [3]string{"☕ Grab a cup", "🥛 With milk", "🍬 With sugar"}
+	lang, _ := detectLanguage(s, channelID)
+	if lang == "" {
+		lang = "English"
+	}
+	systemPrompt := "You translate button labels for a coffee bot. " + llm.Personality +
+		" Respond in " + lang + ". Format: exactly 3 labels separated by | with no other text. Each label must be 2-4 words."
+	msg, err := generateLLMMessage(context.Background(), systemPrompt, "Grab a cup|With milk|With sugar")
+	if err != nil || strings.TrimSpace(msg) == "" {
+		return fallback
+	}
+	parts := strings.SplitN(strings.TrimSpace(msg), "|", 3)
+	if len(parts) != 3 {
+		return fallback
+	}
+	return [3]string{
+		strings.TrimSpace(parts[0]),
+		strings.TrimSpace(parts[1]),
+		strings.TrimSpace(parts[2]),
 	}
 }
 

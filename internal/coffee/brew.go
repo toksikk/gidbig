@@ -3,7 +3,6 @@ package coffee
 import (
 	"fmt"
 	"math/rand"
-	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -13,45 +12,53 @@ import (
 
 const (
 	brewDuration   = 3 * time.Minute
-	potCapacity    = 1.0
+	potCapacity    = 2.0
 	emptyThreshold = 0.01
 )
 
+// CupTaken records the details of a single cup of coffee taken by a user.
+type CupTaken struct {
+	ml    float64
+	milk  bool
+	sugar bool
+}
+
+type grabRecord struct {
+	userID string
+	cup    CupTaken
+}
+
 type brewState struct {
-	readyAt      time.Time
-	isReady      bool
-	coffeeLiters float64
-	takenBy      []string
+	readyAt           time.Time
+	isReady           bool
+	coffeeLiters      float64
+	grabs             []grabRecord
+	buttonLabels      [3]string
+	readyAnnouncement string
 }
 
 type grabResult struct {
-	cupML        float64
-	summary      string
-	isEmpty      bool
-	alreadyTaken bool
 	notReady     bool
+	isEmpty      bool
+	cupML        float64
+	updatedMsg   string
+	buttonLabels [3]string
 }
 
 var (
 	brewMu     sync.RWMutex
 	brewStates = map[string]*brewState{}
 
-	sendBrewMessage      = defaultSendBrewMessage
-	sendBrewReadyMessage = defaultSendBrewReadyMessage
-	randCupSize          = defaultRandCupSize
+	sendBrewReadyMessage     = defaultSendBrewReadyMessage
+	randCupSize              = defaultRandCupSize
+	generateBrewButtonLabels = func(_ *discordgo.Session, _ string) [3]string {
+		return [3]string{"☕ Grab a cup", "🥛 With milk", "🍬 With sugar"}
+	}
 )
 
-// defaultRandCupSize returns a random cup size between 150ml and 350ml in 10ml steps.
 func defaultRandCupSize() float64 {
 	ml := 150 + rand.Intn(21)*10
 	return float64(ml) / 1000.0
-}
-
-func defaultSendBrewMessage(s *discordgo.Session, channelID, content string) {
-	if s == nil {
-		return
-	}
-	_, _ = s.ChannelMessageSend(channelID, content)
 }
 
 func defaultSendBrewReadyMessage(s *discordgo.Session, guildID, channelID string) {
@@ -61,15 +68,35 @@ func defaultSendBrewReadyMessage(s *discordgo.Session, guildID, channelID string
 	announcement := generateInteractionMessage(s, channelID,
 		"The coffee is ready. Announce it to the channel in one short, inviting sentence.",
 		"☕ Coffee is ready! Grab your cup!")
+	labels := generateBrewButtonLabels(s, channelID)
+
+	brewMu.Lock()
+	key := brewStateKey(guildID, channelID)
+	if st, ok := brewStates[key]; ok {
+		st.readyAnnouncement = announcement
+		st.buttonLabels = labels
+	}
+	brewMu.Unlock()
+
 	_, _ = s.ChannelMessageSendComplex(channelID, &discordgo.MessageSend{
 		Content: announcement,
 		Components: []discordgo.MessageComponent{
 			discordgo.ActionsRow{
 				Components: []discordgo.MessageComponent{
 					discordgo.Button{
-						Label:    "☕ Grab a cup",
+						Label:    labels[0],
 						Style:    discordgo.PrimaryButton,
 						CustomID: "grab_coffee",
+					},
+					discordgo.Button{
+						Label:    labels[1],
+						Style:    discordgo.SecondaryButton,
+						CustomID: "grab_milk",
+					},
+					discordgo.Button{
+						Label:    labels[2],
+						Style:    discordgo.SecondaryButton,
+						CustomID: "grab_sugar",
 					},
 				},
 			},
@@ -133,7 +160,8 @@ func markBrewReady(s *discordgo.Session, guildID, channelID string) {
 }
 
 // grabCoffee handles the state mutation for a user grabbing a cup of coffee.
-func grabCoffee(guildID, channelID, userID string) grabResult {
+// Multiple grabs by the same user are allowed.
+func grabCoffee(guildID, channelID, userID string, milk, sugar bool) grabResult {
 	brewMu.Lock()
 	defer brewMu.Unlock()
 
@@ -142,43 +170,72 @@ func grabCoffee(guildID, channelID, userID string) grabResult {
 	if !ok || !st.isReady || st.coffeeLiters < emptyThreshold {
 		return grabResult{notReady: true}
 	}
-	if slices.Contains(st.takenBy, userID) {
-		return grabResult{alreadyTaken: true}
-	}
-	cup := randCupSize()
-	st.takenBy = append(st.takenBy, userID)
-	st.coffeeLiters -= cup
+	cup := CupTaken{ml: randCupSize(), milk: milk, sugar: sugar}
+	st.grabs = append(st.grabs, grabRecord{userID: userID, cup: cup})
+	st.coffeeLiters -= cup.ml
 	if st.coffeeLiters < 0 {
 		st.coffeeLiters = 0
 	}
-	summary := buildBrewSummary(st)
+	labels := st.buttonLabels
 	isEmpty := st.coffeeLiters < emptyThreshold
+	updatedMsg := buildBrewMessage(st)
 	if isEmpty {
 		delete(brewStates, key)
 	}
 	return grabResult{
-		cupML:   cup,
-		summary: summary,
-		isEmpty: isEmpty,
+		cupML:        cup.ml,
+		isEmpty:      isEmpty,
+		updatedMsg:   updatedMsg,
+		buttonLabels: labels,
 	}
 }
 
-func handleBrewMessage(s *discordgo.Session, guildID, channelID, messageID, userID string) {
-	result := grabCoffee(guildID, channelID, userID)
-	if result.notReady || result.alreadyTaken {
-		return
+func buildBrewMessage(st *brewState) string {
+	header := st.readyAnnouncement
+	if header == "" {
+		header = "☕ Coffee is ready! Grab your cup!"
 	}
-	reactOnMessage(s, channelID, messageID, "☕", "add")
-	sendBrewMessage(s, channelID, result.summary)
-	if result.isEmpty {
-		sendBrewMessage(s, channelID, "The coffee pot is empty!")
-	}
-}
 
-func buildBrewSummary(st *brewState) string {
-	mentions := make([]string, len(st.takenBy))
-	for i, uid := range st.takenBy {
-		mentions[i] = "<@" + uid + ">"
+	var sb strings.Builder
+	sb.WriteString(header)
+
+	// Group by user, maintaining first-grab order for deterministic output.
+	userOrder := []string{}
+	userGrabs := map[string][]CupTaken{}
+	for _, gr := range st.grabs {
+		if _, seen := userGrabs[gr.userID]; !seen {
+			userOrder = append(userOrder, gr.userID)
+		}
+		userGrabs[gr.userID] = append(userGrabs[gr.userID], gr.cup)
 	}
-	return fmt.Sprintf("%s took coffee. %.2fL remaining", strings.Join(mentions, ", "), st.coffeeLiters)
+
+	for _, uid := range userOrder {
+		cups := userGrabs[uid]
+		var totalML float64
+		cupDescs := make([]string, 0, len(cups))
+		for _, c := range cups {
+			totalML += c.ml
+			emoji := "☕"
+			if c.milk {
+				emoji += "🥛"
+			}
+			if c.sugar {
+				emoji += "🍬"
+			}
+			cupDescs = append(cupDescs, fmt.Sprintf("%s ~%.0fml", emoji, c.ml*1000))
+		}
+		cupsWord := "cup"
+		if len(cups) > 1 {
+			cupsWord = "cups"
+		}
+		fmt.Fprintf(&sb, "\n<@%s>: %d %s (~%.0fml) — %s",
+			uid, len(cups), cupsWord, totalML*1000, strings.Join(cupDescs, ", "))
+	}
+
+	if st.coffeeLiters < emptyThreshold {
+		sb.WriteString("\n\n_(pot is empty)_")
+	} else {
+		fmt.Fprintf(&sb, "\n\n%.2fL remaining", st.coffeeLiters)
+	}
+	return sb.String()
 }
