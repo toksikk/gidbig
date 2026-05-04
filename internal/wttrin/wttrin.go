@@ -1,6 +1,7 @@
 package wttrin
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/toksikk/gidbig/internal/llm"
 )
 
 const (
@@ -240,6 +242,11 @@ type wttrinResponse struct {
 	} `json:"weather"`
 }
 
+var (
+	detectLanguage   = llm.DetectChannelLanguage
+	generateLLMIntro = llm.GenerateMessage
+)
+
 // Start the plugin
 func Start(discord *discordgo.Session) {
 	discord.AddHandler(onMessageCreate)
@@ -277,25 +284,51 @@ func sendMessage(s *discordgo.Session, m *discordgo.MessageCreate, message strin
 }
 
 func constructDiscordMessage(s *discordgo.Session, m *discordgo.MessageCreate, parts []string, g *discordgo.Guild, forecast bool) string {
-	if len(parts) > 1 {
-		location := strings.Join(parts[1:], "+")
-		weatherResult, err := getWeather(location)
-		if err != nil {
-			slog.Error("Failed to get weather", "MessageID", m.ID, "Location", location, "Error", err)
-			discordErrorMessage, err := s.ChannelMessageSend(m.ChannelID, "Failed to get weather for "+location+": "+err.Error())
-			if err != nil {
-				slog.Error("Failed to send message", "MessageID", discordErrorMessage.ID, "ChannelID", discordErrorMessage.ChannelID, "Error", err)
-			}
-			return ""
-		}
-
-		if forecast {
-			return buildForecastString(weatherResult)
-		}
-
-		return buildWeatherString(weatherResult)
+	if len(parts) <= 1 {
+		return ""
 	}
-	return ""
+
+	location := strings.Join(parts[1:], "+")
+	weatherResult, err := getWeather(location)
+	if err != nil {
+		slog.Error("Failed to get weather", "MessageID", m.ID, "Location", location, "Error", err)
+		discordErrorMessage, err := s.ChannelMessageSend(m.ChannelID, "Failed to get weather for "+location+": "+err.Error())
+		if err != nil {
+			slog.Error("Failed to send message", "MessageID", discordErrorMessage.ID, "ChannelID", discordErrorMessage.ChannelID, "Error", err)
+		}
+		return ""
+	}
+
+	var structured string
+	if forecast {
+		structured = buildForecastString(weatherResult)
+	} else {
+		structured = buildWeatherString(weatherResult)
+	}
+
+	intro := buildLLMWeatherIntro(s, m, location, structured)
+	if intro != "" {
+		return intro + "\n" + structured
+	}
+	return structured
+}
+
+func buildLLMWeatherIntro(s *discordgo.Session, m *discordgo.MessageCreate, location, weatherData string) string {
+	lang, err := detectLanguage(s, m.ChannelID)
+	if err != nil {
+		slog.Warn("wttrin: language detection failed", "error", err)
+		lang = "English"
+	}
+
+	systemPrompt := "You are a friendly Discord bot. Write a single conversational sentence introducing current weather for the given location. Do not repeat the raw numbers; just set the mood. Respond in " + lang + "."
+	userPrompt := "Location: " + location + "\n" + weatherData
+
+	intro, err := generateLLMIntro(context.Background(), systemPrompt, userPrompt)
+	if err != nil {
+		slog.Warn("wttrin: LLM intro failed, skipping", "error", err)
+		return ""
+	}
+	return strings.TrimSpace(intro)
 }
 
 func getWindDirectionEmoji(winddirDegree int) (windDirectionEmoji string) {

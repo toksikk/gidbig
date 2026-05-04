@@ -21,6 +21,7 @@ import (
 	"github.com/toksikk/gidbig/internal/gbploader"
 	"github.com/toksikk/gidbig/internal/gippity"
 	"github.com/toksikk/gidbig/internal/leetoclock"
+	"github.com/toksikk/gidbig/internal/llm"
 	"github.com/toksikk/gidbig/internal/stoll"
 	"github.com/toksikk/gidbig/internal/wttrin"
 )
@@ -291,6 +292,7 @@ func StartGidbig() {
 		return
 	}
 
+	llm.Initialize()
 	coffee.Start(discord)
 	eso.Start(discord)
 	gamerstatus.Start(discord)

@@ -8,12 +8,11 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/toksikk/gidbig/internal/cfg"
+	"github.com/toksikk/gidbig/internal/llm"
 	"github.com/toksikk/gidbig/internal/util"
 
 	openai "github.com/openai/openai-go/v3"
 )
-
-var openaiClient openai.Client
 
 var discordSession *discordgo.Session
 
@@ -56,8 +55,6 @@ func Start(discord *discordgo.Session) {
 	for _, id := range config.Gippity.RandomIgnoredGuilds {
 		randomIgnoredGuildIDs[id] = true
 	}
-
-	openaiClient = openai.NewClient()
 
 	discordSession = discord
 
@@ -278,7 +275,7 @@ Du hast sehr trockenen Humor.
 		}
 	}
 
-	chatCompletion, err := openaiClient.Chat.Completions.New(context.Background(), openai.ChatCompletionNewParams{
+	chatCompletion, err := llm.GetClient().Chat.Completions.New(context.Background(), openai.ChatCompletionNewParams{
 		Messages: messages,
 		Model:    openai.ChatModelGPT4oMini,
 		N:        openai.Int(1),
