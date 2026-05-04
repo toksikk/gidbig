@@ -287,40 +287,49 @@ func TestOnMessageCreate_SpecialDayFirstGreetingReactsAndRecordsGreeting(t *test
 	}
 }
 
-func stubLLMGreeting(t *testing.T, reply string, callErr error) func() []string {
+func stubLLM(t *testing.T, reply string, callErr error) func() []string {
 	t.Helper()
 	prevDetect := detectLanguage
-	prevGenerate := generateLLMGreeting
+	prevGenerate := generateLLMMessage
 	t.Cleanup(func() {
 		detectLanguage = prevDetect
-		generateLLMGreeting = prevGenerate
+		generateLLMMessage = prevGenerate
 	})
 	detectLanguage = func(_ *discordgo.Session, _ string) (string, error) {
 		return "English", nil
 	}
 	calls := []string{}
-	generateLLMGreeting = func(_ context.Context, _, userPrompt string) (string, error) {
+	generateLLMMessage = func(_ context.Context, _, userPrompt string) (string, error) {
 		calls = append(calls, userPrompt)
 		return reply, callErr
 	}
 	return func() []string { return calls }
 }
 
-func TestSendLLMGreeting_NilSessionIsNoop(t *testing.T) {
-	getCalls := stubLLMGreeting(t, "Good morning!", nil)
-	sendLLMGreeting(nil, greetingMessage("user1", "moin"))
-	if len(getCalls()) != 0 {
-		t.Error("LLM should not be called when session is nil")
+func TestGenerateInteractionMessage_ReturnsLLMText(t *testing.T) {
+	getCalls := stubLLM(t, "Der Kaffee ist fertig.", nil)
+	got := generateInteractionMessage(nil, "ch1", "Coffee is ready.", "fallback")
+	// nil session → detectLanguage returns "English" (stubbed), generateLLMMessage still called
+	if got != "Der Kaffee ist fertig." {
+		t.Errorf("got %q, want LLM reply", got)
+	}
+	if len(getCalls()) != 1 {
+		t.Errorf("expected 1 LLM call, got %d", len(getCalls()))
 	}
 }
 
-func TestSendLLMGreeting_LLMErrorSkipsMessage(t *testing.T) {
-	session := &discordgo.Session{}
-	getCalls := stubLLMGreeting(t, "", fmt.Errorf("api failure"))
-	// sendLLMGreeting with real session will fail trying to send (no real Discord),
-	// but the LLM call should happen and then gracefully bail.
-	sendLLMGreeting(session, greetingMessage("user1", "moin"))
-	if len(getCalls()) != 1 {
-		t.Errorf("expected LLM to be called once, got %d", len(getCalls()))
+func TestGenerateInteractionMessage_FallsBackOnError(t *testing.T) {
+	stubLLM(t, "", fmt.Errorf("api failure"))
+	got := generateInteractionMessage(nil, "ch1", "scenario", "my fallback")
+	if got != "my fallback" {
+		t.Errorf("got %q, want fallback", got)
+	}
+}
+
+func TestGenerateInteractionMessage_FallsBackOnEmptyReply(t *testing.T) {
+	stubLLM(t, "   ", nil)
+	got := generateInteractionMessage(nil, "ch1", "scenario", "my fallback")
+	if got != "my fallback" {
+		t.Errorf("got %q, want fallback on empty LLM reply", got)
 	}
 }

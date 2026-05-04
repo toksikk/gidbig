@@ -58,8 +58,11 @@ func defaultSendBrewReadyMessage(s *discordgo.Session, guildID, channelID string
 	if s == nil {
 		return
 	}
+	announcement := generateInteractionMessage(s, channelID,
+		"The coffee is ready. Announce it to the channel in one short, inviting sentence.",
+		"☕ Coffee is ready! Grab your cup!")
 	_, _ = s.ChannelMessageSendComplex(channelID, &discordgo.MessageSend{
-		Content: "☕ Coffee is ready! Grab your cup!",
+		Content: announcement,
 		Components: []discordgo.MessageComponent{
 			discordgo.ActionsRow{
 				Components: []discordgo.MessageComponent{
