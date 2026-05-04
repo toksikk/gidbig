@@ -8,22 +8,6 @@ import (
 	"github.com/bwmarrin/discordgo"
 )
 
-type capturedBrewMessage struct {
-	channelID string
-	content   string
-}
-
-func captureBrewMessages(t *testing.T) func() []capturedBrewMessage {
-	t.Helper()
-	previous := sendBrewMessage
-	msgs := []capturedBrewMessage{}
-	sendBrewMessage = func(_ *discordgo.Session, channelID, content string) {
-		msgs = append(msgs, capturedBrewMessage{channelID: channelID, content: content})
-	}
-	t.Cleanup(func() { sendBrewMessage = previous })
-	return func() []capturedBrewMessage { return msgs }
-}
-
 type capturedBrewReadyCall struct {
 	guildID   string
 	channelID string
@@ -126,181 +110,6 @@ func TestStartBrew_AllowsNewBrewAfterReady(t *testing.T) {
 	}
 }
 
-func TestHandleBrewMessage_BeforeReady(t *testing.T) {
-	resetBrewStates(t)
-	getReactions := captureReactions(t)
-	getMsgs := captureBrewMessages(t)
-
-	brewMu.Lock()
-	brewStates["guild1:channel1"] = &brewState{
-		readyAt:      time.Now().Add(brewDuration),
-		isReady:      false,
-		coffeeLiters: potCapacity,
-	}
-	brewMu.Unlock()
-
-	handleBrewMessage(nil, "guild1", "channel1", "msg1", "user1")
-
-	if len(getReactions()) != 0 {
-		t.Error("expected no reactions before brew is ready")
-	}
-	if len(getMsgs()) != 0 {
-		t.Error("expected no messages before brew is ready")
-	}
-}
-
-func TestHandleBrewMessage_AfterReady(t *testing.T) {
-	resetBrewStates(t)
-	useFixedCupSize(t, 0.25)
-	getReactions := captureReactions(t)
-	getMsgs := captureBrewMessages(t)
-
-	brewMu.Lock()
-	brewStates["guild1:channel1"] = &brewState{
-		readyAt:      time.Now().Add(-time.Second),
-		isReady:      true,
-		coffeeLiters: potCapacity,
-	}
-	brewMu.Unlock()
-
-	handleBrewMessage(nil, "guild1", "channel1", "msg1", "user1")
-
-	reactions := getReactions()
-	if len(reactions) != 1 {
-		t.Fatalf("expected 1 reaction, got %d", len(reactions))
-	}
-	if reactions[0].emoji != "☕" {
-		t.Errorf("emoji = %q, want ☕", reactions[0].emoji)
-	}
-	if reactions[0].channelID != "channel1" {
-		t.Errorf("channelID = %q, want channel1", reactions[0].channelID)
-	}
-
-	msgs := getMsgs()
-	if len(msgs) != 1 {
-		t.Fatalf("expected 1 summary message, got %d", len(msgs))
-	}
-	want := "<@user1> took coffee. 0.75L remaining"
-	if msgs[0].content != want {
-		t.Errorf("summary = %q, want %q", msgs[0].content, want)
-	}
-}
-
-func TestHandleBrewMessage_MultipleUsers(t *testing.T) {
-	resetBrewStates(t)
-	useFixedCupSize(t, 0.25)
-	_ = captureReactions(t)
-	getMsgs := captureBrewMessages(t)
-
-	brewMu.Lock()
-	brewStates["guild1:channel1"] = &brewState{
-		readyAt:      time.Now().Add(-time.Second),
-		isReady:      true,
-		coffeeLiters: potCapacity,
-	}
-	brewMu.Unlock()
-
-	handleBrewMessage(nil, "guild1", "channel1", "msg1", "alice")
-	handleBrewMessage(nil, "guild1", "channel1", "msg2", "bob")
-
-	msgs := getMsgs()
-	if len(msgs) != 2 {
-		t.Fatalf("expected 2 summary messages, got %d", len(msgs))
-	}
-	if !strings.Contains(msgs[1].content, "<@alice>") || !strings.Contains(msgs[1].content, "<@bob>") {
-		t.Errorf("second summary should mention both users: %q", msgs[1].content)
-	}
-	if !strings.Contains(msgs[1].content, "0.50L remaining") {
-		t.Errorf("second summary should show 0.50L remaining: %q", msgs[1].content)
-	}
-}
-
-func TestHandleBrewMessage_DuplicateUser(t *testing.T) {
-	resetBrewStates(t)
-	getReactions := captureReactions(t)
-	getMsgs := captureBrewMessages(t)
-
-	brewMu.Lock()
-	brewStates["guild1:channel1"] = &brewState{
-		readyAt:      time.Now().Add(-time.Second),
-		isReady:      true,
-		coffeeLiters: potCapacity,
-		takenBy:      []string{"user1"},
-	}
-	brewMu.Unlock()
-
-	handleBrewMessage(nil, "guild1", "channel1", "msg2", "user1")
-
-	if len(getReactions()) != 0 {
-		t.Error("expected no reaction for duplicate user")
-	}
-	if len(getMsgs()) != 0 {
-		t.Error("expected no summary message for duplicate user")
-	}
-}
-
-func TestHandleBrewMessage_PotEmpty(t *testing.T) {
-	resetBrewStates(t)
-	useFixedCupSize(t, 0.25)
-	getReactions := captureReactions(t)
-	getMsgs := captureBrewMessages(t)
-
-	brewMu.Lock()
-	brewStates["guild1:channel1"] = &brewState{
-		readyAt:      time.Now().Add(-time.Second),
-		isReady:      true,
-		coffeeLiters: 0.25,
-		takenBy:      []string{"user1", "user2", "user3"},
-	}
-	brewMu.Unlock()
-
-	handleBrewMessage(nil, "guild1", "channel1", "msg4", "user4")
-
-	if len(getReactions()) != 1 {
-		t.Fatalf("expected 1 reaction for last cup, got %d", len(getReactions()))
-	}
-
-	msgs := getMsgs()
-	if len(msgs) != 2 {
-		t.Fatalf("expected 2 messages (summary + empty), got %d", len(msgs))
-	}
-	if msgs[1].content != "The coffee pot is empty!" {
-		t.Errorf("last message = %q, want 'The coffee pot is empty!'", msgs[1].content)
-	}
-
-	brewMu.Lock()
-	_, exists := brewStates["guild1:channel1"]
-	brewMu.Unlock()
-	if exists {
-		t.Error("expected brew state to be deleted after pot is empty")
-	}
-}
-
-func TestHandleBrewMessage_EmptyPotNoReaction(t *testing.T) {
-	resetBrewStates(t)
-	getReactions := captureReactions(t)
-	getMsgs := captureBrewMessages(t)
-
-	// Pot already below threshold
-	brewMu.Lock()
-	brewStates["guild1:channel1"] = &brewState{
-		readyAt:      time.Now().Add(-time.Second),
-		isReady:      true,
-		coffeeLiters: 0.0,
-		takenBy:      []string{"user1", "user2", "user3", "user4"},
-	}
-	brewMu.Unlock()
-
-	handleBrewMessage(nil, "guild1", "channel1", "msg5", "user5")
-
-	if len(getReactions()) != 0 {
-		t.Error("expected no reaction when pot is empty")
-	}
-	if len(getMsgs()) != 0 {
-		t.Error("expected no message when pot is empty")
-	}
-}
-
 func TestMarkBrewReady_SendsMessage(t *testing.T) {
 	resetBrewStates(t)
 	getReadyCalls := captureBrewReadyMessages(t)
@@ -343,21 +152,6 @@ func TestMarkBrewReady_NoStateDoesNothing(t *testing.T) {
 	}
 }
 
-func TestHandleBrewMessage_NoBrew(t *testing.T) {
-	resetBrewStates(t)
-	getReactions := captureReactions(t)
-	getMsgs := captureBrewMessages(t)
-
-	handleBrewMessage(nil, "guild1", "channel1", "msg1", "user1")
-
-	if len(getReactions()) != 0 {
-		t.Error("expected no reaction with no active brew")
-	}
-	if len(getMsgs()) != 0 {
-		t.Error("expected no message with no active brew")
-	}
-}
-
 func TestBrewStateKey_WithGuild(t *testing.T) {
 	key := brewStateKey("guild1", "channel1")
 	if key != "guild1:channel1" {
@@ -392,25 +186,9 @@ func TestHasActiveBrew_WithState(t *testing.T) {
 
 func TestGrabCoffee_NotReady(t *testing.T) {
 	resetBrewStates(t)
-	result := grabCoffee("guild1", "channel1", "user1")
+	result := grabCoffee("guild1", "channel1", "user1", false, false)
 	if !result.notReady {
 		t.Error("expected notReady=true with no brew state")
-	}
-}
-
-func TestGrabCoffee_AlreadyTaken(t *testing.T) {
-	resetBrewStates(t)
-	brewMu.Lock()
-	brewStates["guild1:channel1"] = &brewState{
-		isReady:      true,
-		coffeeLiters: potCapacity,
-		takenBy:      []string{"user1"},
-	}
-	brewMu.Unlock()
-
-	result := grabCoffee("guild1", "channel1", "user1")
-	if !result.alreadyTaken {
-		t.Error("expected alreadyTaken=true for duplicate user")
 	}
 }
 
@@ -423,17 +201,116 @@ func TestGrabCoffee_RandomCupSize(t *testing.T) {
 	}
 	brewMu.Unlock()
 
-	result := grabCoffee("guild1", "channel1", "user1")
-	if result.notReady || result.alreadyTaken {
+	result := grabCoffee("guild1", "channel1", "user1", false, false)
+	if result.notReady {
 		t.Fatal("expected successful grab")
 	}
 	if result.cupML < 0.15 || result.cupML > 0.35 {
 		t.Errorf("cupML = %.3f, want between 0.150 and 0.350", result.cupML)
 	}
-	// Verify 10ml step granularity
 	ml := int(result.cupML * 1000)
 	if ml%10 != 0 {
 		t.Errorf("cupML should be in 10ml increments, got %dml", ml)
+	}
+}
+
+func TestGrabCoffee_MultipleCupsAllowed(t *testing.T) {
+	resetBrewStates(t)
+	useFixedCupSize(t, 0.25)
+	brewMu.Lock()
+	brewStates["guild1:channel1"] = &brewState{
+		isReady:      true,
+		coffeeLiters: potCapacity,
+	}
+	brewMu.Unlock()
+
+	r1 := grabCoffee("guild1", "channel1", "user1", false, false)
+	if r1.notReady {
+		t.Fatal("first grab should succeed")
+	}
+	r2 := grabCoffee("guild1", "channel1", "user1", true, false)
+	if r2.notReady {
+		t.Fatal("second grab by same user should also succeed (no alreadyTaken restriction)")
+	}
+
+	brewMu.Lock()
+	st := brewStates["guild1:channel1"]
+	brewMu.Unlock()
+
+	if st == nil {
+		t.Fatal("expected brew state to still exist after two 0.25L grabs from 2L")
+	}
+	if len(st.grabs) != 2 {
+		t.Errorf("expected 2 grab records, got %d", len(st.grabs))
+	}
+	want := potCapacity - 0.25 - 0.25
+	if st.coffeeLiters != want {
+		t.Errorf("coffeeLiters = %.2f, want %.2f", st.coffeeLiters, want)
+	}
+}
+
+func TestGrabCoffee_TracksMilkAndSugar(t *testing.T) {
+	resetBrewStates(t)
+	useFixedCupSize(t, 0.25)
+	brewMu.Lock()
+	brewStates["guild1:channel1"] = &brewState{
+		isReady:      true,
+		coffeeLiters: potCapacity,
+	}
+	brewMu.Unlock()
+
+	grabCoffee("guild1", "channel1", "alice", false, false)
+	grabCoffee("guild1", "channel1", "bob", true, false)
+	grabCoffee("guild1", "channel1", "carol", false, true)
+	grabCoffee("guild1", "channel1", "dave", true, true)
+
+	brewMu.Lock()
+	st := brewStates["guild1:channel1"]
+	brewMu.Unlock()
+
+	if len(st.grabs) != 4 {
+		t.Fatalf("expected 4 grabs, got %d", len(st.grabs))
+	}
+	checks := []struct {
+		milk, sugar bool
+	}{
+		{false, false},
+		{true, false},
+		{false, true},
+		{true, true},
+	}
+	for idx, want := range checks {
+		got := st.grabs[idx].cup
+		if got.milk != want.milk || got.sugar != want.sugar {
+			t.Errorf("grab[%d]: milk=%v sugar=%v, want milk=%v sugar=%v",
+				idx, got.milk, got.sugar, want.milk, want.sugar)
+		}
+	}
+}
+
+func TestGrabCoffee_PotEmpties(t *testing.T) {
+	resetBrewStates(t)
+	useFixedCupSize(t, 0.25)
+	brewMu.Lock()
+	brewStates["guild1:channel1"] = &brewState{
+		isReady:      true,
+		coffeeLiters: 0.25,
+	}
+	brewMu.Unlock()
+
+	result := grabCoffee("guild1", "channel1", "user1", false, false)
+	if result.notReady {
+		t.Fatal("expected successful grab")
+	}
+	if !result.isEmpty {
+		t.Error("expected isEmpty=true after draining the pot")
+	}
+
+	brewMu.Lock()
+	_, exists := brewStates["guild1:channel1"]
+	brewMu.Unlock()
+	if exists {
+		t.Error("expected brew state deleted after pot is empty")
 	}
 }
 
@@ -447,5 +324,72 @@ func TestDefaultRandCupSize_Range(t *testing.T) {
 		if ml%10 != 0 {
 			t.Errorf("cup size %v not a multiple of 10ml", size)
 		}
+	}
+}
+
+func TestBuildBrewMessage_NoCups(t *testing.T) {
+	st := &brewState{
+		readyAnnouncement: "☕ Coffee is ready!",
+		coffeeLiters:      2.0,
+	}
+	got := buildBrewMessage(st)
+	if !strings.HasPrefix(got, "☕ Coffee is ready!") {
+		t.Errorf("expected header in message, got %q", got)
+	}
+	if !strings.Contains(got, "2.00L remaining") {
+		t.Errorf("expected remaining L in message, got %q", got)
+	}
+}
+
+func TestBuildBrewMessage_WithCups(t *testing.T) {
+	st := &brewState{
+		readyAnnouncement: "Coffee is ready!",
+		coffeeLiters:      1.25,
+		grabs: []grabRecord{
+			{userID: "alice", cup: CupTaken{ml: 0.25, milk: false, sugar: false}},
+			{userID: "bob", cup: CupTaken{ml: 0.25, milk: true, sugar: false}},
+			{userID: "alice", cup: CupTaken{ml: 0.25, milk: false, sugar: true}},
+		},
+	}
+	got := buildBrewMessage(st)
+
+	if !strings.Contains(got, "<@alice>: 2 cups") {
+		t.Errorf("expected alice with 2 cups, got %q", got)
+	}
+	if !strings.Contains(got, "<@bob>: 1 cup") {
+		t.Errorf("expected bob with 1 cup, got %q", got)
+	}
+	if !strings.Contains(got, "🥛") {
+		t.Errorf("expected milk emoji for bob, got %q", got)
+	}
+	if !strings.Contains(got, "🍬") {
+		t.Errorf("expected sugar emoji for alice's second cup, got %q", got)
+	}
+	if !strings.Contains(got, "1.25L remaining") {
+		t.Errorf("expected remaining liters, got %q", got)
+	}
+}
+
+func TestBuildBrewMessage_EmptyPot(t *testing.T) {
+	st := &brewState{
+		readyAnnouncement: "Coffee is ready!",
+		coffeeLiters:      0.0,
+		grabs: []grabRecord{
+			{userID: "user1", cup: CupTaken{ml: 0.25}},
+		},
+	}
+	got := buildBrewMessage(st)
+	if !strings.Contains(got, "_(pot is empty)_") {
+		t.Errorf("expected empty pot notice, got %q", got)
+	}
+}
+
+func TestBuildBrewMessage_FallbackHeader(t *testing.T) {
+	st := &brewState{
+		coffeeLiters: 1.5,
+	}
+	got := buildBrewMessage(st)
+	if !strings.HasPrefix(got, "☕ Coffee is ready! Grab your cup!") {
+		t.Errorf("expected fallback header, got %q", got)
 	}
 }
