@@ -207,7 +207,7 @@ func TestConstructDiscordMessage_StructuredBeforeLLMOutro(t *testing.T) {
 	if outroIdx == -1 {
 		t.Fatal("LLM outro missing from message")
 	}
-	structuredIdx := strings.Index(msg, "Berlin")
+	structuredIdx := strings.Index(msg, "## 📍")
 	if structuredIdx == -1 {
 		t.Fatal("structured weather missing from message")
 	}
@@ -229,7 +229,7 @@ func TestConstructDiscordMessage_ForecastStructuredBeforeLLMOutro(t *testing.T) 
 	if outroIdx == -1 {
 		t.Fatal("LLM outro missing from forecast message")
 	}
-	structuredIdx := strings.Index(msg, "Berlin")
+	structuredIdx := strings.Index(msg, "### 📅")
 	if structuredIdx == -1 {
 		t.Fatal("structured forecast missing from message")
 	}
