@@ -4,6 +4,8 @@ import (
 	"context"
 	"log/slog"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/bwmarrin/discordgo"
 	openai "github.com/openai/openai-go/v3"
@@ -12,6 +14,9 @@ import (
 // Personality is the shared bot persona appended to every LLM system prompt.
 // Centralised here so all plugins express the same character and brevity rules.
 const Personality = "You have very dry humor. Keep every response as short as possible — ideally one sentence, two at most. Never use emojis."
+
+const llmTimeout = 30 * time.Second
+const langCacheTTL = 1 * time.Hour
 
 var client openai.Client
 
@@ -32,6 +37,13 @@ var generateMessageFn = func(ctx context.Context, systemPrompt, userPrompt strin
 	return completion.Choices[0].Message.Content, nil
 }
 
+type cachedLang struct {
+	lang      string
+	expiresAt time.Time
+}
+
+var langCache sync.Map // channelID -> cachedLang
+
 // Initialize creates the shared OpenAI client. Must be called before any plugin uses LLM features.
 func Initialize() {
 	client = openai.NewClient()
@@ -44,13 +56,24 @@ func GetClient() *openai.Client {
 }
 
 // GenerateMessage sends a single-turn completion and returns the response text.
+// A 30-second timeout is applied to every call.
 func GenerateMessage(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, llmTimeout)
+	defer cancel()
 	return generateMessageFn(ctx, systemPrompt, userPrompt)
 }
 
 // DetectChannelLanguage fetches recent messages from a Discord channel and asks the LLM
-// to identify the primary language. Returns "English" on any error or empty channel.
+// to identify the primary language. Results are cached per channel for 1 hour.
+// Returns "English" on any error or empty channel.
 func DetectChannelLanguage(s *discordgo.Session, channelID string) (string, error) {
+	if v, ok := langCache.Load(channelID); ok {
+		if entry := v.(cachedLang); time.Now().Before(entry.expiresAt) {
+			return entry.lang, nil
+		}
+		langCache.Delete(channelID)
+	}
+
 	msgs, err := s.ChannelMessages(channelID, 20, "", "", "")
 	if err != nil || len(msgs) == 0 {
 		return "English", err
@@ -64,7 +87,12 @@ func DetectChannelLanguage(s *discordgo.Session, channelID string) (string, erro
 		}
 	}
 
-	return detectLanguageFromTexts(strings.TrimSpace(sb.String()))
+	lang, err := detectLanguageFromTexts(strings.TrimSpace(sb.String()))
+	if err != nil {
+		return "English", err
+	}
+	langCache.Store(channelID, cachedLang{lang: lang, expiresAt: time.Now().Add(langCacheTTL)})
+	return lang, nil
 }
 
 // detectLanguageFromTexts is the testable core of DetectChannelLanguage.
@@ -73,8 +101,11 @@ func detectLanguageFromTexts(text string) (string, error) {
 		return "English", nil
 	}
 
+	ctx, cancel := context.WithTimeout(context.Background(), llmTimeout)
+	defer cancel()
+
 	lang, err := generateMessageFn(
-		context.Background(),
+		ctx,
 		"You detect the primary language of text snippets. Reply with only the full English name of the language (e.g. German, French, English). If unsure, reply with English.",
 		text,
 	)
