@@ -47,6 +47,14 @@ func TestRemoveSpoilerTagContentInStringMessage(t *testing.T) {
 	}
 }
 
+func TestReplaceAllUserIDsWithUsernamesInStringMessage_NoMentions(t *testing.T) {
+	input := "Hello world"
+	got := replaceAllUserIDsWithUsernamesInStringMessage(input, "guild123")
+	if got != input {
+		t.Errorf("replaceAllUserIDsWithUsernamesInStringMessage(%q) = %q, want unchanged", input, got)
+	}
+}
+
 func TestConvertLLMChatMessageToLLMCompatibleFlowingText(t *testing.T) {
 	msg := LLMChatMessage{
 		TimestampString: "2026-05-01 12:00:00",

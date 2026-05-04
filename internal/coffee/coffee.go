@@ -14,6 +14,7 @@ const fallbackBeverage = "☕"
 var (
 	discordSession    *discordgo.Session
 	registeredCommand *discordgo.ApplicationCommand
+	registeredBrewCmd *discordgo.ApplicationCommand
 	isSpecialDay      = util.IsSpecial
 	reactOnMessage    = util.ReactOnMessage
 	sendIntroDM       = sendIntroDMFunc
@@ -72,10 +73,19 @@ func Start(discord *discordgo.Session) {
 	} else {
 		registeredCommand = cmd
 	}
+	brewCmd, err := discord.ApplicationCommandCreate(discord.State.User.ID, "", &discordgo.ApplicationCommand{
+		Name:        "brew",
+		Description: "Start brewing a pot of coffee (~3 minutes until ready)",
+	})
+	if err != nil {
+		slog.Error("coffee: failed to register brew command", "error", err)
+	} else {
+		registeredBrewCmd = brewCmd
+	}
 	slog.Info("coffee function registered")
 }
 
-// Shutdown deletes the registered application command and closes the beverage preference store.
+// Shutdown deletes the registered application commands and closes the beverage preference store.
 func Shutdown() {
 	if discordSession != nil && registeredCommand != nil {
 		if err := discordSession.ApplicationCommandDelete(discordSession.State.User.ID, "", registeredCommand.ID); err != nil {
@@ -83,10 +93,22 @@ func Shutdown() {
 		}
 		registeredCommand = nil
 	}
+	if discordSession != nil && registeredBrewCmd != nil {
+		if err := discordSession.ApplicationCommandDelete(discordSession.State.User.ID, "", registeredBrewCmd.ID); err != nil {
+			slog.Error("coffee: failed to delete brew command", "error", err)
+		}
+		registeredBrewCmd = nil
+	}
 	closeStore()
 }
 
 func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
+	if m.Author == nil || m.Author.Bot {
+		return
+	}
+
+	handleBrewMessage(s, m.GuildID, m.ChannelID, m.ID, m.Author.ID)
+
 	for _, v := range messages {
 		if v == strings.ToLower(m.Content) {
 			if hasGreetedToday(m.Author.ID) {
@@ -128,7 +150,12 @@ func onInteractionCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		return
 	}
 	data := i.ApplicationCommandData()
-	if data.Name != "setbeverage" {
+	switch data.Name {
+	case "brew":
+		handleBrewInteraction(s, i)
+		return
+	case "setbeverage":
+	default:
 		return
 	}
 
@@ -177,6 +204,26 @@ func onInteractionCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	if !introducedBefore {
 		sendIntroDM(s, userID, emoji)
 	}
+}
+
+func handleBrewInteraction(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	alreadyBrewing, readyAt := startBrew(s, i.GuildID, i.ChannelID)
+	if alreadyBrewing {
+		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Content: fmt.Sprintf("☕ Coffee is already brewing! Ready <t:%d:R>", readyAt.Unix()),
+				Flags:   discordgo.MessageFlagsEphemeral,
+			},
+		})
+		return
+	}
+	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Content: fmt.Sprintf("☕ Brewing coffee... Check back in ~3 minutes! <t:%d:R>", readyAt.Unix()),
+		},
+	})
 }
 
 func sendIntroDMFunc(s *discordgo.Session, userID string, emoji string) {
