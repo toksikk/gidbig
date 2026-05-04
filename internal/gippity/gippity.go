@@ -221,14 +221,9 @@ Deine Antwort muss dieses Format haben:
 ---
 Achte darauf, dass deine Antwort nicht im gleichen Format wie die Benutzernachrichten ist, also nicht mit einem Zeitstempel beginnt.
 ---
-Stelle keine abschließenden Fragen, um weitere Interaktionen zu provozieren. Benutze keine Emojis.
-Halte deine Antworten deshalb so kurz wie möglich mit so wenig Inhalt wie gerade so nötig.`
+Stelle keine abschließenden Fragen, um weitere Interaktionen zu provozieren.`
 
-	systemMessageAddition := `
-Du hast sehr trockenen Humor.
-`
-
-	systemMessage := systemMessageBase + enrichSystemMessage(systemMessageAddition)
+	systemMessage := systemMessageBase + "\n" + enrichSystemMessage(llm.Personality)
 
 	messages := []openai.ChatCompletionMessageParamUnion{}
 	messages = append(messages, openai.SystemMessage(systemMessage))
@@ -276,9 +271,10 @@ Du hast sehr trockenen Humor.
 	}
 
 	chatCompletion, err := llm.GetClient().Chat.Completions.New(context.Background(), openai.ChatCompletionNewParams{
-		Messages: messages,
-		Model:    openai.ChatModelGPT4oMini,
-		N:        openai.Int(1),
+		Messages:  messages,
+		Model:     openai.ChatModelGPT4oMini,
+		N:         openai.Int(1),
+		MaxTokens: openai.Int(300),
 	})
 
 	slog.Debug("Chat completion", "chatCompletion", chatCompletion)

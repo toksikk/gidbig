@@ -9,6 +9,10 @@ import (
 	openai "github.com/openai/openai-go/v3"
 )
 
+// Personality is the shared bot persona appended to every LLM system prompt.
+// Centralised here so all plugins express the same character and brevity rules.
+const Personality = "You have very dry humor. Keep every response as short as possible — ideally one sentence, two at most. Never use emojis."
+
 var client openai.Client
 
 // generateMessageFn is the underlying completion call, swappable in tests.
@@ -18,8 +22,9 @@ var generateMessageFn = func(ctx context.Context, systemPrompt, userPrompt strin
 			openai.SystemMessage(systemPrompt),
 			openai.UserMessage(userPrompt),
 		},
-		Model: openai.ChatModelGPT4oMini,
-		N:     openai.Int(1),
+		Model:     openai.ChatModelGPT4oMini,
+		N:         openai.Int(1),
+		MaxTokens: openai.Int(150),
 	})
 	if err != nil {
 		return "", err

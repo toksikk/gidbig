@@ -293,7 +293,7 @@ func sendLLMGreeting(s *discordgo.Session, m *discordgo.MessageCreate) {
 		lang = "English"
 	}
 
-	systemPrompt := "You are a friendly Discord bot. Generate a short, warm morning greeting (1-2 sentences) that fits a community chat. Mention coffee or a morning beverage if it feels natural. Do not use emojis. Respond in " + lang + "."
+	systemPrompt := "You are a Discord bot in a community chat. Generate a morning greeting that feels warm and fits the channel vibe. Mention coffee or a morning beverage if it feels natural. " + llm.Personality + " Respond in " + lang + "."
 	userPrompt := "A user just said: " + m.Content
 
 	msg, err := generateLLMGreeting(context.Background(), systemPrompt, userPrompt)
