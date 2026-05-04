@@ -24,6 +24,29 @@ func captureBrewMessages(t *testing.T) func() []capturedBrewMessage {
 	return func() []capturedBrewMessage { return msgs }
 }
 
+type capturedBrewReadyCall struct {
+	guildID   string
+	channelID string
+}
+
+func captureBrewReadyMessages(t *testing.T) func() []capturedBrewReadyCall {
+	t.Helper()
+	previous := sendBrewReadyMessage
+	calls := []capturedBrewReadyCall{}
+	sendBrewReadyMessage = func(_ *discordgo.Session, guildID, channelID string) {
+		calls = append(calls, capturedBrewReadyCall{guildID: guildID, channelID: channelID})
+	}
+	t.Cleanup(func() { sendBrewReadyMessage = previous })
+	return func() []capturedBrewReadyCall { return calls }
+}
+
+func useFixedCupSize(t *testing.T, size float64) {
+	t.Helper()
+	previous := randCupSize
+	randCupSize = func() float64 { return size }
+	t.Cleanup(func() { randCupSize = previous })
+}
+
 func resetBrewStates(t *testing.T) {
 	t.Helper()
 	brewMu.Lock()
@@ -128,6 +151,7 @@ func TestHandleBrewMessage_BeforeReady(t *testing.T) {
 
 func TestHandleBrewMessage_AfterReady(t *testing.T) {
 	resetBrewStates(t)
+	useFixedCupSize(t, 0.25)
 	getReactions := captureReactions(t)
 	getMsgs := captureBrewMessages(t)
 
@@ -164,6 +188,7 @@ func TestHandleBrewMessage_AfterReady(t *testing.T) {
 
 func TestHandleBrewMessage_MultipleUsers(t *testing.T) {
 	resetBrewStates(t)
+	useFixedCupSize(t, 0.25)
 	_ = captureReactions(t)
 	getMsgs := captureBrewMessages(t)
 
@@ -216,6 +241,7 @@ func TestHandleBrewMessage_DuplicateUser(t *testing.T) {
 
 func TestHandleBrewMessage_PotEmpty(t *testing.T) {
 	resetBrewStates(t)
+	useFixedCupSize(t, 0.25)
 	getReactions := captureReactions(t)
 	getMsgs := captureBrewMessages(t)
 
@@ -277,7 +303,7 @@ func TestHandleBrewMessage_EmptyPotNoReaction(t *testing.T) {
 
 func TestMarkBrewReady_SendsMessage(t *testing.T) {
 	resetBrewStates(t)
-	getMsgs := captureBrewMessages(t)
+	getReadyCalls := captureBrewReadyMessages(t)
 
 	brewMu.Lock()
 	brewStates["guild1:channel1"] = &brewState{
@@ -297,23 +323,23 @@ func TestMarkBrewReady_SendsMessage(t *testing.T) {
 		t.Error("expected brew to be marked ready")
 	}
 
-	msgs := getMsgs()
-	if len(msgs) != 1 {
-		t.Fatalf("expected 1 message, got %d", len(msgs))
+	calls := getReadyCalls()
+	if len(calls) != 1 {
+		t.Fatalf("expected 1 ready message, got %d", len(calls))
 	}
-	if msgs[0].content != "☕ Coffee is ready! Everyone grab a cup with `/coffee`!" {
-		t.Errorf("message = %q", msgs[0].content)
+	if calls[0].guildID != "guild1" || calls[0].channelID != "channel1" {
+		t.Errorf("ready call = %+v, want guild1/channel1", calls[0])
 	}
 }
 
 func TestMarkBrewReady_NoStateDoesNothing(t *testing.T) {
 	resetBrewStates(t)
-	getMsgs := captureBrewMessages(t)
+	getReadyCalls := captureBrewReadyMessages(t)
 
 	markBrewReady(nil, "guild1", "channel1")
 
-	if len(getMsgs()) != 0 {
-		t.Error("expected no message when no brew state exists")
+	if len(getReadyCalls()) != 0 {
+		t.Error("expected no ready message when no brew state exists")
 	}
 }
 
@@ -343,5 +369,83 @@ func TestBrewStateKey_WithoutGuild(t *testing.T) {
 	key := brewStateKey("", "channel1")
 	if key != "dm:channel1" {
 		t.Errorf("key = %q, want dm:channel1", key)
+	}
+}
+
+func TestHasActiveBrew_NoState(t *testing.T) {
+	resetBrewStates(t)
+	if hasActiveBrew("guild1", "channel1") {
+		t.Error("expected false with no brew state")
+	}
+}
+
+func TestHasActiveBrew_WithState(t *testing.T) {
+	resetBrewStates(t)
+	brewMu.Lock()
+	brewStates["guild1:channel1"] = &brewState{coffeeLiters: potCapacity}
+	brewMu.Unlock()
+
+	if !hasActiveBrew("guild1", "channel1") {
+		t.Error("expected true with active brew state")
+	}
+}
+
+func TestGrabCoffee_NotReady(t *testing.T) {
+	resetBrewStates(t)
+	result := grabCoffee("guild1", "channel1", "user1")
+	if !result.notReady {
+		t.Error("expected notReady=true with no brew state")
+	}
+}
+
+func TestGrabCoffee_AlreadyTaken(t *testing.T) {
+	resetBrewStates(t)
+	brewMu.Lock()
+	brewStates["guild1:channel1"] = &brewState{
+		isReady:      true,
+		coffeeLiters: potCapacity,
+		takenBy:      []string{"user1"},
+	}
+	brewMu.Unlock()
+
+	result := grabCoffee("guild1", "channel1", "user1")
+	if !result.alreadyTaken {
+		t.Error("expected alreadyTaken=true for duplicate user")
+	}
+}
+
+func TestGrabCoffee_RandomCupSize(t *testing.T) {
+	resetBrewStates(t)
+	brewMu.Lock()
+	brewStates["guild1:channel1"] = &brewState{
+		isReady:      true,
+		coffeeLiters: potCapacity,
+	}
+	brewMu.Unlock()
+
+	result := grabCoffee("guild1", "channel1", "user1")
+	if result.notReady || result.alreadyTaken {
+		t.Fatal("expected successful grab")
+	}
+	if result.cupML < 0.15 || result.cupML > 0.35 {
+		t.Errorf("cupML = %.3f, want between 0.150 and 0.350", result.cupML)
+	}
+	// Verify 10ml step granularity
+	ml := int(result.cupML * 1000)
+	if ml%10 != 0 {
+		t.Errorf("cupML should be in 10ml increments, got %dml", ml)
+	}
+}
+
+func TestDefaultRandCupSize_Range(t *testing.T) {
+	for range 1000 {
+		size := defaultRandCupSize()
+		if size < 0.15 || size > 0.35 {
+			t.Errorf("cup size %v out of [0.15, 0.35] range", size)
+		}
+		ml := int(size * 1000)
+		if ml%10 != 0 {
+			t.Errorf("cup size %v not a multiple of 10ml", size)
+		}
 	}
 }

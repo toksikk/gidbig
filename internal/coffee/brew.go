@@ -2,6 +2,8 @@ package coffee
 
 import (
 	"fmt"
+	"math/rand"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -11,7 +13,6 @@ import (
 
 const (
 	brewDuration   = 3 * time.Minute
-	cupSize        = 0.25
 	potCapacity    = 1.0
 	emptyThreshold = 0.01
 )
@@ -23,12 +24,28 @@ type brewState struct {
 	takenBy      []string
 }
 
+type grabResult struct {
+	cupML        float64
+	summary      string
+	isEmpty      bool
+	alreadyTaken bool
+	notReady     bool
+}
+
 var (
-	brewMu     sync.Mutex
+	brewMu     sync.RWMutex
 	brewStates = map[string]*brewState{}
 
-	sendBrewMessage = defaultSendBrewMessage
+	sendBrewMessage      = defaultSendBrewMessage
+	sendBrewReadyMessage = defaultSendBrewReadyMessage
+	randCupSize          = defaultRandCupSize
 )
+
+// defaultRandCupSize returns a random cup size between 150ml and 350ml in 10ml steps.
+func defaultRandCupSize() float64 {
+	ml := 150 + rand.Intn(21)*10
+	return float64(ml) / 1000.0
+}
 
 func defaultSendBrewMessage(s *discordgo.Session, channelID, content string) {
 	if s == nil {
@@ -37,11 +54,38 @@ func defaultSendBrewMessage(s *discordgo.Session, channelID, content string) {
 	_, _ = s.ChannelMessageSend(channelID, content)
 }
 
+func defaultSendBrewReadyMessage(s *discordgo.Session, guildID, channelID string) {
+	if s == nil {
+		return
+	}
+	_, _ = s.ChannelMessageSendComplex(channelID, &discordgo.MessageSend{
+		Content: "☕ Coffee is ready! Grab your cup!",
+		Components: []discordgo.MessageComponent{
+			discordgo.ActionsRow{
+				Components: []discordgo.MessageComponent{
+					discordgo.Button{
+						Label:    "☕ Grab a cup",
+						Style:    discordgo.PrimaryButton,
+						CustomID: "grab_coffee",
+					},
+				},
+			},
+		},
+	})
+}
+
 func brewStateKey(guildID, channelID string) string {
 	if guildID == "" {
 		return "dm:" + channelID
 	}
 	return guildID + ":" + channelID
+}
+
+func hasActiveBrew(guildID, channelID string) bool {
+	brewMu.RLock()
+	defer brewMu.RUnlock()
+	_, exists := brewStates[brewStateKey(guildID, channelID)]
+	return exists
 }
 
 // startBrew attempts to start a new brew in the given channel.
@@ -81,36 +125,49 @@ func markBrewReady(s *discordgo.Session, guildID, channelID string) {
 	brewMu.Unlock()
 
 	if ok {
-		sendBrewMessage(s, channelID, "☕ Coffee is ready! Everyone grab a cup with `/coffee`!")
+		sendBrewReadyMessage(s, guildID, channelID)
 	}
 }
 
-func handleBrewMessage(s *discordgo.Session, guildID, channelID, messageID, userID string) {
+// grabCoffee handles the state mutation for a user grabbing a cup of coffee.
+func grabCoffee(guildID, channelID, userID string) grabResult {
 	brewMu.Lock()
+	defer brewMu.Unlock()
+
 	key := brewStateKey(guildID, channelID)
 	st, ok := brewStates[key]
 	if !ok || !st.isReady || st.coffeeLiters < emptyThreshold {
-		brewMu.Unlock()
-		return
+		return grabResult{notReady: true}
 	}
-	for _, uid := range st.takenBy {
-		if uid == userID {
-			brewMu.Unlock()
-			return
-		}
+	if slices.Contains(st.takenBy, userID) {
+		return grabResult{alreadyTaken: true}
 	}
+	cup := randCupSize()
 	st.takenBy = append(st.takenBy, userID)
-	st.coffeeLiters -= cupSize
+	st.coffeeLiters -= cup
+	if st.coffeeLiters < 0 {
+		st.coffeeLiters = 0
+	}
 	summary := buildBrewSummary(st)
 	isEmpty := st.coffeeLiters < emptyThreshold
 	if isEmpty {
 		delete(brewStates, key)
 	}
-	brewMu.Unlock()
+	return grabResult{
+		cupML:   cup,
+		summary: summary,
+		isEmpty: isEmpty,
+	}
+}
 
+func handleBrewMessage(s *discordgo.Session, guildID, channelID, messageID, userID string) {
+	result := grabCoffee(guildID, channelID, userID)
+	if result.notReady || result.alreadyTaken {
+		return
+	}
 	reactOnMessage(s, channelID, messageID, "☕", "add")
-	sendBrewMessage(s, channelID, summary)
-	if isEmpty {
+	sendBrewMessage(s, channelID, result.summary)
+	if result.isEmpty {
 		sendBrewMessage(s, channelID, "The coffee pot is empty!")
 	}
 }
