@@ -38,6 +38,9 @@ var (
 
 	// Start time for uptime calculation
 	startTime = time.Now()
+
+	// registered slash command for /status
+	registeredStatusCmd *discordgo.ApplicationCommand
 )
 
 func onReady(s *discordgo.Session, event *discordgo.Ready) {
@@ -62,19 +65,19 @@ func displayUptime(channelid string) {
 	}
 }
 
-func displayBotStats(cid string) {
+func buildBotStatsMessage(s *discordgo.Session) string {
 	stats := runtime.MemStats{}
 	runtime.ReadMemStats(&stats)
 
 	users := 0
-	for _, guild := range discord.State.Guilds {
+	for _, guild := range s.State.Guilds {
 		users += len(guild.Members)
 	}
 
 	uptime := time.Since(startTime).Round(time.Second)
 	startDateTime := startTime.Format("2006-01-02 15:04:05")
 
-	statusMessage := fmt.Sprintf(`Gidbig:          %s
+	msg := fmt.Sprintf(`Gidbig:          %s
 Discordgo:       %s
 Go:              %s
 
@@ -115,15 +118,58 @@ Loaded Plugins:
 		humanize.Bytes(stats.HeapAlloc), humanize.Bytes(stats.HeapInuse), humanize.Bytes(stats.HeapSys),
 		humanize.Bytes(stats.HeapIdle), humanize.Bytes(stats.HeapReleased),
 		humanize.Bytes(stats.StackInuse), humanize.Bytes(stats.StackSys),
-		stats.Lookups, runtime.NumGoroutine(), len(discord.State.Guilds), users, len(*gbploader.GetLoadedPlugins()), uptime, startDateTime)
+		stats.Lookups, runtime.NumGoroutine(), len(s.State.Guilds), users, len(*gbploader.GetLoadedPlugins()), uptime, startDateTime)
 
+	var sb strings.Builder
+	sb.WriteString(msg)
 	for n, p := range *gbploader.GetLoadedPlugins() {
-		statusMessage += fmt.Sprintf("%s %s\n", n, p[0])
+		fmt.Fprintf(&sb, "%s %s\n", n, p[0])
 	}
 
-	_, err := discord.ChannelMessageSend(cid, "```"+statusMessage+"```")
-	if err != nil {
-		slog.Error("could not send channel message", "error", err)
+	return sb.String()
+}
+
+// statusInteractionResponse builds the ephemeral interaction response for /status.
+// Owner gets the stats block; non-owners get a denial. buildStats is injectable for testing.
+func statusInteractionResponse(userID, ownerID string, buildStats func() string) *discordgo.InteractionResponse {
+	if userID != ownerID {
+		return &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Content: "Access denied.",
+				Flags:   discordgo.MessageFlagsEphemeral,
+			},
+		}
+	}
+	return &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Content: "```" + buildStats() + "```",
+			Flags:   discordgo.MessageFlagsEphemeral,
+		},
+	}
+}
+
+func onStatusInteractionCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	if i.Type != discordgo.InteractionApplicationCommand {
+		return
+	}
+	if i.ApplicationCommandData().Name != "status" {
+		return
+	}
+
+	var userID string
+	if i.Member != nil {
+		userID = i.Member.User.ID
+	} else if i.User != nil {
+		userID = i.User.ID
+	}
+
+	resp := statusInteractionResponse(userID, conf.Discord.OwnerID, func() string {
+		return buildBotStatsMessage(s)
+	})
+	if err := s.InteractionRespond(i.Interaction, resp); err != nil {
+		slog.Error("could not respond to /status interaction", "error", err)
 	}
 }
 
@@ -190,9 +236,6 @@ func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 	// If this is a mention, it should come from the owner (otherwise we don't care)
 	if m.Author.ID == conf.Discord.OwnerID && len(parts) > 0 {
 		if len(parts) == 1 {
-			if scontains(parts[0], "!status") {
-				displayBotStats(m.ChannelID)
-			}
 			if scontains(parts[0], "!uptime") {
 				displayUptime(m.ChannelID)
 			}
@@ -284,12 +327,23 @@ func StartGidbig() {
 
 	discord.AddHandler(onReady)
 	discord.AddHandler(onMessageCreate)
+	discord.AddHandler(onStatusInteractionCreate)
 
 	err = discord.Open()
 	if err != nil {
 		slog.Error("Failed to create discord websocket connection", "error", err)
 		os.Exit(1)
 		return
+	}
+
+	statusCmd, err := discord.ApplicationCommandCreate(discord.State.User.ID, "", &discordgo.ApplicationCommand{
+		Name:        "status",
+		Description: "Show bot runtime status (owner only)",
+	})
+	if err != nil {
+		slog.Error("Failed to register /status command", "error", err)
+	} else {
+		registeredStatusCmd = statusCmd
 	}
 
 	llm.Initialize()
@@ -318,6 +372,11 @@ func StartGidbig() {
 	shutdownDone := make(chan struct{})
 	go func() {
 		defer close(shutdownDone)
+		if registeredStatusCmd != nil {
+			if err := discord.ApplicationCommandDelete(discord.State.User.ID, "", registeredStatusCmd.ID); err != nil {
+				slog.Error("Failed to delete /status command", "error", err)
+			}
+		}
 		if err := discord.Close(); err != nil {
 			slog.Error("error closing discord session", "error", err)
 		}
