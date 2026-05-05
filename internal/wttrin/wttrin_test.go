@@ -223,6 +223,26 @@ func TestBuildForecastString_UsesEachDaysMostOccurringWeatherCode(t *testing.T) 
 	}
 }
 
+func TestMostOccurringWeatherCodeForDay_EmptyInput(t *testing.T) {
+	if got := mostOccurringWeatherCodeForDay(nil); got != "" {
+		t.Errorf("expected empty string for nil input, got %q", got)
+	}
+	if got := mostOccurringWeatherCodeForDay([]hourly{}); got != "" {
+		t.Errorf("expected empty string for empty slice, got %q", got)
+	}
+}
+
+func TestMostOccurringWeatherCodeForDay_ReturnsDominantCode(t *testing.T) {
+	hours := []hourly{
+		{WeatherCode: "113"},
+		{WeatherCode: "113"},
+		{WeatherCode: "308"},
+	}
+	if got := mostOccurringWeatherCodeForDay(hours); got != "113" {
+		t.Errorf("expected %q, got %q", "113", got)
+	}
+}
+
 func TestConstructDiscordMessage_StructuredBeforeLLMOutro(t *testing.T) {
 	stubDetectLanguage(t, "English")
 	stubLLM(t, "Lovely day ahead!", nil)
