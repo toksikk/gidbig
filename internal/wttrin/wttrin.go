@@ -396,12 +396,10 @@ func buildWeatherString(weatherResult wttrinResponse) (result string) {
 	return
 }
 
-func mostOccurringWeatherCode(resp wttrinResponse) (mostOccurringCode string) {
+func mostOccurringWeatherCode(hours []hourly) (mostOccurringCode string) {
 	weatherCodeCounts := make(map[string]int)
-	for _, day := range resp.Weather {
-		for _, hour := range day.Hourly {
-			weatherCodeCounts[hour.WeatherCode]++
-		}
+	for _, hour := range hours {
+		weatherCodeCounts[hour.WeatherCode]++
 	}
 
 	maxCount := 0
@@ -518,7 +516,7 @@ func buildForecastString(weatherResult wttrinResponse) (result string) {
 			result += "```\n"
 		}
 
-		weatherCode := mostOccurringWeatherCode(weatherResult)
+		weatherCode := mostOccurringWeatherCode(day.Hourly)
 		weatherConditionEmoji := getWeatherConditionEmoji(weatherCode)
 
 		avgWindDirDegree := 0
