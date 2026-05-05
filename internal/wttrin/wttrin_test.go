@@ -194,6 +194,35 @@ func minimalWeatherResponse() wttrinResponse {
 	}
 }
 
+func TestBuildForecastString_UsesEachDaysMostOccurringWeatherCode(t *testing.T) {
+	weatherResult := minimalWeatherResponse()
+	weatherResult.Weather[0].Hourly = append(weatherResult.Weather[0].Hourly,
+		weatherResult.Weather[0].Hourly[0],
+		weatherResult.Weather[0].Hourly[0],
+	)
+
+	secondDay := weatherResult.Weather[0]
+	secondDay.Date = "2026-05-05"
+	secondDay.MaxtempC = "12"
+	secondDay.MintempC = "7"
+	secondDay.Hourly = nil
+	for range 4 {
+		hour := weatherResult.Weather[0].Hourly[0]
+		hour.WeatherCode = "308"
+		secondDay.Hourly = append(secondDay.Hourly, hour)
+	}
+	weatherResult.Weather = append(weatherResult.Weather, secondDay)
+
+	forecast := buildForecastString(weatherResult)
+
+	if !strings.Contains(forecast, "### 📅 2026-05-04\n```\n🌡️ 18°C / 10°C\n🌬️ ➡️ 20km/h\n☀️ Sunny") {
+		t.Errorf("first day should use its own dominant weather code, got:\n%s", forecast)
+	}
+	if !strings.Contains(forecast, "### 📅 2026-05-05\n```\n🌡️ 12°C / 7°C\n🌬️ ➡️ 20km/h\n🌧️ Heavy Rain") {
+		t.Errorf("second day should use its own dominant weather code, got:\n%s", forecast)
+	}
+}
+
 func TestConstructDiscordMessage_StructuredBeforeLLMOutro(t *testing.T) {
 	stubDetectLanguage(t, "English")
 	stubLLM(t, "Lovely day ahead!", nil)
