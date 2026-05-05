@@ -66,16 +66,30 @@ jobs:
                     github.actor != 'dependabot[bot]' &&
                     !startsWith(github.ref_name, 'renovate/') &&
                     !startsWith(github.ref_name, 'dependabot/')
+                ) ||
+                (
+                    github.event_name == 'pull_request' &&
+                    github.actor != 'renovate[bot]' &&
+                    github.actor != 'dependabot[bot]'
                 )
             }}
         needs: build
         runs-on: ubuntu-latest
 
         steps:
+            - name: Resolve deploy SHA
+              id: sha
+              run: |
+                  if [ "${{ github.event_name }}" = "pull_request" ]; then
+                    echo "sha=${{ github.event.pull_request.head.sha }}" >> $GITHUB_OUTPUT
+                  else
+                    echo "sha=${{ github.sha }}" >> $GITHUB_OUTPUT
+                  fi
+
             - name: Dispatch Deploy Repo
               uses: peter-evans/repository-dispatch@v4.0.1
               with:
                   token: ${{ secrets.DEPLOY_REPO_ACCESS_TOKEN }}
                   repository: toksikk/deploy-gidbig
                   event-type: deploy
-                  client-payload: '{"sha": "${{ github.sha }}"}'
+                  client-payload: '{"sha": "${{ steps.sha.outputs.sha }}"}'
