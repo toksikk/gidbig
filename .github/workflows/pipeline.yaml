@@ -2,9 +2,6 @@ name: Check and build
 
 on:
     push:
-        branches:
-            - master
-    pull_request:
     workflow_dispatch:
 
 jobs:
@@ -62,36 +59,33 @@ jobs:
             ${{
                 github.event_name == 'workflow_dispatch' ||
                 (
-                    github.event_name == 'push' &&
-                    github.ref == 'refs/heads/master' &&
                     github.actor != 'renovate[bot]' &&
                     github.actor != 'dependabot[bot]' &&
                     !startsWith(github.ref_name, 'renovate/') &&
                     !startsWith(github.ref_name, 'dependabot/')
-                ) ||
-                (
-                    github.event_name == 'pull_request' &&
-                    github.actor != 'renovate[bot]' &&
-                    github.actor != 'dependabot[bot]'
                 )
             }}
         needs: build
         runs-on: ubuntu-latest
 
         steps:
-            - name: Resolve deploy SHA
-              id: sha
+            - name: Check deploy eligibility
+              id: check
+              env:
+                  GH_TOKEN: ${{ github.token }}
               run: |
-                  if [ "${{ github.event_name }}" = "pull_request" ]; then
-                    echo "sha=${{ github.event.pull_request.head.sha }}" >> $GITHUB_OUTPUT
+                  if [ "${{ github.ref_name }}" = "master" ]; then
+                      echo "deploy=true" >> $GITHUB_OUTPUT
                   else
-                    echo "sha=${{ github.sha }}" >> $GITHUB_OUTPUT
+                      PR_COUNT=$(gh pr list --repo "${{ github.repository }}" --head "${{ github.ref_name }}" --state open --json number -q 'length')
+                      echo "deploy=$([ "${PR_COUNT:-0}" -gt 0 ] && echo true || echo false)" >> $GITHUB_OUTPUT
                   fi
 
             - name: Dispatch Deploy Repo
+              if: steps.check.outputs.deploy == 'true'
               uses: peter-evans/repository-dispatch@v4.0.1
               with:
                   token: ${{ secrets.DEPLOY_REPO_ACCESS_TOKEN }}
                   repository: toksikk/deploy-gidbig
                   event-type: deploy
-                  client-payload: '{"sha": "${{ steps.sha.outputs.sha }}"}'
+                  client-payload: '{"sha": "${{ github.sha }}"}'
