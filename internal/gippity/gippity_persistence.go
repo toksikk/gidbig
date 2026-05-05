@@ -32,6 +32,7 @@ type LLMChatMessage struct {
 	Message         string
 	GuildID         string
 	GuildName       string
+	IsBotMention    bool
 }
 
 const chatHistoryDBFilename = "gippity.db"
@@ -49,7 +50,15 @@ func initDB() {
 
 	_, err = database.Exec(`CREATE TABLE IF NOT EXISTS chat_history (user_id text, channel_id text, timestamp integer, message text, message_id text, guild_id text)`)
 	if err != nil {
-		slog.Error("Error while creating table", "error", err)
+		slog.Error("Error while creating chat_history table", "error", err)
+	}
+
+	// idempotent: ignore error if column already exists
+	_, _ = database.Exec(`ALTER TABLE chat_history ADD COLUMN is_bot_mention INTEGER DEFAULT 0`)
+
+	_, err = database.Exec(`CREATE TABLE IF NOT EXISTS user_privacy (user_id TEXT PRIMARY KEY, privacy_enabled INTEGER NOT NULL DEFAULT 1)`)
+	if err != nil {
+		slog.Error("Error while creating user_privacy table", "error", err)
 	}
 }
 
@@ -62,15 +71,19 @@ func CloseDB() {
 	}
 }
 
-func addMessageToDatabase(m *discordgo.MessageCreate) {
-	stmt, err := database.Prepare("INSERT INTO chat_history (user_id, channel_id, timestamp, message, message_id, guild_id) VALUES (?, ?, ?, ?, ?, ?)")
+func addMessageToDatabase(m *discordgo.MessageCreate, isBotMention bool) {
+	stmt, err := database.Prepare("INSERT INTO chat_history (user_id, channel_id, timestamp, message, message_id, guild_id, is_bot_mention) VALUES (?, ?, ?, ?, ?, ?, ?)")
 	if err != nil {
 		slog.Error("Error while preparing statement", "error", err)
 		return
 	}
 	defer func() { _ = stmt.Close() }()
 
-	_, err = stmt.Exec(m.Author.ID, m.ChannelID, util.GetTimestampOfMessage(m.ID).Unix(), m.Content, m.ID, m.GuildID)
+	botMentionInt := 0
+	if isBotMention {
+		botMentionInt = 1
+	}
+	_, err = stmt.Exec(m.Author.ID, m.ChannelID, util.GetTimestampOfMessage(m.ID).Unix(), m.Content, m.ID, m.GuildID, botMentionInt)
 	if err != nil {
 		slog.Error("Error while inserting message into database", "error", err)
 	}
@@ -78,9 +91,9 @@ func addMessageToDatabase(m *discordgo.MessageCreate) {
 
 func getLastNMessagesFromDatabase(channelID string, n int) ([]LLMChatMessage, error) {
 	stmt, err := database.Prepare(`
-	SELECT user_id, channel_id, timestamp, message, message_id, guild_id
+	SELECT user_id, channel_id, timestamp, message, message_id, guild_id, COALESCE(is_bot_mention, 0)
 	FROM (
-	    SELECT user_id, channel_id, timestamp, message, message_id, guild_id
+	    SELECT user_id, channel_id, timestamp, message, message_id, guild_id, is_bot_mention
 	    FROM chat_history
 	    WHERE channel_id = ?
 	    ORDER BY timestamp DESC
@@ -104,6 +117,7 @@ func getLastNMessagesFromDatabase(channelID string, n int) ([]LLMChatMessage, er
 	llmMessages := make([]LLMChatMessage, 0, n)
 	for rows.Next() {
 		var message LLMChatMessage
+		var isBotMentionInt int
 		err = rows.Scan(
 			&message.UserID,
 			&message.ChannelID,
@@ -111,11 +125,13 @@ func getLastNMessagesFromDatabase(channelID string, n int) ([]LLMChatMessage, er
 			&message.Message,
 			&message.MessageID,
 			&message.GuildID,
+			&isBotMentionInt,
 		)
 		if err != nil {
 			slog.Error("Error while scanning row", "error", err)
 			return nil, err
 		}
+		message.IsBotMention = isBotMentionInt != 0
 
 		if idToNameCache[message.UserID] == "" {
 			idToNameCache[message.UserID] = util.GetUsernameForUserIDInGuild(discordSession, message.UserID, message.GuildID)
@@ -136,4 +152,31 @@ func getLastNMessagesFromDatabase(channelID string, n int) ([]LLMChatMessage, er
 	}
 
 	return llmMessages, nil
+}
+
+// getUserPrivacy returns true (privacy on) by default; explicit opt-out returns false.
+func getUserPrivacy(userID string) bool {
+	var enabled int
+	err := database.QueryRow(`SELECT privacy_enabled FROM user_privacy WHERE user_id = ?`, userID).Scan(&enabled)
+	if err == sql.ErrNoRows {
+		return true
+	}
+	if err != nil {
+		slog.Error("Error while querying user_privacy", "error", err)
+		return true
+	}
+	return enabled != 0
+}
+
+// setUserPrivacy stores or updates the privacy preference for a user.
+func setUserPrivacy(userID string, enabled bool) error {
+	enabledInt := 0
+	if enabled {
+		enabledInt = 1
+	}
+	_, err := database.Exec(
+		`INSERT INTO user_privacy (user_id, privacy_enabled) VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET privacy_enabled = excluded.privacy_enabled`,
+		userID, enabledInt,
+	)
+	return err
 }
