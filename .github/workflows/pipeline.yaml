@@ -56,7 +56,18 @@ jobs:
 
     deploy:
         name: Deploy
-        if: ${{ github.event_name == 'push' }}
+        if: >-
+            ${{
+                github.event_name == 'workflow_dispatch' ||
+                (
+                    github.event_name == 'push' &&
+                    github.ref == 'refs/heads/master' &&
+                    github.actor != 'renovate[bot]' &&
+                    github.actor != 'dependabot[bot]' &&
+                    !startsWith(github.ref_name, 'renovate/') &&
+                    !startsWith(github.ref_name, 'dependabot/')
+                )
+            }}
         needs: build
         runs-on: ubuntu-latest
 
