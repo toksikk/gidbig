@@ -384,6 +384,7 @@ func StartGidbig() {
 		if err := discord.Close(); err != nil {
 			slog.Error("error closing discord session", "error", err)
 		}
+		gippity.Shutdown()
 		gippity.CloseDB()
 		leetoclock.Shutdown()
 		coffee.Shutdown()

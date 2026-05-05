@@ -1,6 +1,7 @@
 package gippity
 
 import (
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -29,6 +30,8 @@ const userMessageLimit = 30
 
 var userMessageCountLastReset map[string]time.Time
 
+var registeredPrivacyCmd *discordgo.ApplicationCommand
+
 // Start the plugin
 func Start(discord *discordgo.Session) {
 	initDB()
@@ -52,7 +55,48 @@ func Start(discord *discordgo.Session) {
 	discordSession = discord
 
 	discord.AddHandler(onMessageCreate)
+	discord.AddHandler(onGippityInteractionCreate)
+
+	cmd, err := discord.ApplicationCommandCreate(discord.State.User.ID, "", &discordgo.ApplicationCommand{
+		Name:        "gippity",
+		Description: "Gippity settings",
+		Options: []*discordgo.ApplicationCommandOption{
+			{
+				Type:        discordgo.ApplicationCommandOptionSubCommand,
+				Name:        "privacy",
+				Description: "Control whether your past messages are anonymized in AI context",
+				Options: []*discordgo.ApplicationCommandOption{
+					{
+						Type:        discordgo.ApplicationCommandOptionString,
+						Name:        "set",
+						Description: "on = anonymize (default), off = include as-is",
+						Required:    true,
+						Choices: []*discordgo.ApplicationCommandOptionChoice{
+							{Name: "on", Value: "on"},
+							{Name: "off", Value: "off"},
+						},
+					},
+				},
+			},
+		},
+	})
+	if err != nil {
+		slog.Error("gippity: failed to register /gippity command", "error", err)
+	} else {
+		registeredPrivacyCmd = cmd
+	}
+
 	slog.Info("gippity function registered")
+}
+
+// Shutdown deletes the registered application commands.
+func Shutdown() {
+	if discordSession != nil && registeredPrivacyCmd != nil {
+		if err := discordSession.ApplicationCommandDelete(discordSession.State.User.ID, "", registeredPrivacyCmd.ID); err != nil {
+			slog.Error("gippity: failed to delete /gippity command", "error", err)
+		}
+		registeredPrivacyCmd = nil
+	}
 }
 
 func idToNameCacheResetLoop() {
@@ -122,7 +166,7 @@ func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 			return
 		}
 	}
-	addMessageToDatabase(m)
+	addMessageToDatabase(m, isMentioned(m))
 	if limited(m) {
 		return
 	}
@@ -168,6 +212,53 @@ func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 	}
 }
 
+func onGippityInteractionCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	if i.Type != discordgo.InteractionApplicationCommand {
+		return
+	}
+	data := i.ApplicationCommandData()
+	if data.Name != "gippity" {
+		return
+	}
+	if len(data.Options) == 0 || data.Options[0].Name != "privacy" {
+		return
+	}
+
+	privacyOpts := data.Options[0].Options
+	if len(privacyOpts) == 0 {
+		return
+	}
+	value := privacyOpts[0].StringValue()
+	enabled := value == "on"
+
+	userID := i.Member.User.ID
+	if err := setUserPrivacy(userID, enabled); err != nil {
+		slog.Error("gippity: failed to set user privacy", "error", err, "userID", userID)
+		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Content: "Fehler beim Speichern deiner Datenschutzeinstellung.",
+				Flags:   discordgo.MessageFlagsEphemeral,
+			},
+		})
+		return
+	}
+
+	var msg string
+	if enabled {
+		msg = "Datenschutz aktiviert: Deine vergangenen Nachrichten werden im KI-Kontext anonymisiert."
+	} else {
+		msg = "Datenschutz deaktiviert: Deine vergangenen Nachrichten werden im KI-Kontext im Klartext verwendet."
+	}
+	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Content: msg,
+			Flags:   discordgo.MessageFlagsEphemeral,
+		},
+	})
+}
+
 func isMentioned(m *discordgo.MessageCreate) bool {
 	botUserID := discordSession.State.User.ID
 
@@ -201,21 +292,43 @@ Deine Antwort muss dieses Format haben:
 ---
 Achte darauf, dass deine Antwort nicht im gleichen Format wie die Benutzernachrichten ist, also nicht mit einem Zeitstempel beginnt.
 ---
-Stelle keine abschließenden Fragen, um weitere Interaktionen zu provozieren.`
+Stelle keine abschließenden Fragen, um weitere Interaktionen zu provozieren.
+---
+Einige Benutzernamen im Chatverlauf sind Pseudonyme (Benutzer 1, Benutzer 2, …), die anonymen Teilnehmern zugewiesen wurden. Versuche nicht, die wahre Identität eines pseudonymisierten Teilnehmers aus dem Kontext, dem Schreibstil oder anderen Signalen abzuleiten. Anonymisierte Nachrichteninhalte wurden ersetzt und sind nicht verfügbar; behandle solche Nachrichten als opake Kontextnachrichten.`
 
 	systemMessage := systemMessageBase + "\n" + enrichSystemMessage(llm.Personality)
 
 	messages := []openai.ChatCompletionMessageParamUnion{}
 	messages = append(messages, openai.SystemMessage(systemMessage))
 
+	pseudonymMap := make(map[string]string)
+	pseudonymCounter := 0
+
 	for _, message := range chatHistory {
 		if message.UserID == discordSession.State.User.ID {
 			messages = append(messages, openai.ChatCompletionMessageParamUnion(openai.AssistantMessage(message.Message)))
-		} else {
-			replaceAllUserIDsWithUsernamesInMessage(&message)
-			removeSpoilerTagContent(&message)
-			messages = append(messages, openai.ChatCompletionMessageParamUnion(openai.UserMessage(convertLLMChatMessageToLLMCompatibleFlowingText(message))))
+			continue
 		}
+
+		if !message.IsBotMention && getUserPrivacy(message.UserID) {
+			pseudo, ok := pseudonymMap[message.UserID]
+			if !ok {
+				pseudonymCounter++
+				pseudo = fmt.Sprintf("Benutzer %d", pseudonymCounter)
+				pseudonymMap[message.UserID] = pseudo
+			}
+			anon := LLMChatMessage{
+				Username:        pseudo,
+				TimestampString: message.TimestampString,
+				Message:         "[Anonymisierte Nachricht]",
+			}
+			messages = append(messages, openai.ChatCompletionMessageParamUnion(openai.UserMessage(convertLLMChatMessageToLLMCompatibleFlowingText(anon))))
+			continue
+		}
+
+		replaceAllUserIDsWithUsernamesInMessage(&message)
+		removeSpoilerTagContent(&message)
+		messages = append(messages, openai.ChatCompletionMessageParamUnion(openai.UserMessage(convertLLMChatMessageToLLMCompatibleFlowingText(message))))
 	}
 
 	for _, imageURL := range imageURLs {
