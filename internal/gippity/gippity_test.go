@@ -120,7 +120,7 @@ func TestOnMessageCreate_StoresBotMentionFlag(t *testing.T) {
 
 	botUser := &discordgo.User{ID: "bot-user"}
 	m := gippityTestMessage("hey <@bot-user>", botUser)
-	m.Message.ID = "mention-msg-id"
+	m.ID = "mention-msg-id"
 
 	onMessageCreate(session, m)
 
@@ -141,7 +141,7 @@ func TestOnMessageCreate_StoresNonMentionWithZeroFlag(t *testing.T) {
 	}
 
 	m := gippityTestMessage("just chatting")
-	m.Message.ID = "non-mention-msg-id"
+	m.ID = "non-mention-msg-id"
 
 	onMessageCreate(session, m)
 
