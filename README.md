@@ -23,7 +23,7 @@ Gidbig is a Discord bot written in Go — soundboard playback in voice channels,
 | Plugin | What it does |
 |---|---|
 | ☕ **coffee** | Greets users with their preferred morning beverage when they say "moin", "hallo", etc. `/setbeverage <emoji>` to configure, `/brew` to trigger manually |
-| 🗡️ **eso** | `!eso` — Elder Scrolls Online utility commands |
+| 🔮 **eso** | `!eso` — generates random esoteric pseudoscience nonsense: tachyonized homeopathic energy cards irradiated with scalar waves to combat the Illuminati mind control agenda |
 | 🎮 **gamerstatus** | Rotates the bot's Discord custom status periodically |
 | 🤖 **gippity** | AI chat via `/gippity`; backed by an LLM, stores conversation history in SQLite; restricted to configured guild IDs |
 | 🕐 **leetoclock** | Daily 13:37 game — first to post in the channel wins; scores by reaction time; posts a scoreboard at end of game |
