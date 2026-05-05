@@ -231,7 +231,15 @@ func onGippityInteractionCreate(s *discordgo.Session, i *discordgo.InteractionCr
 	value := privacyOpts[0].StringValue()
 	enabled := value == "on"
 
-	userID := i.Member.User.ID
+	var userID string
+	if i.Member != nil {
+		userID = i.Member.User.ID
+	} else if i.User != nil {
+		userID = i.User.ID
+	}
+	if userID == "" {
+		return
+	}
 	if err := setUserPrivacy(userID, enabled); err != nil {
 		slog.Error("gippity: failed to set user privacy", "error", err, "userID", userID)
 		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
@@ -303,6 +311,7 @@ Einige Benutzernamen im Chatverlauf sind Pseudonyme (Benutzer 1, Benutzer 2, …
 
 	pseudonymMap := make(map[string]string)
 	pseudonymCounter := 0
+	privacyCache := make(map[string]bool)
 
 	for _, message := range chatHistory {
 		if message.UserID == discordSession.State.User.ID {
@@ -310,7 +319,10 @@ Einige Benutzernamen im Chatverlauf sind Pseudonyme (Benutzer 1, Benutzer 2, …
 			continue
 		}
 
-		if !message.IsBotMention && getUserPrivacy(message.UserID) {
+		if _, cached := privacyCache[message.UserID]; !cached {
+			privacyCache[message.UserID] = getUserPrivacy(message.UserID)
+		}
+		if !message.IsBotMention && privacyCache[message.UserID] {
 			pseudo, ok := pseudonymMap[message.UserID]
 			if !ok {
 				pseudonymCounter++
