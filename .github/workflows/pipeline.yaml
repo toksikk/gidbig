@@ -19,9 +19,32 @@ jobs:
               id: determine_go_version
               run: echo "go_version=$(grep "go 1." go.mod | cut -d " " -f 2)" >> $GITHUB_OUTPUT
 
+    detect_changes:
+        name: Detect file changes
+        runs-on: ubuntu-latest
+
+        outputs:
+            go: ${{ steps.filter.outputs.go }}
+
+        steps:
+            - uses: actions/checkout@v6
+
+            - uses: dorny/paths-filter@v3
+              id: filter
+              with:
+                  filters: |
+                      go:
+                        - '**/*.go'
+                        - 'go.mod'
+                        - 'go.sum'
+                        - 'Makefile'
+
     check_code:
         name: Check code
-        needs: preparation
+        needs:
+            - preparation
+            - detect_changes
+        if: needs.detect_changes.outputs.go == 'true' || github.event_name == 'workflow_dispatch'
         runs-on: ubuntu-latest
 
         steps:
@@ -40,6 +63,8 @@ jobs:
         needs:
             - check_code
             - preparation
+            - detect_changes
+        if: needs.detect_changes.outputs.go == 'true' || github.event_name == 'workflow_dispatch'
         runs-on: ubuntu-latest
 
         steps:
