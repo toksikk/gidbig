@@ -13,6 +13,10 @@ Prefer a linear, readable history: use `--squash` when merging PRs, rebase featu
 
 Each PR should represent one logical, independently reversible change — don't bundle unrelated fixes or features into a single PR just because they're convenient. If a task touches multiple separable concerns, open a PR per concern.
 
+### Bot commands
+
+Prefer Discord slash commands (`/` prefix) over legacy chat commands (`!` prefix). Register slash commands via `discordgo.Session.ApplicationCommandCreate` on startup and handle them in an `InteractionCreate` handler. When implementing a new command or touching an existing legacy `!`-prefix command during any task, refactor it to a slash command. Use ephemeral responses (`discordgo.MessageFlagsEphemeral`) for owner/admin replies to avoid leaking data in public channels.
+
 ### Unit tests
 After every code change, check whether the affected package has tests (`*_test.go` files). If none exist, write them before opening the PR. A fix without tests is not done.
 
