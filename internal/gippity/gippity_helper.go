@@ -118,6 +118,11 @@ func enrichSystemMessage(systemMessage string) string {
 // fetchReferencedMessageFunc is the var used in tests to mock fetchReferencedMessage.
 var fetchReferencedMessageFunc = fetchReferencedMessage
 
+// channelMessageFunc is the var used in tests to mock the Discord API fallback.
+var channelMessageFunc = func(s *discordgo.Session, channelID, messageID string) (*discordgo.Message, error) {
+	return s.ChannelMessage(channelID, messageID)
+}
+
 func fetchReferencedMessage(s *discordgo.Session, ref *discordgo.MessageReference) (*discordgo.Message, error) {
 	dbMsg, err := getMessageFromDatabase(ref.MessageID)
 	if err != nil {
@@ -133,7 +138,7 @@ func fetchReferencedMessage(s *discordgo.Session, ref *discordgo.MessageReferenc
 		}, nil
 	}
 
-	return s.ChannelMessage(ref.ChannelID, ref.MessageID)
+	return channelMessageFunc(s, ref.ChannelID, ref.MessageID)
 }
 
 func replaceAllUserIDsWithUsernamesInStringMessage(message string, guildid string) string {

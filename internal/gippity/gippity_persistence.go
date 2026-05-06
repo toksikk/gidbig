@@ -190,11 +190,11 @@ func getMessageFromDatabase(messageID string) (*LLMChatMessage, error) {
 	stmt, err := database.Prepare(`
 	SELECT ch.user_id, ch.channel_id, ch.timestamp, ch.message, ch.message_id, ch.guild_id,
 	       COALESCE(ch.is_bot_mention, 0),
-	       ca.image_description
+	       GROUP_CONCAT(ca.image_description, '||') as image_desc_concat
 	FROM chat_history ch
 	LEFT JOIN chat_attachments ca ON ca.message_id = ch.message_id
 	WHERE ch.message_id = ?
-	LIMIT 1
+	GROUP BY ch.message_id
 	`)
 	if err != nil {
 		return nil, err
@@ -222,7 +222,7 @@ func getMessageFromDatabase(messageID string) (*LLMChatMessage, error) {
 	}
 	message.IsBotMention = isBotMentionInt != 0
 	if imageDescConcat != nil && *imageDescConcat != "" {
-		message.ImageDescriptions = append(message.ImageDescriptions, *imageDescConcat)
+		message.ImageDescriptions = strings.Split(*imageDescConcat, "||")
 	}
 
 	if idToNameCache[message.UserID] == "" {

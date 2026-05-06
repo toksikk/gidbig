@@ -284,27 +284,6 @@ func TestGetMessageFromDatabase_NotFound(t *testing.T) {
 	}
 }
 
-func TestGenerateAnswer_NoReference_UnchangedBehaviour(t *testing.T) {
-	setupGippityTest(t)
-
-	fetchCalled := false
-	prev := fetchReferencedMessageFunc
-	t.Cleanup(func() { fetchReferencedMessageFunc = prev })
-	fetchReferencedMessageFunc = func(_ *discordgo.Session, _ *discordgo.MessageReference) (*discordgo.Message, error) {
-		fetchCalled = true
-		return nil, nil
-	}
-
-	m := gippityTestMessage("hey <@bot-user>", &discordgo.User{ID: "bot-user"})
-	// No MessageReference set — fetchReferencedMessageFunc must not be called.
-	if fetchCalled {
-		t.Error("fetchReferencedMessageFunc should not be called when there is no MessageReference")
-	}
-	// Sanity: field is nil by default.
-	if m.MessageReference != nil {
-		t.Fatal("test message should have no MessageReference")
-	}
-}
 
 func TestGenerateAnswer_ReferencedMessageOptedOutAuthor_PlaceholderInjected(t *testing.T) {
 	setupGippityTest(t)
