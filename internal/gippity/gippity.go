@@ -55,33 +55,36 @@ func Start(discord *discordgo.Session) {
 	discord.AddHandler(onMessageCreate)
 	discord.AddHandler(onGippityInteractionCreate)
 
-	if _, err := discord.ApplicationCommandCreate(discord.State.User.ID, "", &discordgo.ApplicationCommand{
-		Name:        "gippity",
-		Description: "Gippity settings",
-		Options: []*discordgo.ApplicationCommandOption{
-			{
-				Type:        discordgo.ApplicationCommandOptionSubCommand,
-				Name:        "privacy",
-				Description: "Control whether your past messages are anonymized in AI context",
-				Options: []*discordgo.ApplicationCommandOption{
-					{
-						Type:        discordgo.ApplicationCommandOptionString,
-						Name:        "set",
-						Description: "on = anonymize (default), off = include as-is",
-						Required:    true,
-						Choices: []*discordgo.ApplicationCommandOptionChoice{
-							{Name: "on", Value: "on"},
-							{Name: "off", Value: "off"},
+	slog.Info("gippity function registered")
+}
+
+// Commands returns the slash command definitions for this plugin.
+func Commands() []*discordgo.ApplicationCommand {
+	return []*discordgo.ApplicationCommand{
+		{
+			Name:        "gippity",
+			Description: "Gippity settings",
+			Options: []*discordgo.ApplicationCommandOption{
+				{
+					Type:        discordgo.ApplicationCommandOptionSubCommand,
+					Name:        "privacy",
+					Description: "Control whether your past messages are anonymized in AI context",
+					Options: []*discordgo.ApplicationCommandOption{
+						{
+							Type:        discordgo.ApplicationCommandOptionString,
+							Name:        "set",
+							Description: "on = anonymize (default), off = include as-is",
+							Required:    true,
+							Choices: []*discordgo.ApplicationCommandOptionChoice{
+								{Name: "on", Value: "on"},
+								{Name: "off", Value: "off"},
+							},
 						},
 					},
 				},
 			},
 		},
-	}); err != nil {
-		slog.Error("gippity: failed to register /gippity command", "error", err)
 	}
-
-	slog.Info("gippity function registered")
 }
 
 // Shutdown cleans up gippity resources.

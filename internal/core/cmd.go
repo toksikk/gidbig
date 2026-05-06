@@ -337,13 +337,6 @@ func StartGidbig() {
 		return
 	}
 
-	if _, err := discord.ApplicationCommandCreate(discord.State.User.ID, "", &discordgo.ApplicationCommand{
-		Name:        "status",
-		Description: "Show bot runtime status (owner only)",
-	}); err != nil {
-		slog.Error("Failed to register /status command", "error", err)
-	}
-
 	llm.Initialize()
 	coffee.Start(discord)
 	eso.Start(discord)
@@ -352,6 +345,15 @@ func StartGidbig() {
 	leetoclock.Start(discord)
 	stoll.Start(discord)
 	wttrin.Start(discord)
+
+	cmds := []*discordgo.ApplicationCommand{
+		{Name: "status", Description: "Show bot runtime status (owner only)"},
+	}
+	cmds = append(cmds, coffee.Commands()...)
+	cmds = append(cmds, gippity.Commands()...)
+	if _, err := discord.ApplicationCommandBulkOverwrite(discord.State.User.ID, "", cmds); err != nil {
+		slog.Error("Failed to register slash commands", "error", err)
+	}
 
 	gbploader.LoadPlugins(discord)
 
