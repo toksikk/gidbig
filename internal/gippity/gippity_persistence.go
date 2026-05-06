@@ -77,6 +77,10 @@ func initDB() {
 	if err != nil {
 		slog.Error("Error while creating chat_history_edits table", "error", err)
 	}
+	_, err = database.Exec(`CREATE INDEX IF NOT EXISTS idx_chat_history_edits_original ON chat_history_edits(original_message_id, version)`)
+	if err != nil {
+		slog.Error("Error while creating index on chat_history_edits", "error", err)
+	}
 }
 
 // CloseDB closes the gippity chat history database.
@@ -110,7 +114,10 @@ func addMessageEditToDatabase(messageID, content string, editedAt int64) {
 	dbMu.Lock()
 	defer dbMu.Unlock()
 	var maxVersion int
-	_ = database.QueryRow(`SELECT COALESCE(MAX(version), 0) FROM chat_history_edits WHERE original_message_id = ?`, messageID).Scan(&maxVersion)
+	if err := database.QueryRow(`SELECT COALESCE(MAX(version), 0) FROM chat_history_edits WHERE original_message_id = ?`, messageID).Scan(&maxVersion); err != nil {
+		slog.Error("Error while querying max edit version", "error", err)
+		return
+	}
 	_, err := database.Exec(
 		`INSERT INTO chat_history_edits (original_message_id, edited_content, version, edited_at) VALUES (?, ?, ?, ?)`,
 		messageID, content, maxVersion+1, editedAt,

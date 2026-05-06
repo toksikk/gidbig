@@ -466,13 +466,15 @@ func TestGenerateAnswer_ReferencedMessageOptInAuthor_ContentInjected(t *testing.
 }
 
 func gippityTestMessageUpdate(msgID, content, guildID, authorID string) *discordgo.MessageUpdate {
+	ts := time.Unix(1000, 0)
 	return &discordgo.MessageUpdate{
 		Message: &discordgo.Message{
-			ID:        msgID,
-			ChannelID: "channel-1",
-			GuildID:   guildID,
-			Content:   content,
-			Author:    &discordgo.User{ID: authorID, Username: "Alice"},
+			ID:              msgID,
+			ChannelID:       "channel-1",
+			GuildID:         guildID,
+			Content:         content,
+			EditedTimestamp: &ts,
+			Author:          &discordgo.User{ID: authorID, Username: "Alice"},
 		},
 	}
 }
@@ -601,6 +603,31 @@ func TestGetLastNMessagesFromDatabase_ShowsLatestEdit(t *testing.T) {
 	}
 	if msgs[0].Message != "v2 edit" {
 		t.Errorf("message content = %q, want %q", msgs[0].Message, "v2 edit")
+	}
+}
+
+func TestGetMessageFromDatabase_ShowsLatestEdit(t *testing.T) {
+	setupGippityTest(t)
+
+	if _, err := database.Exec(`INSERT INTO chat_history (user_id, channel_id, timestamp, message, message_id, guild_id, is_bot_mention) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		"user-1", "channel-1", 1000, "original message", "getmsg-edit-id", "allowed-guild", 0); err != nil {
+		t.Fatalf("insert chat_history: %v", err)
+	}
+	if _, err := database.Exec(`INSERT INTO chat_history_edits (original_message_id, edited_content, version, edited_at) VALUES (?, ?, ?, ?)`,
+		"getmsg-edit-id", "v1 edit", 1, 1001); err != nil {
+		t.Fatalf("insert edit v1: %v", err)
+	}
+	if _, err := database.Exec(`INSERT INTO chat_history_edits (original_message_id, edited_content, version, edited_at) VALUES (?, ?, ?, ?)`,
+		"getmsg-edit-id", "v2 edit", 2, 1002); err != nil {
+		t.Fatalf("insert edit v2: %v", err)
+	}
+
+	msg, err := getMessageFromDatabase("getmsg-edit-id")
+	if err != nil {
+		t.Fatalf("getMessageFromDatabase: %v", err)
+	}
+	if msg.Message != "v2 edit" {
+		t.Errorf("message content = %q, want %q", msg.Message, "v2 edit")
 	}
 }
 
