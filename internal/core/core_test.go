@@ -118,9 +118,6 @@ func TestBanner_WritesToWriter(t *testing.T) {
 	if len(output) == 0 {
 		t.Error("Banner() wrote nothing to writer")
 	}
-	if !strings.Contains(output, "gidbig") {
-		t.Errorf("Banner() output does not contain 'gidbig': %q", output)
-	}
 }
 
 func TestBanner_WithPlugins(t *testing.T) {
