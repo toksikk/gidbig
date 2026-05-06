@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"os"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
@@ -18,9 +19,9 @@ var tHourInt, tMinuteInt = 13, 37
 
 var session *discordgo.Session
 
-var preparationAnnounceLock = false
-var winnerAnnounceLock = false
-var renewReactionsLock = false
+var preparationAnnounceMu sync.Mutex
+var winnerAnnounceMu sync.Mutex
+var renewReactionsMu sync.Mutex
 
 var playersWithClockReactions []string = []string{}
 
@@ -83,8 +84,8 @@ func isOnTargetTimeRange(messageTimestamp time.Time, onlyOnTarget bool) bool {
 }
 
 func announcePreparation() {
+	defer preparationAnnounceMu.Unlock()
 	if isOnTargetTimeRange(time.Now(), false) {
-		preparationAnnounceLock = true
 		for _, v := range announcementChannels {
 			_, err := session.ChannelMessageSend(v, fmt.Sprintf("## Leet o'Clock scheduled:\n<t:%d:R>", tt.Unix()))
 			if err != nil {
@@ -92,7 +93,6 @@ func announcePreparation() {
 			}
 		}
 		time.Sleep(2 * time.Minute)
-		preparationAnnounceLock = false
 	}
 }
 
@@ -260,11 +260,8 @@ func buildScoreboardForGame(game datastore.Game) (string, []datastore.Score, []d
 }
 
 func renewReactions(game datastore.Game) {
-	for renewReactionsLock {
-		time.Sleep(1 * time.Second)
-	}
-
-	renewReactionsLock = true
+	renewReactionsMu.Lock()
+	defer renewReactionsMu.Unlock()
 
 	_, earlybirds, winners, zonks, err := buildScoreboardForGame(game)
 	if err != nil {
@@ -304,13 +301,12 @@ func renewReactions(game datastore.Game) {
 		util.ReactOnMessage(session, game.ChannelID, v.MessageID, zonk, "add")
 	}
 
-	renewReactionsLock = false
 }
 
 func announceTodaysWinners() {
+	defer winnerAnnounceMu.Unlock()
 	if isOnTargetTimeRange(time.Now(), true) {
 		slog.Info("Announcing winners")
-		winnerAnnounceLock = true
 		time.Sleep(62 * time.Second)
 		games, err := store.GetGamesByDate(time.Now())
 		if err != nil {
@@ -329,7 +325,6 @@ func announceTodaysWinners() {
 			}
 		}
 	}
-	winnerAnnounceLock = false
 	resetGameVars()
 }
 
@@ -349,10 +344,10 @@ func gameTick() {
 			}
 			updateTTHelper()
 		}
-		if !preparationAnnounceLock {
+		if preparationAnnounceMu.TryLock() {
 			go announcePreparation()
 		}
-		if !winnerAnnounceLock {
+		if winnerAnnounceMu.TryLock() {
 			go announceTodaysWinners()
 		}
 	}
