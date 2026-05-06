@@ -8,6 +8,8 @@ import (
 	"github.com/bwmarrin/discordgo"
 )
 
+var previousDescribeImagesFunc func([]string) (string, error)
+
 func setupGippityTest(t *testing.T) *discordgo.Session {
 	t.Helper()
 
@@ -18,6 +20,7 @@ func setupGippityTest(t *testing.T) *discordgo.Session {
 	previousUserMessageCount := userMessageCount
 	previousUserMessageCountLastReset := userMessageCountLastReset
 	previousGenerateAnswerFunc := generateAnswerFunc
+	previousDescribeImagesFunc = describeImagesFunc
 
 	testDB, err := sql.Open("sqlite3", ":memory:")
 	if err != nil {
@@ -28,6 +31,9 @@ func setupGippityTest(t *testing.T) *discordgo.Session {
 	}
 	if _, err := testDB.Exec(`CREATE TABLE user_privacy (user_id TEXT PRIMARY KEY, privacy_enabled INTEGER NOT NULL DEFAULT 1)`); err != nil {
 		t.Fatalf("create user_privacy table: %v", err)
+	}
+	if _, err := testDB.Exec(`CREATE TABLE chat_attachments (id INTEGER PRIMARY KEY AUTOINCREMENT, message_id TEXT, attachment_url TEXT, image_description TEXT)`); err != nil {
+		t.Fatalf("create chat_attachments table: %v", err)
 	}
 
 	state := discordgo.NewState()
@@ -51,6 +57,7 @@ func setupGippityTest(t *testing.T) *discordgo.Session {
 		userMessageCount = previousUserMessageCount
 		userMessageCountLastReset = previousUserMessageCountLastReset
 		generateAnswerFunc = previousGenerateAnswerFunc
+		describeImagesFunc = previousDescribeImagesFunc
 	})
 
 	return session
@@ -178,5 +185,93 @@ func TestSetAndGetUserPrivacy(t *testing.T) {
 	}
 	if !getUserPrivacy("user-a") {
 		t.Error("getUserPrivacy should return true after re-enabling privacy")
+	}
+}
+
+func gippityTestMessageWithImage(content string, imageURL string) *discordgo.MessageCreate {
+	return &discordgo.MessageCreate{
+		Message: &discordgo.Message{
+			ID:        "img-msg-id",
+			ChannelID: "channel-1",
+			GuildID:   "allowed-guild",
+			Content:   content,
+			Author: &discordgo.User{
+				ID:       "user-1",
+				Username: "Alice",
+			},
+			Attachments: []*discordgo.MessageAttachment{
+				{
+					ID:       "att-1",
+					URL:      imageURL,
+					Filename: "photo.png",
+				},
+			},
+		},
+	}
+}
+
+func TestOnMessageCreate_DescribesImageForNonMentionMessage(t *testing.T) {
+	session := setupGippityTest(t)
+	generateAnswerFunc = func(_ *discordgo.MessageCreate, _ []string) (string, error) {
+		t.Fatal("generateAnswerFunc should not be called for non-mention message")
+		return "", nil
+	}
+	describeCalled := false
+	describeImagesFunc = func(urls []string) (string, error) {
+		describeCalled = true
+		if len(urls) != 1 || urls[0] != "https://cdn.example.com/photo.png" {
+			t.Errorf("unexpected image URLs: %v", urls)
+		}
+		return "a cat on a mat", nil
+	}
+
+	m := gippityTestMessageWithImage("check this out", "https://cdn.example.com/photo.png")
+
+	onMessageCreate(session, m)
+
+	if !describeCalled {
+		t.Error("describeImagesFunc should have been called for image attachment")
+	}
+
+	var url, desc string
+	err := database.QueryRow("SELECT attachment_url, image_description FROM chat_attachments WHERE message_id = ?", "img-msg-id").Scan(&url, &desc)
+	if err != nil {
+		t.Fatalf("expected attachment row to exist: %v", err)
+	}
+	if url != "https://cdn.example.com/photo.png" {
+		t.Errorf("stored url = %q, want %q", url, "https://cdn.example.com/photo.png")
+	}
+	if desc != "a cat on a mat" {
+		t.Errorf("stored description = %q, want %q", desc, "a cat on a mat")
+	}
+}
+
+func TestGetLastNMessagesFromDatabase_IncludesImageDescriptions(t *testing.T) {
+	setupGippityTest(t)
+	idToNameCache["user-1"] = "Alice"
+	idToNameCache["channel-1"] = "general"
+	idToNameCache["allowed-guild"] = "Test Guild"
+
+	if _, err := database.Exec(`INSERT INTO chat_history (user_id, channel_id, timestamp, message, message_id, guild_id, is_bot_mention) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		"user-1", "channel-1", 1000, "look at this", "msg-with-img", "allowed-guild", 0); err != nil {
+		t.Fatalf("insert chat_history: %v", err)
+	}
+	if _, err := database.Exec(`INSERT INTO chat_attachments (message_id, attachment_url, image_description) VALUES (?, ?, ?)`,
+		"msg-with-img", "https://cdn.example.com/photo.png", "a fluffy dog"); err != nil {
+		t.Fatalf("insert chat_attachments: %v", err)
+	}
+
+	msgs, err := getLastNMessagesFromDatabase("channel-1", 10)
+	if err != nil {
+		t.Fatalf("getLastNMessagesFromDatabase: %v", err)
+	}
+	if len(msgs) != 1 {
+		t.Fatalf("expected 1 message, got %d", len(msgs))
+	}
+	if len(msgs[0].ImageDescriptions) != 1 {
+		t.Fatalf("expected 1 image description, got %d", len(msgs[0].ImageDescriptions))
+	}
+	if msgs[0].ImageDescriptions[0] != "a fluffy dog" {
+		t.Errorf("image description = %q, want %q", msgs[0].ImageDescriptions[0], "a fluffy dog")
 	}
 }

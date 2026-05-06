@@ -72,3 +72,19 @@ func TestConvertLLMChatMessageToLLMCompatibleFlowingText(t *testing.T) {
 		t.Errorf("result missing message: %q", result)
 	}
 }
+
+func TestConvertLLMChatMessageToLLMCompatibleFlowingText_WithImageDescriptions(t *testing.T) {
+	msg := LLMChatMessage{
+		TimestampString:   "2026-05-01 12:00:00",
+		Username:          "Alice",
+		Message:           "look at this",
+		ImageDescriptions: []string{"a cat sitting on a mat", "a blue sky"},
+	}
+	result := convertLLMChatMessageToLLMCompatibleFlowingText(msg)
+	if !strings.Contains(result, "[Image 1: a cat sitting on a mat]") {
+		t.Errorf("result missing image 1 description: %q", result)
+	}
+	if !strings.Contains(result, "[Image 2: a blue sky]") {
+		t.Errorf("result missing image 2 description: %q", result)
+	}
+}

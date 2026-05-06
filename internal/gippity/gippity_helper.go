@@ -3,6 +3,7 @@ package gippity
 import (
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"regexp"
 	"strings"
@@ -32,7 +33,24 @@ func convertLLMChatMessageToJSON(message LLMChatMessage) string {
 }
 
 func convertLLMChatMessageToLLMCompatibleFlowingText(message LLMChatMessage) string {
-	return message.TimestampString + " " + message.Username + ": " + message.Message
+	var sb strings.Builder
+	sb.WriteString(message.TimestampString + " " + message.Username + ": " + message.Message)
+	for i, desc := range message.ImageDescriptions {
+		fmt.Fprintf(&sb, " [Image %d: %s]", i+1, desc)
+	}
+	return sb.String()
+}
+
+func extractImageURLs(attachments []*discordgo.MessageAttachment) []string {
+	var urls []string
+	for _, a := range attachments {
+		name := a.Filename
+		if strings.HasSuffix(name, ".jpg") || strings.HasSuffix(name, ".jpeg") ||
+			strings.HasSuffix(name, ".png") || strings.HasSuffix(name, ".webp") {
+			urls = append(urls, a.URL)
+		}
+	}
+	return urls
 }
 
 func convertDiscordMessageToLLMCompatibleFlowingText(m *discordgo.MessageCreate) string {
