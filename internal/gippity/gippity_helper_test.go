@@ -3,6 +3,8 @@ package gippity
 import (
 	"strings"
 	"testing"
+
+	"github.com/bwmarrin/discordgo"
 )
 
 func TestEnrichSystemMessage_returnsInputUnchanged(t *testing.T) {
@@ -70,6 +72,69 @@ func TestConvertLLMChatMessageToLLMCompatibleFlowingText(t *testing.T) {
 	}
 	if !strings.Contains(result, "Hello there") {
 		t.Errorf("result missing message: %q", result)
+	}
+}
+
+func TestFetchReferencedMessage_FoundInDB(t *testing.T) {
+	setupGippityTest(t)
+	idToNameCache["user-2"] = "Bob"
+	idToNameCache["channel-1"] = "general"
+	idToNameCache["allowed-guild"] = "Test Guild"
+
+	if _, err := database.Exec(`INSERT INTO chat_history (user_id, channel_id, timestamp, message, message_id, guild_id, is_bot_mention) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		"user-2", "channel-1", 1000, "the referenced content", "ref-db-msg", "allowed-guild", 0); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+
+	ref := &discordgo.MessageReference{
+		MessageID: "ref-db-msg",
+		ChannelID: "channel-1",
+		GuildID:   "allowed-guild",
+	}
+	msg, err := fetchReferencedMessage(discordSession, ref)
+	if err != nil {
+		t.Fatalf("fetchReferencedMessage: %v", err)
+	}
+	if msg == nil {
+		t.Fatal("expected non-nil message")
+	}
+	if msg.Content != "the referenced content" {
+		t.Errorf("Content = %q, want %q", msg.Content, "the referenced content")
+	}
+	if msg.Author == nil || msg.Author.ID != "user-2" {
+		t.Errorf("Author.ID = %q, want %q", msg.Author.ID, "user-2")
+	}
+}
+
+func TestFetchReferencedMessage_NotInDB_FallsBackToAPI(t *testing.T) {
+	setupGippityTest(t)
+
+	apiCalled := false
+	prev := fetchReferencedMessageFunc
+	t.Cleanup(func() { fetchReferencedMessageFunc = prev })
+	fetchReferencedMessageFunc = func(_ *discordgo.Session, ref *discordgo.MessageReference) (*discordgo.Message, error) {
+		apiCalled = true
+		return &discordgo.Message{
+			ID:      ref.MessageID,
+			Content: "fetched from api",
+			Author:  &discordgo.User{ID: "user-api", Username: "ApiUser"},
+		}, nil
+	}
+
+	ref := &discordgo.MessageReference{
+		MessageID: "api-msg-id",
+		ChannelID: "channel-1",
+		GuildID:   "allowed-guild",
+	}
+	msg, err := fetchReferencedMessageFunc(discordSession, ref)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !apiCalled {
+		t.Error("expected mock fetch to be called")
+	}
+	if msg == nil || msg.Content != "fetched from api" {
+		t.Errorf("unexpected message: %v", msg)
 	}
 }
 

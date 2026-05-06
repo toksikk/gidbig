@@ -186,6 +186,62 @@ func getLastNMessagesFromDatabase(channelID string, n int) ([]LLMChatMessage, er
 	return llmMessages, nil
 }
 
+func getMessageFromDatabase(messageID string) (*LLMChatMessage, error) {
+	stmt, err := database.Prepare(`
+	SELECT ch.user_id, ch.channel_id, ch.timestamp, ch.message, ch.message_id, ch.guild_id,
+	       COALESCE(ch.is_bot_mention, 0),
+	       ca.image_description
+	FROM chat_history ch
+	LEFT JOIN chat_attachments ca ON ca.message_id = ch.message_id
+	WHERE ch.message_id = ?
+	LIMIT 1
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = stmt.Close() }()
+
+	var message LLMChatMessage
+	var isBotMentionInt int
+	var imageDescConcat *string
+	err = stmt.QueryRow(messageID).Scan(
+		&message.UserID,
+		&message.ChannelID,
+		&message.Timestamp,
+		&message.Message,
+		&message.MessageID,
+		&message.GuildID,
+		&isBotMentionInt,
+		&imageDescConcat,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	message.IsBotMention = isBotMentionInt != 0
+	if imageDescConcat != nil && *imageDescConcat != "" {
+		message.ImageDescriptions = append(message.ImageDescriptions, *imageDescConcat)
+	}
+
+	if idToNameCache[message.UserID] == "" {
+		idToNameCache[message.UserID] = util.GetUsernameForUserIDInGuild(discordSession, message.UserID, message.GuildID)
+	}
+	if idToNameCache[message.ChannelID] == "" {
+		idToNameCache[message.ChannelID] = util.GetChannelName(discordSession, message.ChannelID)
+	}
+	if idToNameCache[message.GuildID] == "" {
+		idToNameCache[message.GuildID] = util.GetGuildName(discordSession, message.GuildID)
+	}
+
+	message.Username = idToNameCache[message.UserID]
+	message.ChannelName = idToNameCache[message.ChannelID]
+	message.GuildName = idToNameCache[message.GuildID]
+	message.TimestampString = util.GetTimestampOfMessage(message.MessageID).Format("2006-01-02 15:04:05")
+	return &message, nil
+}
+
 // getUserPrivacy returns true (privacy on) by default; explicit opt-out returns false.
 func getUserPrivacy(userID string) bool {
 	var enabled int

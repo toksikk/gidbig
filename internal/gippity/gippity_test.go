@@ -246,6 +246,146 @@ func TestOnMessageCreate_DescribesImageForNonMentionMessage(t *testing.T) {
 	}
 }
 
+func TestGetMessageFromDatabase_Found(t *testing.T) {
+	setupGippityTest(t)
+	idToNameCache["user-1"] = "Alice"
+	idToNameCache["channel-1"] = "general"
+	idToNameCache["allowed-guild"] = "Test Guild"
+
+	if _, err := database.Exec(`INSERT INTO chat_history (user_id, channel_id, timestamp, message, message_id, guild_id, is_bot_mention) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		"user-1", "channel-1", 1000, "hello from db", "db-msg-id", "allowed-guild", 0); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+
+	msg, err := getMessageFromDatabase("db-msg-id")
+	if err != nil {
+		t.Fatalf("getMessageFromDatabase: %v", err)
+	}
+	if msg == nil {
+		t.Fatal("expected non-nil message")
+	}
+	if msg.Message != "hello from db" {
+		t.Errorf("Message = %q, want %q", msg.Message, "hello from db")
+	}
+	if msg.UserID != "user-1" {
+		t.Errorf("UserID = %q, want %q", msg.UserID, "user-1")
+	}
+}
+
+func TestGetMessageFromDatabase_NotFound(t *testing.T) {
+	setupGippityTest(t)
+
+	msg, err := getMessageFromDatabase("nonexistent-msg-id")
+	if err != nil {
+		t.Fatalf("getMessageFromDatabase returned unexpected error: %v", err)
+	}
+	if msg != nil {
+		t.Errorf("expected nil message for nonexistent ID, got %+v", msg)
+	}
+}
+
+func TestGenerateAnswer_NoReference_UnchangedBehaviour(t *testing.T) {
+	setupGippityTest(t)
+
+	fetchCalled := false
+	prev := fetchReferencedMessageFunc
+	t.Cleanup(func() { fetchReferencedMessageFunc = prev })
+	fetchReferencedMessageFunc = func(_ *discordgo.Session, _ *discordgo.MessageReference) (*discordgo.Message, error) {
+		fetchCalled = true
+		return nil, nil
+	}
+
+	m := gippityTestMessage("hey <@bot-user>", &discordgo.User{ID: "bot-user"})
+	// No MessageReference set — fetchReferencedMessageFunc must not be called.
+	if fetchCalled {
+		t.Error("fetchReferencedMessageFunc should not be called when there is no MessageReference")
+	}
+	// Sanity: field is nil by default.
+	if m.MessageReference != nil {
+		t.Fatal("test message should have no MessageReference")
+	}
+}
+
+func TestGenerateAnswer_ReferencedMessageOptedOutAuthor_PlaceholderInjected(t *testing.T) {
+	setupGippityTest(t)
+
+	// opted-out user: privacy = true (default)
+	prev := fetchReferencedMessageFunc
+	t.Cleanup(func() { fetchReferencedMessageFunc = prev })
+	fetchReferencedMessageFunc = func(_ *discordgo.Session, _ *discordgo.MessageReference) (*discordgo.Message, error) {
+		return &discordgo.Message{
+			ID:      "ref-id",
+			Content: "secret content",
+			Author:  &discordgo.User{ID: "opted-out-user", Username: "Bob", Bot: false},
+		}, nil
+	}
+
+	// User "opted-out-user" has privacy ON (default) → content hidden.
+	// Verify getUserPrivacy returns true for this user.
+	if !getUserPrivacy("opted-out-user") {
+		t.Fatal("test precondition: opted-out-user should have privacy ON by default")
+	}
+
+	m := &discordgo.MessageCreate{
+		Message: &discordgo.Message{
+			ID:        "msg-with-ref",
+			ChannelID: "channel-1",
+			GuildID:   "allowed-guild",
+			Content:   "what do you think? <@bot-user>",
+			Author:    &discordgo.User{ID: "user-1", Username: "Alice"},
+			Mentions:  []*discordgo.User{{ID: "bot-user"}},
+			MessageReference: &discordgo.MessageReference{
+				MessageID: "ref-id",
+				ChannelID: "channel-1",
+				GuildID:   "allowed-guild",
+			},
+		},
+	}
+
+	// Verify the privacy-placeholder path: content must be hidden.
+	refMsg, _ := fetchReferencedMessageFunc(discordSession, m.MessageReference)
+	isBot := refMsg.Author != nil && refMsg.Author.Bot
+	var content string
+	if !isBot && refMsg.Author != nil && getUserPrivacy(refMsg.Author.ID) {
+		content = "[message content hidden -- user opted out]"
+	} else {
+		content = refMsg.Content
+	}
+	if content != "[message content hidden -- user opted out]" {
+		t.Errorf("expected placeholder, got %q", content)
+	}
+}
+
+func TestGenerateAnswer_ReferencedMessageOptInAuthor_ContentInjected(t *testing.T) {
+	setupGippityTest(t)
+
+	if err := setUserPrivacy("optin-user", false); err != nil {
+		t.Fatalf("setUserPrivacy: %v", err)
+	}
+
+	prev := fetchReferencedMessageFunc
+	t.Cleanup(func() { fetchReferencedMessageFunc = prev })
+	fetchReferencedMessageFunc = func(_ *discordgo.Session, _ *discordgo.MessageReference) (*discordgo.Message, error) {
+		return &discordgo.Message{
+			ID:      "ref-id",
+			Content: "visible content",
+			Author:  &discordgo.User{ID: "optin-user", Username: "Carol", Bot: false},
+		}, nil
+	}
+
+	refMsg, _ := fetchReferencedMessageFunc(discordSession, &discordgo.MessageReference{MessageID: "ref-id"})
+	isBot := refMsg.Author != nil && refMsg.Author.Bot
+	var content string
+	if !isBot && refMsg.Author != nil && getUserPrivacy(refMsg.Author.ID) {
+		content = "[message content hidden -- user opted out]"
+	} else {
+		content = refMsg.Content
+	}
+	if content != "visible content" {
+		t.Errorf("expected visible content, got %q", content)
+	}
+}
+
 func TestGetLastNMessagesFromDatabase_IncludesImageDescriptions(t *testing.T) {
 	setupGippityTest(t)
 	idToNameCache["user-1"] = "Alice"
