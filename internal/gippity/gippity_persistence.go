@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"log/slog"
 	"strings"
+	"sync"
 
 	"github.com/bwmarrin/discordgo"
 	// sqlite3 driver
@@ -40,11 +41,12 @@ type LLMChatMessage struct {
 const chatHistoryDBFilename = "gippity.db"
 
 var database *sql.DB
+var dbMu sync.Mutex
 var idToNameCache = make(map[string]string)
 
 func initDB() {
 	var err error
-	database, err = sql.Open("sqlite3", chatHistoryDBFilename)
+	database, err = sql.Open("sqlite3", chatHistoryDBFilename+"?_journal=WAL&_busy_timeout=5000")
 	if err != nil {
 		slog.Error("Error while opening database", "error", err)
 		return
@@ -100,16 +102,14 @@ func addMessageToDatabase(m *discordgo.MessageCreate, isBotMention bool) {
 }
 
 func addAttachmentsToDatabase(messageID string, urls []string, description string) {
-	stmt, err := database.Prepare("INSERT INTO chat_attachments (message_id, attachment_url, image_description) VALUES (?, ?, ?)")
+	dbMu.Lock()
+	defer dbMu.Unlock()
+	_, err := database.Exec(
+		"INSERT INTO chat_attachments (message_id, attachment_url, image_description) VALUES (?, ?, ?)",
+		messageID, strings.Join(urls, ","), description,
+	)
 	if err != nil {
-		slog.Error("Error while preparing attachment statement", "error", err)
-		return
-	}
-	defer func() { _ = stmt.Close() }()
-	for _, url := range urls {
-		if _, err := stmt.Exec(messageID, url, description); err != nil {
-			slog.Error("Error while inserting attachment", "error", err)
-		}
+		slog.Error("Error while inserting attachment", "error", err)
 	}
 }
 
@@ -117,7 +117,7 @@ func getLastNMessagesFromDatabase(channelID string, n int) ([]LLMChatMessage, er
 	stmt, err := database.Prepare(`
 	SELECT ch.user_id, ch.channel_id, ch.timestamp, ch.message, ch.message_id, ch.guild_id,
 	       COALESCE(ch.is_bot_mention, 0),
-	       GROUP_CONCAT(ca.image_description, '|||')
+	       ca.image_description
 	FROM (
 	    SELECT user_id, channel_id, timestamp, message, message_id, guild_id, is_bot_mention
 	    FROM chat_history
@@ -126,7 +126,6 @@ func getLastNMessagesFromDatabase(channelID string, n int) ([]LLMChatMessage, er
 	    LIMIT ?
 	) AS ch
 	LEFT JOIN chat_attachments ca ON ca.message_id = ch.message_id
-	GROUP BY ch.message_id, ch.user_id, ch.channel_id, ch.timestamp, ch.message, ch.guild_id, ch.is_bot_mention
 	ORDER BY ch.timestamp ASC;
 	`)
 	if err != nil {
@@ -163,11 +162,7 @@ func getLastNMessagesFromDatabase(channelID string, n int) ([]LLMChatMessage, er
 		}
 		message.IsBotMention = isBotMentionInt != 0
 		if imageDescConcat != nil && *imageDescConcat != "" {
-			for _, d := range strings.Split(*imageDescConcat, "|||") {
-				if d != "" {
-					message.ImageDescriptions = append(message.ImageDescriptions, d)
-				}
-			}
+			message.ImageDescriptions = append(message.ImageDescriptions, *imageDescConcat)
 		}
 
 		if idToNameCache[message.UserID] == "" {
