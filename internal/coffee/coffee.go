@@ -64,6 +64,28 @@ var messages = []string{
 	"christkindl",
 }
 
+// Commands returns the slash command definitions for this plugin.
+func Commands() []*discordgo.ApplicationCommand {
+	return []*discordgo.ApplicationCommand{
+		{
+			Name:        "setbeverage",
+			Description: "Set your preferred morning beverage emoji",
+			Options: []*discordgo.ApplicationCommandOption{
+				{
+					Type:        discordgo.ApplicationCommandOptionString,
+					Name:        "emoji",
+					Description: "The emoji to react with on morning greetings (e.g. 🧃, 🍺, 🫖)",
+					Required:    true,
+				},
+			},
+		},
+		{
+			Name:        "brew",
+			Description: "Start brewing a pot of coffee (~3 minutes until ready)",
+		},
+	}
+}
+
 // Start the plugin
 func Start(discord *discordgo.Session) {
 	generateBrewButtonLabels = buildBrewButtonLabels
@@ -71,26 +93,6 @@ func Start(discord *discordgo.Session) {
 	discord.AddHandler(onInteractionCreate)
 	if err := openStore("coffee.db"); err != nil {
 		slog.Error("coffee: failed to open store", "error", err)
-	}
-	if _, err := discord.ApplicationCommandCreate(discord.State.User.ID, "", &discordgo.ApplicationCommand{
-		Name:        "setbeverage",
-		Description: "Set your preferred morning beverage emoji",
-		Options: []*discordgo.ApplicationCommandOption{
-			{
-				Type:        discordgo.ApplicationCommandOptionString,
-				Name:        "emoji",
-				Description: "The emoji to react with on morning greetings (e.g. 🧃, 🍺, 🫖)",
-				Required:    true,
-			},
-		},
-	}); err != nil {
-		slog.Error("coffee: failed to register setbeverage command", "error", err)
-	}
-	if _, err := discord.ApplicationCommandCreate(discord.State.User.ID, "", &discordgo.ApplicationCommand{
-		Name:        "brew",
-		Description: "Start brewing a pot of coffee (~3 minutes until ready)",
-	}); err != nil {
-		slog.Error("coffee: failed to register brew command", "error", err)
 	}
 	slog.Info("coffee function registered")
 }
