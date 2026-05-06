@@ -110,12 +110,12 @@ func TestFetchReferencedMessage_NotInDB_FallsBackToAPI(t *testing.T) {
 	setupGippityTest(t)
 
 	apiCalled := false
-	prev := fetchReferencedMessageFunc
-	t.Cleanup(func() { fetchReferencedMessageFunc = prev })
-	fetchReferencedMessageFunc = func(_ *discordgo.Session, ref *discordgo.MessageReference) (*discordgo.Message, error) {
+	prevCMF := channelMessageFunc
+	t.Cleanup(func() { channelMessageFunc = prevCMF })
+	channelMessageFunc = func(_ *discordgo.Session, _, msgID string) (*discordgo.Message, error) {
 		apiCalled = true
 		return &discordgo.Message{
-			ID:      ref.MessageID,
+			ID:      msgID,
 			Content: "fetched from api",
 			Author:  &discordgo.User{ID: "user-api", Username: "ApiUser"},
 		}, nil
@@ -126,12 +126,13 @@ func TestFetchReferencedMessage_NotInDB_FallsBackToAPI(t *testing.T) {
 		ChannelID: "channel-1",
 		GuildID:   "allowed-guild",
 	}
-	msg, err := fetchReferencedMessageFunc(discordSession, ref)
+	// "api-msg-id" is not in the DB — fetchReferencedMessage must fall back to channelMessageFunc.
+	msg, err := fetchReferencedMessage(discordSession, ref)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if !apiCalled {
-		t.Error("expected mock fetch to be called")
+		t.Error("expected channelMessageFunc to be called as fallback")
 	}
 	if msg == nil || msg.Content != "fetched from api" {
 		t.Errorf("unexpected message: %v", msg)
