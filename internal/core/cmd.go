@@ -38,9 +38,6 @@ var (
 
 	// Start time for uptime calculation
 	startTime = time.Now()
-
-	// registered slash command for /status
-	registeredStatusCmd *discordgo.ApplicationCommand
 )
 
 func onReady(s *discordgo.Session, event *discordgo.Ready) {
@@ -340,14 +337,11 @@ func StartGidbig() {
 		return
 	}
 
-	statusCmd, err := discord.ApplicationCommandCreate(discord.State.User.ID, "", &discordgo.ApplicationCommand{
+	if _, err := discord.ApplicationCommandCreate(discord.State.User.ID, "", &discordgo.ApplicationCommand{
 		Name:        "status",
 		Description: "Show bot runtime status (owner only)",
-	})
-	if err != nil {
+	}); err != nil {
 		slog.Error("Failed to register /status command", "error", err)
-	} else {
-		registeredStatusCmd = statusCmd
 	}
 
 	llm.Initialize()
@@ -376,11 +370,6 @@ func StartGidbig() {
 	shutdownDone := make(chan struct{})
 	go func() {
 		defer close(shutdownDone)
-		if registeredStatusCmd != nil {
-			if err := discord.ApplicationCommandDelete(discord.State.User.ID, "", registeredStatusCmd.ID); err != nil {
-				slog.Error("Failed to delete /status command", "error", err)
-			}
-		}
 		if err := discord.Close(); err != nil {
 			slog.Error("error closing discord session", "error", err)
 		}

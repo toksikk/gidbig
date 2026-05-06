@@ -14,9 +14,6 @@ import (
 const fallbackBeverage = "☕"
 
 var (
-	discordSession     *discordgo.Session
-	registeredCommand  *discordgo.ApplicationCommand
-	registeredBrewCmd  *discordgo.ApplicationCommand
 	isSpecialDay       = util.IsSpecial
 	reactOnMessage     = util.ReactOnMessage
 	sendIntroDM        = sendIntroDMFunc
@@ -69,14 +66,13 @@ var messages = []string{
 
 // Start the plugin
 func Start(discord *discordgo.Session) {
-	discordSession = discord
 	generateBrewButtonLabels = buildBrewButtonLabels
 	discord.AddHandler(onMessageCreate)
 	discord.AddHandler(onInteractionCreate)
 	if err := openStore("coffee.db"); err != nil {
 		slog.Error("coffee: failed to open store", "error", err)
 	}
-	cmd, err := discord.ApplicationCommandCreate(discord.State.User.ID, "", &discordgo.ApplicationCommand{
+	if _, err := discord.ApplicationCommandCreate(discord.State.User.ID, "", &discordgo.ApplicationCommand{
 		Name:        "setbeverage",
 		Description: "Set your preferred morning beverage emoji",
 		Options: []*discordgo.ApplicationCommandOption{
@@ -87,38 +83,20 @@ func Start(discord *discordgo.Session) {
 				Required:    true,
 			},
 		},
-	})
-	if err != nil {
+	}); err != nil {
 		slog.Error("coffee: failed to register setbeverage command", "error", err)
-	} else {
-		registeredCommand = cmd
 	}
-	brewCmd, err := discord.ApplicationCommandCreate(discord.State.User.ID, "", &discordgo.ApplicationCommand{
+	if _, err := discord.ApplicationCommandCreate(discord.State.User.ID, "", &discordgo.ApplicationCommand{
 		Name:        "brew",
 		Description: "Start brewing a pot of coffee (~3 minutes until ready)",
-	})
-	if err != nil {
+	}); err != nil {
 		slog.Error("coffee: failed to register brew command", "error", err)
-	} else {
-		registeredBrewCmd = brewCmd
 	}
 	slog.Info("coffee function registered")
 }
 
-// Shutdown deletes the registered application commands and closes the beverage preference store.
+// Shutdown closes the beverage preference store.
 func Shutdown() {
-	if discordSession != nil && registeredCommand != nil {
-		if err := discordSession.ApplicationCommandDelete(discordSession.State.User.ID, "", registeredCommand.ID); err != nil {
-			slog.Error("coffee: failed to delete setbeverage command", "error", err)
-		}
-		registeredCommand = nil
-	}
-	if discordSession != nil && registeredBrewCmd != nil {
-		if err := discordSession.ApplicationCommandDelete(discordSession.State.User.ID, "", registeredBrewCmd.ID); err != nil {
-			slog.Error("coffee: failed to delete brew command", "error", err)
-		}
-		registeredBrewCmd = nil
-	}
 	closeStore()
 }
 
