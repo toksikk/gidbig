@@ -30,8 +30,6 @@ const userMessageLimit = 30
 
 var userMessageCountLastReset map[string]time.Time
 
-var registeredPrivacyCmd *discordgo.ApplicationCommand
-
 // Start the plugin
 func Start(discord *discordgo.Session) {
 	initDB()
@@ -57,7 +55,7 @@ func Start(discord *discordgo.Session) {
 	discord.AddHandler(onMessageCreate)
 	discord.AddHandler(onGippityInteractionCreate)
 
-	cmd, err := discord.ApplicationCommandCreate(discord.State.User.ID, "", &discordgo.ApplicationCommand{
+	if _, err := discord.ApplicationCommandCreate(discord.State.User.ID, "", &discordgo.ApplicationCommand{
 		Name:        "gippity",
 		Description: "Gippity settings",
 		Options: []*discordgo.ApplicationCommandOption{
@@ -79,24 +77,15 @@ func Start(discord *discordgo.Session) {
 				},
 			},
 		},
-	})
-	if err != nil {
+	}); err != nil {
 		slog.Error("gippity: failed to register /gippity command", "error", err)
-	} else {
-		registeredPrivacyCmd = cmd
 	}
 
 	slog.Info("gippity function registered")
 }
 
-// Shutdown deletes the registered application commands.
+// Shutdown cleans up gippity resources.
 func Shutdown() {
-	if discordSession != nil && registeredPrivacyCmd != nil {
-		if err := discordSession.ApplicationCommandDelete(discordSession.State.User.ID, "", registeredPrivacyCmd.ID); err != nil {
-			slog.Error("gippity: failed to delete /gippity command", "error", err)
-		}
-		registeredPrivacyCmd = nil
-	}
 }
 
 func idToNameCacheResetLoop() {
