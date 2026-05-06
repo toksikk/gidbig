@@ -295,6 +295,53 @@ func TestGetMessageFromDatabase_NotFound(t *testing.T) {
 }
 
 
+func TestGenerateAnswer_NoReference_NoSystemNoteInjected(t *testing.T) {
+	setupGippityTest(t)
+
+	fetchCalled := false
+	prev := fetchReferencedMessageFunc
+	t.Cleanup(func() { fetchReferencedMessageFunc = prev })
+	fetchReferencedMessageFunc = func(_ *discordgo.Session, _ *discordgo.MessageReference) (*discordgo.Message, error) {
+		fetchCalled = true
+		return nil, nil
+	}
+
+	var capturedMessages []openai.ChatCompletionMessageParamUnion
+	chatCompletionFunc = func(_ context.Context, params openai.ChatCompletionNewParams) (*openai.ChatCompletion, error) {
+		capturedMessages = params.Messages
+		return &openai.ChatCompletion{
+			Choices: []openai.ChatCompletionChoice{{Message: openai.ChatCompletionMessage{Content: "ok"}}},
+		}, nil
+	}
+
+	m := &discordgo.MessageCreate{
+		Message: &discordgo.Message{
+			ID:        "msg-no-ref",
+			ChannelID: "channel-1",
+			GuildID:   "allowed-guild",
+			Content:   "hello <@bot-user>",
+			Author:    &discordgo.User{ID: "user-1", Username: "Alice"},
+			Mentions:  []*discordgo.User{{ID: "bot-user"}},
+		},
+	}
+
+	if _, err := generateAnswer(m, nil); err != nil {
+		t.Fatalf("generateAnswer: %v", err)
+	}
+
+	if fetchCalled {
+		t.Error("fetchReferencedMessageFunc must not be called when MessageReference is nil")
+	}
+	for _, msg := range capturedMessages {
+		if msg.OfSystem != nil {
+			c := msg.OfSystem.Content.OfString.Value
+			if strings.Contains(c, "[System note:") {
+				t.Errorf("unexpected system note injected when no MessageReference: %q", c)
+			}
+		}
+	}
+}
+
 func TestGenerateAnswer_ReferencedMessageOptedOutAuthor_PlaceholderInjected(t *testing.T) {
 	setupGippityTest(t)
 
