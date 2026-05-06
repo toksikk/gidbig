@@ -19,6 +19,14 @@ var discordSession *discordgo.Session
 
 var generateAnswerFunc = generateAnswer
 
+var chatCompletionFunc = func(ctx context.Context, params openai.ChatCompletionNewParams) (*openai.ChatCompletion, error) {
+	return llm.GetClient().Chat.Completions.New(ctx, params)
+}
+
+var channelTypingFunc = func(s *discordgo.Session, channelID string) {
+	s.ChannelTyping(channelID) //nolint:errcheck
+}
+
 var (
 	allowedGuildIDs map[string]bool
 	ignoredUserIDs  map[string]bool
@@ -274,7 +282,7 @@ func isMentioned(m *discordgo.MessageCreate) bool {
 }
 
 func generateAnswer(m *discordgo.MessageCreate, imageURLs []string) (string, error) {
-	discordSession.ChannelTyping(m.ChannelID) //nolint:errcheck
+	channelTypingFunc(discordSession, m.ChannelID)
 
 	chatHistory, err := getLastNMessagesFromDatabase(m.ChannelID, 10)
 	if err != nil {
@@ -388,7 +396,7 @@ Einige Benutzernamen im Chatverlauf sind Pseudonyme (Benutzer 1, Benutzer 2, …
 		}
 	}
 
-	chatCompletion, err := llm.GetClient().Chat.Completions.New(context.Background(), openai.ChatCompletionNewParams{
+	chatCompletion, err := chatCompletionFunc(context.Background(), openai.ChatCompletionNewParams{
 		Messages:  messages,
 		Model:     openai.ChatModelGPT4oMini,
 		N:         openai.Int(1),
