@@ -303,6 +303,25 @@ Einige Benutzernamen im Chatverlauf sind Pseudonyme (Benutzer 1, Benutzer 2, …
 	messages := []openai.ChatCompletionMessageParamUnion{}
 	messages = append(messages, openai.SystemMessage(systemMessage))
 
+	if m.MessageReference != nil {
+		refMsg, refErr := fetchReferencedMessageFunc(discordSession, m.MessageReference)
+		if refErr != nil {
+			slog.Warn("gippity: could not fetch referenced message", "error", refErr)
+		} else if refMsg != nil {
+			content := refMsg.Content
+			isBot := refMsg.Author != nil && refMsg.Author.Bot
+			if !isBot && refMsg.Author != nil && getUserPrivacy(refMsg.Author.ID) {
+				content = "[message content hidden -- user opted out]"
+			}
+			authorName := ""
+			if refMsg.Author != nil {
+				authorName = refMsg.Author.Username
+			}
+			note := fmt.Sprintf("[System note: User is replying to a message from %s: %s]", authorName, content)
+			messages = append(messages, openai.SystemMessage(note))
+		}
+	}
+
 	pseudonymMap := make(map[string]string)
 	pseudonymCounter := 0
 	privacyCache := make(map[string]bool)

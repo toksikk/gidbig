@@ -115,6 +115,27 @@ func enrichSystemMessage(systemMessage string) string {
 	return systemMessage
 }
 
+// fetchReferencedMessageFunc is the var used in tests to mock fetchReferencedMessage.
+var fetchReferencedMessageFunc = fetchReferencedMessage
+
+func fetchReferencedMessage(s *discordgo.Session, ref *discordgo.MessageReference) (*discordgo.Message, error) {
+	dbMsg, err := getMessageFromDatabase(ref.MessageID)
+	if err != nil {
+		slog.Warn("gippity: DB lookup for referenced message failed", "messageID", ref.MessageID, "error", err)
+	}
+	if dbMsg != nil {
+		return &discordgo.Message{
+			ID:        dbMsg.MessageID,
+			ChannelID: dbMsg.ChannelID,
+			GuildID:   dbMsg.GuildID,
+			Content:   dbMsg.Message,
+			Author:    &discordgo.User{ID: dbMsg.UserID, Username: dbMsg.Username},
+		}, nil
+	}
+
+	return s.ChannelMessage(ref.ChannelID, ref.MessageID)
+}
+
 func replaceAllUserIDsWithUsernamesInStringMessage(message string, guildid string) string {
 	llmChatMessage := LLMChatMessage{
 		Message: message,
