@@ -159,6 +159,18 @@ func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 		}
 	}
 	addMessageToDatabase(m, isMentioned(m))
+
+	imageURLs := extractImageURLs(m.Attachments)
+	if len(imageURLs) > 0 {
+		slog.Debug("Describing image attachments", "count", len(imageURLs))
+		description, err := describeImagesFunc(imageURLs)
+		if err != nil {
+			slog.Error("Could not describe images", "error", err)
+		} else {
+			addAttachmentsToDatabase(m.ID, imageURLs, description)
+		}
+	}
+
 	if limited(m) {
 		return
 	}
@@ -166,22 +178,12 @@ func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 	var generatedAnswer string
 	var err error
 
-	if len(m.Attachments) > 0 && m.Content != "" {
-		slog.Debug("Message has attachments and content")
-		var imageURLs []string
-		for _, attachment := range m.Attachments {
-			slog.Debug("Attachment", "attachment", attachment)
-			if attachment.Filename[len(attachment.Filename)-3:] == "jpg" || attachment.Filename[len(attachment.Filename)-4:] == "jpeg" || attachment.Filename[len(attachment.Filename)-3:] == "png" || attachment.Filename[len(attachment.Filename)-4:] == "webp" {
-				imageURLs = append(imageURLs, attachment.URL)
-			}
-		}
-		if len(imageURLs) != 0 {
-			slog.Debug("Message has image attachments")
-			generatedAnswer, err = generateAnswerFunc(m, imageURLs)
-			if err != nil {
-				slog.Error("Could not generate answer")
-				return
-			}
+	if len(imageURLs) > 0 && m.Content != "" {
+		slog.Debug("Message has image attachments and content")
+		generatedAnswer, err = generateAnswerFunc(m, imageURLs)
+		if err != nil {
+			slog.Error("Could not generate answer")
+			return
 		}
 	}
 

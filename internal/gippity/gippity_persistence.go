@@ -3,6 +3,7 @@ package gippity
 import (
 	"database/sql"
 	"log/slog"
+	"strings"
 
 	"github.com/bwmarrin/discordgo"
 	// sqlite3 driver
@@ -22,17 +23,18 @@ type ChatMessage struct {
 
 // LLMChatMessage represents a chat message in a human readable format
 type LLMChatMessage struct {
-	UserID          string
-	Username        string
-	ChannelID       string
-	ChannelName     string
-	Timestamp       int64
-	TimestampString string
-	MessageID       string
-	Message         string
-	GuildID         string
-	GuildName       string
-	IsBotMention    bool
+	UserID            string
+	Username          string
+	ChannelID         string
+	ChannelName       string
+	Timestamp         int64
+	TimestampString   string
+	MessageID         string
+	Message           string
+	GuildID           string
+	GuildName         string
+	IsBotMention      bool
+	ImageDescriptions []string
 }
 
 const chatHistoryDBFilename = "gippity.db"
@@ -60,6 +62,14 @@ func initDB() {
 	if err != nil {
 		slog.Error("Error while creating user_privacy table", "error", err)
 	}
+
+	_, err = database.Exec(`CREATE TABLE IF NOT EXISTS chat_attachments (id INTEGER PRIMARY KEY AUTOINCREMENT, message_id TEXT, attachment_url TEXT, image_description TEXT)`)
+	if err != nil {
+		slog.Error("Error while creating chat_attachments table", "error", err)
+	}
+	// idempotent: add columns missing from pre-existing migration-created tables
+	_, _ = database.Exec(`ALTER TABLE chat_attachments ADD COLUMN message_id TEXT`)
+	_, _ = database.Exec(`ALTER TABLE chat_attachments ADD COLUMN image_description TEXT`)
 }
 
 // CloseDB closes the gippity chat history database.
@@ -89,17 +99,35 @@ func addMessageToDatabase(m *discordgo.MessageCreate, isBotMention bool) {
 	}
 }
 
+func addAttachmentsToDatabase(messageID string, urls []string, description string) {
+	stmt, err := database.Prepare("INSERT INTO chat_attachments (message_id, attachment_url, image_description) VALUES (?, ?, ?)")
+	if err != nil {
+		slog.Error("Error while preparing attachment statement", "error", err)
+		return
+	}
+	defer func() { _ = stmt.Close() }()
+	for _, url := range urls {
+		if _, err := stmt.Exec(messageID, url, description); err != nil {
+			slog.Error("Error while inserting attachment", "error", err)
+		}
+	}
+}
+
 func getLastNMessagesFromDatabase(channelID string, n int) ([]LLMChatMessage, error) {
 	stmt, err := database.Prepare(`
-	SELECT user_id, channel_id, timestamp, message, message_id, guild_id, COALESCE(is_bot_mention, 0)
+	SELECT ch.user_id, ch.channel_id, ch.timestamp, ch.message, ch.message_id, ch.guild_id,
+	       COALESCE(ch.is_bot_mention, 0),
+	       GROUP_CONCAT(ca.image_description, '|||')
 	FROM (
 	    SELECT user_id, channel_id, timestamp, message, message_id, guild_id, is_bot_mention
 	    FROM chat_history
 	    WHERE channel_id = ?
 	    ORDER BY timestamp DESC
 	    LIMIT ?
-    ) AS subquery
-	ORDER BY timestamp ASC;
+	) AS ch
+	LEFT JOIN chat_attachments ca ON ca.message_id = ch.message_id
+	GROUP BY ch.message_id, ch.user_id, ch.channel_id, ch.timestamp, ch.message, ch.guild_id, ch.is_bot_mention
+	ORDER BY ch.timestamp ASC;
 	`)
 	if err != nil {
 		slog.Error("Error while preparing statement", "error", err)
@@ -118,6 +146,7 @@ func getLastNMessagesFromDatabase(channelID string, n int) ([]LLMChatMessage, er
 	for rows.Next() {
 		var message LLMChatMessage
 		var isBotMentionInt int
+		var imageDescConcat *string
 		err = rows.Scan(
 			&message.UserID,
 			&message.ChannelID,
@@ -126,12 +155,20 @@ func getLastNMessagesFromDatabase(channelID string, n int) ([]LLMChatMessage, er
 			&message.MessageID,
 			&message.GuildID,
 			&isBotMentionInt,
+			&imageDescConcat,
 		)
 		if err != nil {
 			slog.Error("Error while scanning row", "error", err)
 			return nil, err
 		}
 		message.IsBotMention = isBotMentionInt != 0
+		if imageDescConcat != nil && *imageDescConcat != "" {
+			for _, d := range strings.Split(*imageDescConcat, "|||") {
+				if d != "" {
+					message.ImageDescriptions = append(message.ImageDescriptions, d)
+				}
+			}
+		}
 
 		if idToNameCache[message.UserID] == "" {
 			idToNameCache[message.UserID] = util.GetUsernameForUserIDInGuild(discordSession, message.UserID, message.GuildID)
