@@ -40,6 +40,9 @@ func setupGippityTest(t *testing.T) *discordgo.Session {
 	if _, err := testDB.Exec(`CREATE TABLE chat_attachments (id INTEGER PRIMARY KEY AUTOINCREMENT, message_id TEXT, attachment_url TEXT, image_description TEXT)`); err != nil {
 		t.Fatalf("create chat_attachments table: %v", err)
 	}
+	if _, err := testDB.Exec(`CREATE TABLE chat_history_edits (id INTEGER PRIMARY KEY AUTOINCREMENT, original_message_id TEXT, edited_content TEXT, version INTEGER, edited_at INTEGER)`); err != nil {
+		t.Fatalf("create chat_history_edits table: %v", err)
+	}
 
 	session, err := discordgo.New("")
 	if err != nil {
@@ -459,6 +462,145 @@ func TestGenerateAnswer_ReferencedMessageOptInAuthor_ContentInjected(t *testing.
 	}
 	if !found {
 		t.Error("expected system note with visible content in messages passed to LLM")
+	}
+}
+
+func gippityTestMessageUpdate(msgID, content, guildID, authorID string) *discordgo.MessageUpdate {
+	return &discordgo.MessageUpdate{
+		Message: &discordgo.Message{
+			ID:        msgID,
+			ChannelID: "channel-1",
+			GuildID:   guildID,
+			Content:   content,
+			Author:    &discordgo.User{ID: authorID, Username: "Alice"},
+		},
+	}
+}
+
+func TestOnMessageUpdate_PrivacyEnabledUser_EditNotPersisted(t *testing.T) {
+	session := setupGippityTest(t)
+
+	if _, err := database.Exec(`INSERT INTO chat_history (user_id, channel_id, timestamp, message, message_id, guild_id, is_bot_mention) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		"user-1", "channel-1", 1000, "original", "edit-msg-id", "allowed-guild", 0); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+
+	// privacy on by default for user-1
+	onMessageUpdate(session, gippityTestMessageUpdate("edit-msg-id", "edited content", "allowed-guild", "user-1"))
+
+	var count int
+	if err := database.QueryRow(`SELECT COUNT(*) FROM chat_history_edits WHERE original_message_id = ?`, "edit-msg-id").Scan(&count); err != nil {
+		t.Fatalf("query: %v", err)
+	}
+	if count != 0 {
+		t.Errorf("edit should not be persisted for privacy-on user, got %d row(s)", count)
+	}
+}
+
+func TestOnMessageUpdate_PrivacyDisabledUser_EditPersisted(t *testing.T) {
+	session := setupGippityTest(t)
+
+	if err := setUserPrivacy("user-1", false); err != nil {
+		t.Fatalf("setUserPrivacy: %v", err)
+	}
+	if _, err := database.Exec(`INSERT INTO chat_history (user_id, channel_id, timestamp, message, message_id, guild_id, is_bot_mention) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		"user-1", "channel-1", 1000, "original", "edit-msg-id2", "allowed-guild", 0); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+
+	onMessageUpdate(session, gippityTestMessageUpdate("edit-msg-id2", "first edit", "allowed-guild", "user-1"))
+	onMessageUpdate(session, gippityTestMessageUpdate("edit-msg-id2", "second edit", "allowed-guild", "user-1"))
+
+	var count int
+	if err := database.QueryRow(`SELECT COUNT(*) FROM chat_history_edits WHERE original_message_id = ?`, "edit-msg-id2").Scan(&count); err != nil {
+		t.Fatalf("query: %v", err)
+	}
+	if count != 2 {
+		t.Fatalf("expected 2 edit rows, got %d", count)
+	}
+
+	var version int
+	var content string
+	if err := database.QueryRow(`SELECT version, edited_content FROM chat_history_edits WHERE original_message_id = ? ORDER BY version DESC LIMIT 1`, "edit-msg-id2").Scan(&version, &content); err != nil {
+		t.Fatalf("query latest edit: %v", err)
+	}
+	if version != 2 {
+		t.Errorf("latest version = %d, want 2", version)
+	}
+	if content != "second edit" {
+		t.Errorf("latest content = %q, want %q", content, "second edit")
+	}
+}
+
+func TestOnMessageUpdate_NilAuthor_Skipped(t *testing.T) {
+	session := setupGippityTest(t)
+
+	m := &discordgo.MessageUpdate{
+		Message: &discordgo.Message{
+			ID:        "nil-author-msg",
+			ChannelID: "channel-1",
+			GuildID:   "allowed-guild",
+			Content:   "embed update",
+			Author:    nil,
+		},
+	}
+	onMessageUpdate(session, m)
+
+	var count int
+	if err := database.QueryRow(`SELECT COUNT(*) FROM chat_history_edits WHERE original_message_id = ?`, "nil-author-msg").Scan(&count); err != nil {
+		t.Fatalf("query: %v", err)
+	}
+	if count != 0 {
+		t.Errorf("nil-author update should not be persisted, got %d row(s)", count)
+	}
+}
+
+func TestOnMessageUpdate_MessageNotInHistory_Skipped(t *testing.T) {
+	session := setupGippityTest(t)
+
+	if err := setUserPrivacy("user-1", false); err != nil {
+		t.Fatalf("setUserPrivacy: %v", err)
+	}
+
+	onMessageUpdate(session, gippityTestMessageUpdate("unknown-msg-id", "edit of unknown", "allowed-guild", "user-1"))
+
+	var count int
+	if err := database.QueryRow(`SELECT COUNT(*) FROM chat_history_edits WHERE original_message_id = ?`, "unknown-msg-id").Scan(&count); err != nil {
+		t.Fatalf("query: %v", err)
+	}
+	if count != 0 {
+		t.Errorf("edit of message not in chat_history should not be persisted, got %d row(s)", count)
+	}
+}
+
+func TestGetLastNMessagesFromDatabase_ShowsLatestEdit(t *testing.T) {
+	setupGippityTest(t)
+	idToNameCache["user-1"] = "Alice"
+	idToNameCache["channel-1"] = "general"
+	idToNameCache["allowed-guild"] = "Test Guild"
+
+	if _, err := database.Exec(`INSERT INTO chat_history (user_id, channel_id, timestamp, message, message_id, guild_id, is_bot_mention) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		"user-1", "channel-1", 1000, "original message", "edited-hist-msg", "allowed-guild", 0); err != nil {
+		t.Fatalf("insert chat_history: %v", err)
+	}
+	if _, err := database.Exec(`INSERT INTO chat_history_edits (original_message_id, edited_content, version, edited_at) VALUES (?, ?, ?, ?)`,
+		"edited-hist-msg", "v1 edit", 1, 1001); err != nil {
+		t.Fatalf("insert edit v1: %v", err)
+	}
+	if _, err := database.Exec(`INSERT INTO chat_history_edits (original_message_id, edited_content, version, edited_at) VALUES (?, ?, ?, ?)`,
+		"edited-hist-msg", "v2 edit", 2, 1002); err != nil {
+		t.Fatalf("insert edit v2: %v", err)
+	}
+
+	msgs, err := getLastNMessagesFromDatabase("channel-1", 10)
+	if err != nil {
+		t.Fatalf("getLastNMessagesFromDatabase: %v", err)
+	}
+	if len(msgs) != 1 {
+		t.Fatalf("expected 1 message, got %d", len(msgs))
+	}
+	if msgs[0].Message != "v2 edit" {
+		t.Errorf("message content = %q, want %q", msgs[0].Message, "v2 edit")
 	}
 }
 

@@ -61,6 +61,7 @@ func Start(discord *discordgo.Session) {
 	discordSession = discord
 
 	discord.AddHandler(onMessageCreate)
+	discord.AddHandler(onMessageUpdate)
 	discord.AddHandler(onGippityInteractionCreate)
 
 	slog.Info("gippity function registered")
@@ -212,6 +213,27 @@ func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 			slog.Info("Error while sending message", "error", err)
 		}
 	}
+}
+
+func onMessageUpdate(_ *discordgo.Session, m *discordgo.MessageUpdate) {
+	if m.Author == nil || m.Author.Bot {
+		return
+	}
+	if !allowedGuildIDs[m.GuildID] {
+		return
+	}
+	if getUserPrivacy(m.Author.ID) {
+		return
+	}
+	var count int
+	if err := database.QueryRow(`SELECT COUNT(*) FROM chat_history WHERE message_id = ?`, m.ID).Scan(&count); err != nil || count == 0 {
+		return
+	}
+	editedAt := time.Now().Unix()
+	if m.EditedTimestamp != nil {
+		editedAt = m.EditedTimestamp.Unix()
+	}
+	addMessageEditToDatabase(m.ID, m.Content, editedAt)
 }
 
 func onGippityInteractionCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {

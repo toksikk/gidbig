@@ -72,6 +72,11 @@ func initDB() {
 	// idempotent: add columns missing from pre-existing migration-created tables
 	_, _ = database.Exec(`ALTER TABLE chat_attachments ADD COLUMN message_id TEXT`)
 	_, _ = database.Exec(`ALTER TABLE chat_attachments ADD COLUMN image_description TEXT`)
+
+	_, err = database.Exec(`CREATE TABLE IF NOT EXISTS chat_history_edits (id INTEGER PRIMARY KEY AUTOINCREMENT, original_message_id TEXT, edited_content TEXT, version INTEGER, edited_at INTEGER)`)
+	if err != nil {
+		slog.Error("Error while creating chat_history_edits table", "error", err)
+	}
 }
 
 // CloseDB closes the gippity chat history database.
@@ -101,6 +106,20 @@ func addMessageToDatabase(m *discordgo.MessageCreate, isBotMention bool) {
 	}
 }
 
+func addMessageEditToDatabase(messageID, content string, editedAt int64) {
+	dbMu.Lock()
+	defer dbMu.Unlock()
+	var maxVersion int
+	_ = database.QueryRow(`SELECT COALESCE(MAX(version), 0) FROM chat_history_edits WHERE original_message_id = ?`, messageID).Scan(&maxVersion)
+	_, err := database.Exec(
+		`INSERT INTO chat_history_edits (original_message_id, edited_content, version, edited_at) VALUES (?, ?, ?, ?)`,
+		messageID, content, maxVersion+1, editedAt,
+	)
+	if err != nil {
+		slog.Error("Error while inserting message edit", "error", err)
+	}
+}
+
 func addAttachmentsToDatabase(messageID string, urls []string, description string) {
 	dbMu.Lock()
 	defer dbMu.Unlock()
@@ -115,7 +134,9 @@ func addAttachmentsToDatabase(messageID string, urls []string, description strin
 
 func getLastNMessagesFromDatabase(channelID string, n int) ([]LLMChatMessage, error) {
 	stmt, err := database.Prepare(`
-	SELECT ch.user_id, ch.channel_id, ch.timestamp, ch.message, ch.message_id, ch.guild_id,
+	SELECT ch.user_id, ch.channel_id, ch.timestamp,
+	       COALESCE((SELECT edited_content FROM chat_history_edits WHERE original_message_id = ch.message_id ORDER BY version DESC LIMIT 1), ch.message) as message,
+	       ch.message_id, ch.guild_id,
 	       COALESCE(ch.is_bot_mention, 0),
 	       ca.image_description
 	FROM (
@@ -188,7 +209,9 @@ func getLastNMessagesFromDatabase(channelID string, n int) ([]LLMChatMessage, er
 
 func getMessageFromDatabase(messageID string) (*LLMChatMessage, error) {
 	stmt, err := database.Prepare(`
-	SELECT ch.user_id, ch.channel_id, ch.timestamp, ch.message, ch.message_id, ch.guild_id,
+	SELECT ch.user_id, ch.channel_id, ch.timestamp,
+	       COALESCE((SELECT edited_content FROM chat_history_edits WHERE original_message_id = ch.message_id ORDER BY version DESC LIMIT 1), ch.message) as message,
+	       ch.message_id, ch.guild_id,
 	       COALESCE(ch.is_bot_mention, 0),
 	       GROUP_CONCAT(ca.image_description, '||') as image_desc_concat
 	FROM chat_history ch
