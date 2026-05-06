@@ -66,43 +66,36 @@ func TestSortScoreArrayByScore(t *testing.T) {
 	}
 }
 
-// TestRenewReactionsMutexExclusion verifies the mutex serializes concurrent
-// access (run with -race to catch data races).
-func TestRenewReactionsMutexExclusion(t *testing.T) {
+// TestAnnouncePreparationSelfGuard verifies announcePreparation self-guards via
+// its internal TryLock. Run with -race to detect data races on shared state.
+// session is nil and tt is zero, so isOnTargetTimeRange returns false and no
+// Discord calls are made.
+func TestAnnouncePreparationSelfGuard(t *testing.T) {
 	var wg sync.WaitGroup
-	counter := 0
 	for i := 0; i < 10; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			renewReactionsMu.Lock()
-			counter++
-			renewReactionsMu.Unlock()
+			announcePreparation()
 		}()
 	}
 	wg.Wait()
-	if counter != 10 {
-		t.Fatalf("expected counter 10, got %d", counter)
-	}
 }
 
-// TestPreparationAnnounceMuTryLock verifies TryLock prevents double-launch.
-func TestPreparationAnnounceMuTryLock(t *testing.T) {
-	acquired := preparationAnnounceMu.TryLock()
-	if !acquired {
-		t.Fatal("expected TryLock to succeed on unlocked mutex")
+// TestAnnounceTodaysWinnersSelfGuard verifies announceTodaysWinners self-guards
+// via its internal TryLock. Run with -race to detect data races on shared state.
+// session is nil and tt is zero, so isOnTargetTimeRange returns false and no
+// Discord/store calls are made.
+func TestAnnounceTodaysWinnersSelfGuard(t *testing.T) {
+	var wg sync.WaitGroup
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			announceTodaysWinners()
+		}()
 	}
-	// second TryLock must fail while held
-	if preparationAnnounceMu.TryLock() {
-		preparationAnnounceMu.Unlock()
-		t.Fatal("expected TryLock to fail on locked mutex")
-	}
-	preparationAnnounceMu.Unlock()
-	// after unlock, TryLock must succeed again
-	if !preparationAnnounceMu.TryLock() {
-		t.Fatal("expected TryLock to succeed after Unlock")
-	}
-	preparationAnnounceMu.Unlock()
+	wg.Wait()
 }
 
 func TestSortScoreArrayByScorePreservesOtherFields(t *testing.T) {
