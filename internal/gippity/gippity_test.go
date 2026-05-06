@@ -1,11 +1,14 @@
 package gippity
 
 import (
+	"context"
 	"database/sql"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
+	openai "github.com/openai/openai-go/v3"
 )
 
 var previousDescribeImagesFunc func([]string) (string, error)
@@ -21,6 +24,8 @@ func setupGippityTest(t *testing.T) *discordgo.Session {
 	previousUserMessageCountLastReset := userMessageCountLastReset
 	previousGenerateAnswerFunc := generateAnswerFunc
 	previousDescribeImagesFunc = describeImagesFunc
+	previousChatCompletionFunc := chatCompletionFunc
+	previousChannelTypingFunc := channelTypingFunc
 
 	testDB, err := sql.Open("sqlite3", ":memory:")
 	if err != nil {
@@ -36,9 +41,11 @@ func setupGippityTest(t *testing.T) *discordgo.Session {
 		t.Fatalf("create chat_attachments table: %v", err)
 	}
 
-	state := discordgo.NewState()
-	state.User = &discordgo.User{ID: "bot-user"}
-	session := &discordgo.Session{State: state}
+	session, err := discordgo.New("")
+	if err != nil {
+		t.Fatalf("discordgo.New: %v", err)
+	}
+	session.State.User = &discordgo.User{ID: "bot-user"}
 
 	database = testDB
 	discordSession = session
@@ -47,6 +54,7 @@ func setupGippityTest(t *testing.T) *discordgo.Session {
 	userMessageCount = map[string]int{}
 	userMessageCountLastReset = map[string]time.Time{}
 	generateAnswerFunc = generateAnswer
+	channelTypingFunc = func(_ *discordgo.Session, _ string) {}
 
 	t.Cleanup(func() {
 		_ = testDB.Close()
@@ -58,6 +66,8 @@ func setupGippityTest(t *testing.T) *discordgo.Session {
 		userMessageCountLastReset = previousUserMessageCountLastReset
 		generateAnswerFunc = previousGenerateAnswerFunc
 		describeImagesFunc = previousDescribeImagesFunc
+		chatCompletionFunc = previousChatCompletionFunc
+		channelTypingFunc = previousChannelTypingFunc
 	})
 
 	return session
@@ -288,7 +298,10 @@ func TestGetMessageFromDatabase_NotFound(t *testing.T) {
 func TestGenerateAnswer_ReferencedMessageOptedOutAuthor_PlaceholderInjected(t *testing.T) {
 	setupGippityTest(t)
 
-	// opted-out user: privacy = true (default)
+	if !getUserPrivacy("opted-out-user") {
+		t.Fatal("test precondition: opted-out-user should have privacy ON by default")
+	}
+
 	prev := fetchReferencedMessageFunc
 	t.Cleanup(func() { fetchReferencedMessageFunc = prev })
 	fetchReferencedMessageFunc = func(_ *discordgo.Session, _ *discordgo.MessageReference) (*discordgo.Message, error) {
@@ -299,10 +312,12 @@ func TestGenerateAnswer_ReferencedMessageOptedOutAuthor_PlaceholderInjected(t *t
 		}, nil
 	}
 
-	// User "opted-out-user" has privacy ON (default) → content hidden.
-	// Verify getUserPrivacy returns true for this user.
-	if !getUserPrivacy("opted-out-user") {
-		t.Fatal("test precondition: opted-out-user should have privacy ON by default")
+	var capturedMessages []openai.ChatCompletionMessageParamUnion
+	chatCompletionFunc = func(_ context.Context, params openai.ChatCompletionNewParams) (*openai.ChatCompletion, error) {
+		capturedMessages = params.Messages
+		return &openai.ChatCompletion{
+			Choices: []openai.ChatCompletionChoice{{Message: openai.ChatCompletionMessage{Content: "ok"}}},
+		}, nil
 	}
 
 	m := &discordgo.MessageCreate{
@@ -321,17 +336,22 @@ func TestGenerateAnswer_ReferencedMessageOptedOutAuthor_PlaceholderInjected(t *t
 		},
 	}
 
-	// Verify the privacy-placeholder path: content must be hidden.
-	refMsg, _ := fetchReferencedMessageFunc(discordSession, m.MessageReference)
-	isBot := refMsg.Author != nil && refMsg.Author.Bot
-	var content string
-	if !isBot && refMsg.Author != nil && getUserPrivacy(refMsg.Author.ID) {
-		content = "[message content hidden -- user opted out]"
-	} else {
-		content = refMsg.Content
+	if _, err := generateAnswer(m, nil); err != nil {
+		t.Fatalf("generateAnswer: %v", err)
 	}
-	if content != "[message content hidden -- user opted out]" {
-		t.Errorf("expected placeholder, got %q", content)
+
+	found := false
+	for _, msg := range capturedMessages {
+		if msg.OfSystem != nil {
+			c := msg.OfSystem.Content.OfString.Value
+			if strings.Contains(c, "[System note:") && strings.Contains(c, "[message content hidden -- user opted out]") {
+				found = true
+				break
+			}
+		}
+	}
+	if !found {
+		t.Error("expected system note with privacy placeholder in messages passed to LLM")
 	}
 }
 
@@ -352,16 +372,46 @@ func TestGenerateAnswer_ReferencedMessageOptInAuthor_ContentInjected(t *testing.
 		}, nil
 	}
 
-	refMsg, _ := fetchReferencedMessageFunc(discordSession, &discordgo.MessageReference{MessageID: "ref-id"})
-	isBot := refMsg.Author != nil && refMsg.Author.Bot
-	var content string
-	if !isBot && refMsg.Author != nil && getUserPrivacy(refMsg.Author.ID) {
-		content = "[message content hidden -- user opted out]"
-	} else {
-		content = refMsg.Content
+	var capturedMessages []openai.ChatCompletionMessageParamUnion
+	chatCompletionFunc = func(_ context.Context, params openai.ChatCompletionNewParams) (*openai.ChatCompletion, error) {
+		capturedMessages = params.Messages
+		return &openai.ChatCompletion{
+			Choices: []openai.ChatCompletionChoice{{Message: openai.ChatCompletionMessage{Content: "ok"}}},
+		}, nil
 	}
-	if content != "visible content" {
-		t.Errorf("expected visible content, got %q", content)
+
+	m := &discordgo.MessageCreate{
+		Message: &discordgo.Message{
+			ID:        "msg-with-ref-optin",
+			ChannelID: "channel-1",
+			GuildID:   "allowed-guild",
+			Content:   "what do you think? <@bot-user>",
+			Author:    &discordgo.User{ID: "user-1", Username: "Alice"},
+			Mentions:  []*discordgo.User{{ID: "bot-user"}},
+			MessageReference: &discordgo.MessageReference{
+				MessageID: "ref-id",
+				ChannelID: "channel-1",
+				GuildID:   "allowed-guild",
+			},
+		},
+	}
+
+	if _, err := generateAnswer(m, nil); err != nil {
+		t.Fatalf("generateAnswer: %v", err)
+	}
+
+	found := false
+	for _, msg := range capturedMessages {
+		if msg.OfSystem != nil {
+			c := msg.OfSystem.Content.OfString.Value
+			if strings.Contains(c, "[System note:") && strings.Contains(c, "visible content") {
+				found = true
+				break
+			}
+		}
+	}
+	if !found {
+		t.Error("expected system note with visible content in messages passed to LLM")
 	}
 }
 
