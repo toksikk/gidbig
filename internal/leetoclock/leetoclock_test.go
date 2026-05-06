@@ -1,6 +1,7 @@
 package leetoclock
 
 import (
+	"sync"
 	"testing"
 
 	"github.com/toksikk/gidbig/internal/leetoclock/util/datastore"
@@ -63,6 +64,45 @@ func TestSortScoreArrayByScore(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestRenewReactionsMutexExclusion verifies the mutex serializes concurrent
+// access (run with -race to catch data races).
+func TestRenewReactionsMutexExclusion(t *testing.T) {
+	var wg sync.WaitGroup
+	counter := 0
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			renewReactionsMu.Lock()
+			counter++
+			renewReactionsMu.Unlock()
+		}()
+	}
+	wg.Wait()
+	if counter != 10 {
+		t.Fatalf("expected counter 10, got %d", counter)
+	}
+}
+
+// TestPreparationAnnounceMuTryLock verifies TryLock prevents double-launch.
+func TestPreparationAnnounceMuTryLock(t *testing.T) {
+	acquired := preparationAnnounceMu.TryLock()
+	if !acquired {
+		t.Fatal("expected TryLock to succeed on unlocked mutex")
+	}
+	// second TryLock must fail while held
+	if preparationAnnounceMu.TryLock() {
+		preparationAnnounceMu.Unlock()
+		t.Fatal("expected TryLock to fail on locked mutex")
+	}
+	preparationAnnounceMu.Unlock()
+	// after unlock, TryLock must succeed again
+	if !preparationAnnounceMu.TryLock() {
+		t.Fatal("expected TryLock to succeed after Unlock")
+	}
+	preparationAnnounceMu.Unlock()
 }
 
 func TestSortScoreArrayByScorePreservesOtherFields(t *testing.T) {
