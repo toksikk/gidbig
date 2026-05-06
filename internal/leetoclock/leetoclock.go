@@ -84,6 +84,9 @@ func isOnTargetTimeRange(messageTimestamp time.Time, onlyOnTarget bool) bool {
 }
 
 func announcePreparation() {
+	if !preparationAnnounceMu.TryLock() {
+		return
+	}
 	defer preparationAnnounceMu.Unlock()
 	if isOnTargetTimeRange(time.Now(), false) {
 		for _, v := range announcementChannels {
@@ -304,6 +307,9 @@ func renewReactions(game datastore.Game) {
 }
 
 func announceTodaysWinners() {
+	if !winnerAnnounceMu.TryLock() {
+		return
+	}
 	defer winnerAnnounceMu.Unlock()
 	if isOnTargetTimeRange(time.Now(), true) {
 		slog.Info("Announcing winners")
@@ -344,12 +350,8 @@ func gameTick() {
 			}
 			updateTTHelper()
 		}
-		if preparationAnnounceMu.TryLock() {
-			go announcePreparation()
-		}
-		if winnerAnnounceMu.TryLock() {
-			go announceTodaysWinners()
-		}
+		go announcePreparation()
+		go announceTodaysWinners()
 	}
 }
 
