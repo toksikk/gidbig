@@ -79,7 +79,7 @@ func GetAllMembersOfChannelAsString(discordSession *discordgo.Session, channelID
 func GetChannelName(discordSession *discordgo.Session, channelID string) string {
 	channel, err := discordSession.Channel(channelID)
 	if err != nil {
-		slog.Warn("Error while getting channel", "error", err)
+		slog.Warn("Error while getting channel", "error", err, "channel_id", channelID)
 		return channelID
 	}
 	return channel.Name
@@ -89,7 +89,7 @@ func GetChannelName(discordSession *discordgo.Session, channelID string) string 
 func GetGuildName(discordSession *discordgo.Session, guildID string) string {
 	guild, err := discordSession.Guild(guildID)
 	if err != nil {
-		slog.Warn("Error while getting guild", "error", err)
+		slog.Warn("Error while getting guild", "error", err, "guild_id", guildID)
 		return guildID
 	}
 	return guild.Name
@@ -148,7 +148,7 @@ func getBotDisplayNames(discordSession *discordgo.Session) map[string]string {
 func GetUsernameInGuild(discordSession *discordgo.Session, m *discordgo.MessageCreate) string {
 	member, err := discordSession.GuildMember(m.GuildID, m.Author.ID)
 	if err != nil {
-		slog.Warn("Error while getting member", "error", err)
+		slog.Warn("Error while getting member", "error", err, "guild_id", m.GuildID, "user_id", m.Author.ID)
 		return m.Author.Username
 	}
 	return member.Nick
@@ -163,12 +163,12 @@ func GetUsernameForUserIDInGuild(discordSession *discordgo.Session, userid strin
 		}
 		return member.User.Username
 	}
-	slog.Warn("Error while getting member", "error", err)
+	slog.Warn("Error while getting member", "error", err, "guild_id", guildid, "user_id", userid)
 	user, err := discordSession.User(userid)
 	if err == nil {
 		return user.Username
 	}
-	slog.Warn("Error while getting user", "error", err)
+	slog.Warn("Error while getting user", "error", err, "user_id", userid)
 	return "Unbekannter Benutzer"
 }
 
