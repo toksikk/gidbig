@@ -14,6 +14,7 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	humanize "github.com/dustin/go-humanize"
+	"github.com/toksikk/gidbig/internal/admin"
 	"github.com/toksikk/gidbig/internal/cfg"
 	"github.com/toksikk/gidbig/internal/coffee"
 	"github.com/toksikk/gidbig/internal/eso"
@@ -353,6 +354,7 @@ func StartGidbig() {
 	}
 
 	llm.Initialize()
+	admin.Start(discord, conf.Discord.OwnerID, buildBotStatsMessage)
 	coffee.Start(discord)
 	eso.Start(discord)
 	gamerstatus.Start(discord)
@@ -364,6 +366,7 @@ func StartGidbig() {
 	cmds := []*discordgo.ApplicationCommand{
 		{Name: "status", Description: "Show bot runtime status (owner only)"},
 	}
+	cmds = append(cmds, admin.Commands()...)
 	cmds = append(cmds, coffee.Commands()...)
 	cmds = append(cmds, gippity.Commands()...)
 	if _, err := discord.ApplicationCommandBulkOverwrite(discord.State.User.ID, "", cmds); err != nil {
