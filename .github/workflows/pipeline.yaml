@@ -5,20 +5,6 @@ on:
     workflow_dispatch:
 
 jobs:
-    preparation:
-        name: Prepare environment
-        runs-on: ubuntu-latest
-
-        outputs:
-            go_version: ${{ steps.determine_go_version.outputs.go_version }}
-
-        steps:
-            - uses: actions/checkout@v6
-
-            - name: Determine Go version from go.mod
-              id: determine_go_version
-              run: echo "go_version=$(grep "go 1." go.mod | cut -d " " -f 2)" >> $GITHUB_OUTPUT
-
     detect_changes:
         name: Detect file changes
         runs-on: ubuntu-latest
@@ -39,11 +25,9 @@ jobs:
                         - 'go.sum'
                         - 'Makefile'
 
-    check_code:
-        name: Check code
-        needs:
-            - preparation
-            - detect_changes
+    check_and_build:
+        name: Check and build
+        needs: detect_changes
         if: needs.detect_changes.outputs.go == 'true' || github.event_name == 'workflow_dispatch'
         runs-on: ubuntu-latest
 
@@ -53,29 +37,16 @@ jobs:
             - name: Setup Go
               uses: actions/setup-go@v6
               with:
-                  go-version: ${{ needs.preparation.outputs.go_version }}
+                  go-version-file: go.mod
+                  cache-dependency-path: go.sum
 
             - name: Lint
               uses: golangci/golangci-lint-action@v9
 
-    build:
-        name: Build
-        needs:
-            - check_code
-            - preparation
-            - detect_changes
-        if: needs.detect_changes.outputs.go == 'true' || github.event_name == 'workflow_dispatch'
-        runs-on: ubuntu-latest
+            - name: Test
+              run: go test ./...
 
-        steps:
-            - uses: actions/checkout@v6
-
-            - name: Setup Go
-              uses: actions/setup-go@v6
-              with:
-                  go-version: ${{ needs.preparation.outputs.go_version }}
-
-            - name: Run build
+            - name: Build
               run: make build
 
     deploy:
@@ -90,7 +61,7 @@ jobs:
                     !startsWith(github.ref_name, 'dependabot/')
                 )
             }}
-        needs: build
+        needs: check_and_build
         runs-on: ubuntu-latest
 
         steps:
