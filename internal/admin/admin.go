@@ -135,7 +135,11 @@ func onAdminInteractionCreate(s *discordgo.Session, i *discordgo.InteractionCrea
 func optUserID(s *discordgo.Session, opts []*discordgo.ApplicationCommandInteractionDataOption) string {
 	for _, o := range opts {
 		if o.Name == "user" {
-			return o.UserValue(s).ID
+			u := o.UserValue(s)
+			if u == nil {
+				return ""
+			}
+			return u.ID
 		}
 	}
 	return ""
