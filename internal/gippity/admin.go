@@ -1,9 +1,25 @@
 package gippity
 
+import (
+	"database/sql"
+	"log/slog"
+)
+
 // AdminGetUserPrivacy returns true (privacy on/anonymized) for a user.
-// Defaults to true if no explicit setting exists.
+// Defaults to true if no explicit setting exists. Acquires dbMu for safe concurrent access.
 func AdminGetUserPrivacy(userID string) bool {
-	return getUserPrivacy(userID)
+	dbMu.Lock()
+	defer dbMu.Unlock()
+	var enabled int
+	err := database.QueryRow(`SELECT privacy_enabled FROM user_privacy WHERE user_id = ?`, userID).Scan(&enabled)
+	if err == sql.ErrNoRows {
+		return true
+	}
+	if err != nil {
+		slog.Error("admin: error querying user_privacy", "error", err)
+		return true
+	}
+	return enabled != 0
 }
 
 // AdminGetAllUserPrivacy returns a map of userID -> privacy_enabled for all users
