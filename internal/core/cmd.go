@@ -41,7 +41,19 @@ var (
 )
 
 func onReady(s *discordgo.Session, event *discordgo.Ready) {
-	slog.Info("Received READY payload.")
+	slog.Info("Discord READY", "session_id", event.SessionID, "user", event.User.String(), "guilds", len(event.Guilds), "latency_ms", s.HeartbeatLatency().Milliseconds())
+}
+
+func onConnect(s *discordgo.Session, event *discordgo.Connect) {
+	slog.Info("Discord WebSocket connected")
+}
+
+func onDisconnect(s *discordgo.Session, event *discordgo.Disconnect) {
+	slog.Error("Discord WebSocket disconnected — bot is offline until reconnect")
+}
+
+func onResumed(s *discordgo.Session, event *discordgo.Resumed) {
+	slog.Info("Discord session resumed", "latency_ms", s.HeartbeatLatency().Milliseconds())
 }
 
 func scontains(key string, options ...string) bool {
@@ -327,6 +339,9 @@ func StartGidbig() {
 	}
 
 	discord.AddHandler(onReady)
+	discord.AddHandler(onConnect)
+	discord.AddHandler(onDisconnect)
+	discord.AddHandler(onResumed)
 	discord.AddHandler(onMessageCreate)
 	discord.AddHandler(onStatusInteractionCreate)
 
