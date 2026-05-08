@@ -21,6 +21,24 @@ var (
 	generateLLMMessage = llm.GenerateMessage
 )
 
+// deferInteraction sends an immediate deferred acknowledgement so Discord doesn't
+// time out while the bot performs slow work (e.g. LLM calls).
+func deferInteraction(s *discordgo.Session, i *discordgo.InteractionCreate, ephemeral bool) error {
+	var flags discordgo.MessageFlags
+	if ephemeral {
+		flags = discordgo.MessageFlagsEphemeral
+	}
+	return s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{Flags: flags},
+	})
+}
+
+// editDeferredResponse updates the deferred reply with the final content.
+func editDeferredResponse(s *discordgo.Session, i *discordgo.InteractionCreate, content string) {
+	_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: &content})
+}
+
 // generateInteractionMessage detects the channel language and uses the LLM to generate
 // a response for the given scenario. Returns fallback on any error.
 func generateInteractionMessage(s *discordgo.Session, channelID, scenario, fallback string) string {
@@ -204,16 +222,11 @@ func onInteractionCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		return
 	}
 
+	_ = deferInteraction(s, i, true)
 	confirmMsg := generateInteractionMessage(s, i.ChannelID,
 		fmt.Sprintf("Confirm to the user that their morning beverage is now set to %s.", emoji),
 		fmt.Sprintf("Your morning beverage is now %s ☑️", emoji))
-	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseChannelMessageWithSource,
-		Data: &discordgo.InteractionResponseData{
-			Content: confirmMsg,
-			Flags:   discordgo.MessageFlagsEphemeral,
-		},
-	})
+	editDeferredResponse(s, i, confirmMsg)
 
 	if !introducedBefore {
 		sendIntroDM(s, userID, emoji)
@@ -224,27 +237,18 @@ func handleBrewInteraction(s *discordgo.Session, i *discordgo.InteractionCreate)
 	alreadyBrewing, readyAt := startBrew(s, i.GuildID, i.ChannelID)
 	ts := fmt.Sprintf("<t:%d:R>", readyAt.Unix())
 	if alreadyBrewing {
+		_ = deferInteraction(s, i, true)
 		msg := generateInteractionMessage(s, i.ChannelID,
 			"Coffee is already brewing. Tell the user in one short sentence.",
 			"☕ Coffee is already brewing!") + " " + ts
-		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-			Type: discordgo.InteractionResponseChannelMessageWithSource,
-			Data: &discordgo.InteractionResponseData{
-				Content: msg,
-				Flags:   discordgo.MessageFlagsEphemeral,
-			},
-		})
+		editDeferredResponse(s, i, msg)
 		return
 	}
+	_ = deferInteraction(s, i, false)
 	msg := generateInteractionMessage(s, i.ChannelID,
 		"A user just started brewing coffee. It will be ready in about 3 minutes. Announce this in one short sentence.",
 		"☕ Brewing coffee... Ready") + " " + ts
-	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseChannelMessageWithSource,
-		Data: &discordgo.InteractionResponseData{
-			Content: msg,
-		},
-	})
+	editDeferredResponse(s, i, msg)
 }
 
 func handleGrabCoffeeButton(s *discordgo.Session, i *discordgo.InteractionCreate) {
@@ -258,16 +262,11 @@ func handleGrabCoffeeButton(s *discordgo.Session, i *discordgo.InteractionCreate
 	result := grabCoffee(i.GuildID, i.ChannelID, userID)
 
 	if result.notReady {
+		_ = deferInteraction(s, i, true)
 		msg := generateInteractionMessage(s, i.ChannelID,
 			"A user tried to grab coffee but the pot is empty or not ready. Tell them in one short sentence.",
 			"Too late — the coffee pot is empty! ☕")
-		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-			Type: discordgo.InteractionResponseChannelMessageWithSource,
-			Data: &discordgo.InteractionResponseData{
-				Content: msg,
-				Flags:   discordgo.MessageFlagsEphemeral,
-			},
-		})
+		editDeferredResponse(s, i, msg)
 		return
 	}
 
@@ -293,29 +292,19 @@ func handleModifyLastCupButton(s *discordgo.Session, i *discordgo.InteractionCre
 	result := addToLastCup(i.GuildID, i.ChannelID, userID, milk, sugar)
 
 	if result.notReady {
+		_ = deferInteraction(s, i, true)
 		msg := generateInteractionMessage(s, i.ChannelID,
 			"A user tried to add milk or sugar but the coffee pot is no longer available. Tell them in one short sentence.",
 			"No coffee available! ☕")
-		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-			Type: discordgo.InteractionResponseChannelMessageWithSource,
-			Data: &discordgo.InteractionResponseData{
-				Content: msg,
-				Flags:   discordgo.MessageFlagsEphemeral,
-			},
-		})
+		editDeferredResponse(s, i, msg)
 		return
 	}
 	if result.noCup {
+		_ = deferInteraction(s, i, true)
 		msg := generateInteractionMessage(s, i.ChannelID,
 			"A user tried to add milk or sugar but hasn't grabbed a cup yet. Tell them to grab a cup first, in one short sentence.",
 			"Grab a cup first! ☕")
-		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-			Type: discordgo.InteractionResponseChannelMessageWithSource,
-			Data: &discordgo.InteractionResponseData{
-				Content: msg,
-				Flags:   discordgo.MessageFlagsEphemeral,
-			},
-		})
+		editDeferredResponse(s, i, msg)
 		return
 	}
 
