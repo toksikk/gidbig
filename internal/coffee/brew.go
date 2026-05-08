@@ -137,7 +137,7 @@ func startBrew(s *discordgo.Session, guildID, channelID string) (alreadyBrewing 
 	brewMu.Unlock()
 
 	go func() {
-		time.Sleep(time.Until(readyAt))
+		time.Sleep(brewDuration)
 		markBrewReady(s, guildID, channelID)
 	}()
 
