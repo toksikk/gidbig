@@ -3,7 +3,6 @@ package coffee
 import (
 	"context"
 	"fmt"
-	"strings"
 	"testing"
 	"time"
 
@@ -496,10 +495,8 @@ func TestFindBeverage_KnownBeverages(t *testing.T) {
 }
 
 func TestAvailableBeverageNames(t *testing.T) {
-	names := availableBeverageNames()
-	for _, want := range []string{"coffee", "tea", "mate"} {
-		if !strings.Contains(names, want) {
-			t.Errorf("availableBeverageNames() = %q, want to contain %q", names, want)
-		}
+	want := "coffee, tea, mate"
+	if got := availableBeverageNames(); got != want {
+		t.Errorf("availableBeverageNames() = %q, want %q", got, want)
 	}
 }

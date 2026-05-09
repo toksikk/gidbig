@@ -18,6 +18,7 @@ type beverage struct {
 	response string
 }
 
+// coffee is intentionally absent: it goes through the 3-min timer + grab-button flow, not instant response.
 var beverages = []beverage{
 	{"tea", "🍵 Tea. Yeah, this counts too."},
 	{"mate", "🧉 Mate. For those who haven't fallen asleep yet."},
