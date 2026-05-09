@@ -3,6 +3,7 @@ package coffee
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -467,5 +468,38 @@ func TestHandleGrabCoffeeButton_DefersEphemeralWhenNotReady(t *testing.T) {
 	}
 	if len(getEdits()) != 1 {
 		t.Errorf("expected 1 edit call, got %d", len(getEdits()))
+	}
+}
+
+func TestFindBeverage_KnownBeverages(t *testing.T) {
+	tests := []struct {
+		name     string
+		wantOK   bool
+		wantResp string
+	}{
+		{"tea", true, "🍵 Tea. Yeah, this counts too."},
+		{"mate", true, "🧉 Mate. For those who haven't fallen asleep yet."},
+		{"coffee", false, ""},
+		{"unknown", false, ""},
+		{"", false, ""},
+		{"TEA", false, ""},
+	}
+	for _, tt := range tests {
+		bev, ok := findBeverage(tt.name)
+		if ok != tt.wantOK {
+			t.Errorf("findBeverage(%q) ok = %v, want %v", tt.name, ok, tt.wantOK)
+		}
+		if ok && bev.response != tt.wantResp {
+			t.Errorf("findBeverage(%q) response = %q, want %q", tt.name, bev.response, tt.wantResp)
+		}
+	}
+}
+
+func TestAvailableBeverageNames(t *testing.T) {
+	names := availableBeverageNames()
+	for _, want := range []string{"coffee", "tea", "mate"} {
+		if !strings.Contains(names, want) {
+			t.Errorf("availableBeverageNames() = %q, want to contain %q", names, want)
+		}
 	}
 }

@@ -13,6 +13,34 @@ import (
 
 const fallbackBeverage = "☕"
 
+type beverage struct {
+	name     string
+	response string
+}
+
+var beverages = []beverage{
+	{"tea", "🍵 Tea. Yeah, this counts too."},
+	{"mate", "🧉 Mate. For those who haven't fallen asleep yet."},
+}
+
+func findBeverage(name string) (beverage, bool) {
+	for _, bev := range beverages {
+		if bev.name == name {
+			return bev, true
+		}
+	}
+	return beverage{}, false
+}
+
+func availableBeverageNames() string {
+	names := make([]string, 0, len(beverages)+1)
+	names = append(names, "coffee")
+	for _, bev := range beverages {
+		names = append(names, bev.name)
+	}
+	return strings.Join(names, ", ")
+}
+
 var (
 	isSpecialDay         = util.IsSpecial
 	reactOnMessage       = util.ReactOnMessage
@@ -100,7 +128,15 @@ func Commands() []*discordgo.ApplicationCommand {
 		},
 		{
 			Name:        "brew",
-			Description: "Start brewing a pot of coffee (~3 minutes until ready)",
+			Description: "Brew something: coffee (timer + grab buttons), or tea/mate (instant)",
+			Options: []*discordgo.ApplicationCommandOption{
+				{
+					Type:        discordgo.ApplicationCommandOptionString,
+					Name:        "beverage",
+					Description: "What to brew: coffee (default), tea, mate",
+					Required:    false,
+				},
+			},
 		},
 	}
 }
@@ -238,6 +274,29 @@ func onInteractionCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {
 }
 
 func handleBrewInteraction(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	name := ""
+	if opts := i.ApplicationCommandData().Options; len(opts) > 0 {
+		name = strings.ToLower(strings.TrimSpace(opts[0].StringValue()))
+	}
+
+	if name != "" && name != "coffee" {
+		if bev, ok := findBeverage(name); ok {
+			_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+				Type: discordgo.InteractionResponseChannelMessageWithSource,
+				Data: &discordgo.InteractionResponseData{Content: bev.response},
+			})
+			return
+		}
+		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Content: fmt.Sprintf("I don't know that one. Try: %s", availableBeverageNames()),
+				Flags:   discordgo.MessageFlagsEphemeral,
+			},
+		})
+		return
+	}
+
 	alreadyBrewing, readyAt := startBrew(s, i.GuildID, i.ChannelID)
 	ts := fmt.Sprintf("<t:%d:R>", readyAt.Unix())
 	if alreadyBrewing {
