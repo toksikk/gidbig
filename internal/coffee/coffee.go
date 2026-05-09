@@ -14,16 +14,16 @@ import (
 const fallbackBeverage = "☕"
 
 var (
-	isSpecialDay       = util.IsSpecial
-	reactOnMessage     = util.ReactOnMessage
-	sendIntroDM        = sendIntroDMFunc
-	detectLanguage     = llm.DetectChannelLanguage
-	generateLLMMessage = llm.GenerateMessage
+	isSpecialDay         = util.IsSpecial
+	reactOnMessage       = util.ReactOnMessage
+	sendIntroDM          = sendIntroDMFunc
+	detectLanguage       = llm.DetectChannelLanguage
+	generateLLMMessage   = llm.GenerateMessage
+	deferInteraction     = deferInteractionImpl
+	editDeferredResponse = editDeferredResponseImpl
 )
 
-// deferInteraction sends an immediate deferred acknowledgement so Discord doesn't
-// time out while the bot performs slow work (e.g. LLM calls).
-func deferInteraction(s *discordgo.Session, i *discordgo.InteractionCreate, ephemeral bool) error {
+func deferInteractionImpl(s *discordgo.Session, i *discordgo.InteractionCreate, ephemeral bool) error {
 	var flags discordgo.MessageFlags
 	if ephemeral {
 		flags = discordgo.MessageFlagsEphemeral
@@ -34,9 +34,10 @@ func deferInteraction(s *discordgo.Session, i *discordgo.InteractionCreate, ephe
 	})
 }
 
-// editDeferredResponse updates the deferred reply with the final content.
-func editDeferredResponse(s *discordgo.Session, i *discordgo.InteractionCreate, content string) {
-	_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: &content})
+func editDeferredResponseImpl(s *discordgo.Session, i *discordgo.InteractionCreate, content string) {
+	if _, err := s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: &content}); err != nil {
+		slog.Error("coffee: failed to edit deferred response", "error", err)
+	}
 }
 
 // generateInteractionMessage detects the channel language and uses the LLM to generate
@@ -222,7 +223,10 @@ func onInteractionCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		return
 	}
 
-	_ = deferInteraction(s, i, true)
+	if err := deferInteraction(s, i, true); err != nil {
+		slog.Error("coffee: failed to defer interaction", "error", err)
+		return
+	}
 	confirmMsg := generateInteractionMessage(s, i.ChannelID,
 		fmt.Sprintf("Confirm to the user that their morning beverage is now set to %s.", emoji),
 		fmt.Sprintf("Your morning beverage is now %s ☑️", emoji))
@@ -237,14 +241,20 @@ func handleBrewInteraction(s *discordgo.Session, i *discordgo.InteractionCreate)
 	alreadyBrewing, readyAt := startBrew(s, i.GuildID, i.ChannelID)
 	ts := fmt.Sprintf("<t:%d:R>", readyAt.Unix())
 	if alreadyBrewing {
-		_ = deferInteraction(s, i, true)
+		if err := deferInteraction(s, i, true); err != nil {
+			slog.Error("coffee: failed to defer interaction", "error", err)
+			return
+		}
 		msg := generateInteractionMessage(s, i.ChannelID,
 			"Coffee is already brewing. Tell the user in one short sentence.",
 			"☕ Coffee is already brewing!") + " " + ts
 		editDeferredResponse(s, i, msg)
 		return
 	}
-	_ = deferInteraction(s, i, false)
+	if err := deferInteraction(s, i, false); err != nil {
+		slog.Error("coffee: failed to defer interaction", "error", err)
+		return
+	}
 	msg := generateInteractionMessage(s, i.ChannelID,
 		"A user just started brewing coffee. It will be ready in about 3 minutes. Announce this in one short sentence.",
 		"☕ Brewing coffee... Ready") + " " + ts
@@ -262,7 +272,10 @@ func handleGrabCoffeeButton(s *discordgo.Session, i *discordgo.InteractionCreate
 	result := grabCoffee(i.GuildID, i.ChannelID, userID)
 
 	if result.notReady {
-		_ = deferInteraction(s, i, true)
+		if err := deferInteraction(s, i, true); err != nil {
+			slog.Error("coffee: failed to defer interaction", "error", err)
+			return
+		}
 		msg := generateInteractionMessage(s, i.ChannelID,
 			"A user tried to grab coffee but the pot is empty or not ready. Tell them in one short sentence.",
 			"Too late — the coffee pot is empty! ☕")
@@ -292,7 +305,10 @@ func handleModifyLastCupButton(s *discordgo.Session, i *discordgo.InteractionCre
 	result := addToLastCup(i.GuildID, i.ChannelID, userID, milk, sugar)
 
 	if result.notReady {
-		_ = deferInteraction(s, i, true)
+		if err := deferInteraction(s, i, true); err != nil {
+			slog.Error("coffee: failed to defer interaction", "error", err)
+			return
+		}
 		msg := generateInteractionMessage(s, i.ChannelID,
 			"A user tried to add milk or sugar but the coffee pot is no longer available. Tell them in one short sentence.",
 			"No coffee available! ☕")
@@ -300,7 +316,10 @@ func handleModifyLastCupButton(s *discordgo.Session, i *discordgo.InteractionCre
 		return
 	}
 	if result.noCup {
-		_ = deferInteraction(s, i, true)
+		if err := deferInteraction(s, i, true); err != nil {
+			slog.Error("coffee: failed to defer interaction", "error", err)
+			return
+		}
 		msg := generateInteractionMessage(s, i.ChannelID,
 			"A user tried to add milk or sugar but hasn't grabbed a cup yet. Tell them to grab a cup first, in one short sentence.",
 			"Grab a cup first! ☕")

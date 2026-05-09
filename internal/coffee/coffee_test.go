@@ -333,3 +333,139 @@ func TestGenerateInteractionMessage_FallsBackOnEmptyReply(t *testing.T) {
 		t.Errorf("got %q, want fallback on empty LLM reply", got)
 	}
 }
+
+type deferCall struct {
+	ephemeral bool
+}
+
+type editCall struct {
+	content string
+}
+
+func stubInteractionHelpers(t *testing.T, deferErr error) (func() []deferCall, func() []editCall) {
+	t.Helper()
+
+	prevDefer := deferInteraction
+	prevEdit := editDeferredResponse
+	defers := []deferCall{}
+	edits := []editCall{}
+
+	deferInteraction = func(_ *discordgo.Session, _ *discordgo.InteractionCreate, ephemeral bool) error {
+		defers = append(defers, deferCall{ephemeral: ephemeral})
+		return deferErr
+	}
+	editDeferredResponse = func(_ *discordgo.Session, _ *discordgo.InteractionCreate, content string) {
+		edits = append(edits, editCall{content: content})
+	}
+
+	t.Cleanup(func() {
+		deferInteraction = prevDefer
+		editDeferredResponse = prevEdit
+	})
+
+	return func() []deferCall { return defers }, func() []editCall { return edits }
+}
+
+func makeBrewInteraction(guildID, channelID string) *discordgo.InteractionCreate {
+	return &discordgo.InteractionCreate{
+		Interaction: &discordgo.Interaction{
+			GuildID:   guildID,
+			ChannelID: channelID,
+			Type:      discordgo.InteractionApplicationCommand,
+			Data: discordgo.ApplicationCommandInteractionData{
+				Name: "brew",
+			},
+		},
+	}
+}
+
+func makeComponentInteraction(guildID, channelID, customID, userID string) *discordgo.InteractionCreate {
+	return &discordgo.InteractionCreate{
+		Interaction: &discordgo.Interaction{
+			GuildID:   guildID,
+			ChannelID: channelID,
+			Type:      discordgo.InteractionMessageComponent,
+			Member:    &discordgo.Member{User: &discordgo.User{ID: userID}},
+			Data:      discordgo.MessageComponentInteractionData{CustomID: customID},
+		},
+	}
+}
+
+func TestHandleBrewInteraction_DefersEphemeralWhenAlreadyBrewing(t *testing.T) {
+	openInMemoryStore(t)
+	resetBrewStates(t)
+	getDefers, getEdits := stubInteractionHelpers(t, nil)
+	stubLLM(t, "Already brewing!", nil)
+	captureBrewReadyMessages(t)
+
+	i := makeBrewInteraction("g1", "ch1")
+	handleBrewInteraction(nil, i)
+	handleBrewInteraction(nil, i)
+
+	defers := getDefers()
+	edits := getEdits()
+	if len(defers) < 2 {
+		t.Fatalf("expected at least 2 defer calls, got %d", len(defers))
+	}
+	if !defers[1].ephemeral {
+		t.Error("second /brew (already brewing) should defer as ephemeral")
+	}
+	if len(edits) < 2 {
+		t.Fatalf("expected at least 2 edit calls, got %d", len(edits))
+	}
+}
+
+func TestHandleBrewInteraction_DefersPublicOnNewBrew(t *testing.T) {
+	openInMemoryStore(t)
+	resetBrewStates(t)
+	getDefers, getEdits := stubInteractionHelpers(t, nil)
+	stubLLM(t, "Coffee brewing!", nil)
+	captureBrewReadyMessages(t)
+
+	handleBrewInteraction(nil, makeBrewInteraction("g2", "ch2"))
+
+	defers := getDefers()
+	if len(defers) != 1 {
+		t.Fatalf("expected 1 defer call, got %d", len(defers))
+	}
+	if defers[0].ephemeral {
+		t.Error("new brew should defer as public (not ephemeral)")
+	}
+	if len(getEdits()) != 1 {
+		t.Errorf("expected 1 edit call, got %d", len(getEdits()))
+	}
+}
+
+func TestHandleBrewInteraction_AbortsOnDeferError(t *testing.T) {
+	openInMemoryStore(t)
+	resetBrewStates(t)
+	_, getEdits := stubInteractionHelpers(t, fmt.Errorf("discord unavailable"))
+	stubLLM(t, "Coffee!", nil)
+	captureBrewReadyMessages(t)
+
+	handleBrewInteraction(nil, makeBrewInteraction("g3", "ch3"))
+
+	if len(getEdits()) != 0 {
+		t.Error("edit should not be called when defer fails")
+	}
+}
+
+func TestHandleGrabCoffeeButton_DefersEphemeralWhenNotReady(t *testing.T) {
+	openInMemoryStore(t)
+	resetBrewStates(t)
+	getDefers, getEdits := stubInteractionHelpers(t, nil)
+	stubLLM(t, "Pot is empty!", nil)
+
+	handleGrabCoffeeButton(nil, makeComponentInteraction("g4", "ch4", "grab_coffee", "user1"))
+
+	defers := getDefers()
+	if len(defers) != 1 {
+		t.Fatalf("expected 1 defer call, got %d", len(defers))
+	}
+	if !defers[0].ephemeral {
+		t.Error("grab when not ready should defer as ephemeral")
+	}
+	if len(getEdits()) != 1 {
+		t.Errorf("expected 1 edit call, got %d", len(getEdits()))
+	}
+}
