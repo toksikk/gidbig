@@ -173,11 +173,11 @@ func grabCoffee(guildID, channelID, userID string) grabResult {
 		return grabResult{notReady: true}
 	}
 	cup := CupTaken{ml: randCupSize()}
+	if cup.ml > st.coffeeLiters {
+		cup.ml = st.coffeeLiters
+	}
 	st.grabs = append(st.grabs, grabRecord{userID: userID, cup: cup})
 	st.coffeeLiters -= cup.ml
-	if st.coffeeLiters < 0 {
-		st.coffeeLiters = 0
-	}
 	labels := st.buttonLabels
 	isEmpty := st.coffeeLiters < emptyThreshold
 	updatedMsg := buildBrewMessage(st)

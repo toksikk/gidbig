@@ -8,6 +8,53 @@ import (
 	"gorm.io/gorm"
 )
 
+func TestGetSeasonEndDateForDate(t *testing.T) {
+	tests := []struct {
+		name string
+		date time.Time
+		want time.Time
+	}{
+		{
+			name: "31-day month",
+			date: time.Date(2023, time.July, 8, 0, 0, 0, 0, time.UTC),
+			want: time.Date(2023, time.July, 31, 23, 59, 59, 999999999, time.UTC),
+		},
+		{
+			name: "30-day month",
+			date: time.Date(2023, time.April, 15, 0, 0, 0, 0, time.UTC),
+			want: time.Date(2023, time.April, 30, 23, 59, 59, 999999999, time.UTC),
+		},
+		{
+			name: "February non-leap",
+			date: time.Date(2023, time.February, 1, 0, 0, 0, 0, time.UTC),
+			want: time.Date(2023, time.February, 28, 23, 59, 59, 999999999, time.UTC),
+		},
+		{
+			name: "February leap year divisible by 4",
+			date: time.Date(2024, time.February, 10, 0, 0, 0, 0, time.UTC),
+			want: time.Date(2024, time.February, 29, 23, 59, 59, 999999999, time.UTC),
+		},
+		{
+			name: "February century year (not leap)",
+			date: time.Date(2100, time.February, 5, 0, 0, 0, 0, time.UTC),
+			want: time.Date(2100, time.February, 28, 23, 59, 59, 999999999, time.UTC),
+		},
+		{
+			name: "February 400-year cycle (leap)",
+			date: time.Date(2000, time.February, 1, 0, 0, 0, 0, time.UTC),
+			want: time.Date(2000, time.February, 29, 23, 59, 59, 999999999, time.UTC),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := getSeasonEndDateForDate(tt.date)
+			if !got.Equal(tt.want) {
+				t.Errorf("getSeasonEndDateForDate(%v) = %v, want %v", tt.date, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestStore_EnsureSeason(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open("file::memory:"), &gorm.Config{})
 	if err != nil {
