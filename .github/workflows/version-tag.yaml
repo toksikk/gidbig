@@ -1,0 +1,71 @@
+name: Auto version tag
+
+on:
+    push:
+        branches:
+            - master
+
+jobs:
+    tag:
+        name: Bump and tag version
+        runs-on: ubuntu-latest
+        permissions:
+            contents: write
+
+        steps:
+            - uses: actions/checkout@v6
+              with:
+                  fetch-depth: 0
+
+            - name: Compute next version
+              id: version
+              run: |
+                  # Get latest semver tag; default to v0.0.0 if none exists
+                  LATEST=$(git tag --sort=-version:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1)
+                  LATEST=${LATEST:-v0.0.0}
+
+                  MAJOR=$(echo "$LATEST" | cut -d. -f1 | tr -d v)
+                  MINOR=$(echo "$LATEST" | cut -d. -f2)
+                  PATCH=$(echo "$LATEST" | cut -d. -f3)
+
+                  # Read HEAD commit subject and body
+                  SUBJECT=$(git log -1 --format='%s')
+                  BODY=$(git log -1 --format='%b')
+
+                  echo "Latest tag : $LATEST"
+                  echo "Commit     : $SUBJECT"
+
+                  # Determine bump level
+                  if echo "$SUBJECT" | grep -qiE '!(\(|:)' || echo "$BODY" | grep -q 'BREAKING CHANGE'; then
+                      BUMP=major
+                  elif echo "$SUBJECT" | grep -qE '^feat(\([^)]*\))?!?:'; then
+                      BUMP=minor
+                  else
+                      BUMP=patch
+                  fi
+
+                  case "$BUMP" in
+                      major) MAJOR=$((MAJOR+1)); MINOR=0; PATCH=0 ;;
+                      minor) MINOR=$((MINOR+1)); PATCH=0 ;;
+                      patch) PATCH=$((PATCH+1)) ;;
+                  esac
+
+                  NEXT="v${MAJOR}.${MINOR}.${PATCH}"
+                  echo "Bump       : $BUMP  →  $NEXT"
+                  echo "next=$NEXT" >> "$GITHUB_OUTPUT"
+                  echo "bump=$BUMP" >> "$GITHUB_OUTPUT"
+
+            - name: Push tag
+              run: |
+                  git config user.name  "github-actions[bot]"
+                  git config user.email "github-actions[bot]@users.noreply.github.com"
+                  git tag "${{ steps.version.outputs.next }}"
+                  git push origin "${{ steps.version.outputs.next }}"
+
+            - name: Create GitHub release
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  gh release create "${{ steps.version.outputs.next }}" \
+                      --title "${{ steps.version.outputs.next }}" \
+                      --generate-notes
