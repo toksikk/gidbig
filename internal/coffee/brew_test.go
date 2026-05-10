@@ -205,12 +205,12 @@ func TestGrabCoffee_RandomCupSize(t *testing.T) {
 	if result.notReady {
 		t.Fatal("expected successful grab")
 	}
-	if result.cupML < 0.15 || result.cupML > 0.35 {
-		t.Errorf("cupML = %.3f, want between 0.150 and 0.350", result.cupML)
+	if result.cupLiters < 0.15 || result.cupLiters > 0.35 {
+		t.Errorf("cupLiters = %.3f, want between 0.150 and 0.350", result.cupLiters)
 	}
-	ml := int(result.cupML * 1000)
+	ml := int(result.cupLiters * 1000)
 	if ml%10 != 0 {
-		t.Errorf("cupML should be in 10ml increments, got %dml", ml)
+		t.Errorf("cupLiters should be in 10ml increments, got %dml", ml)
 	}
 }
 
@@ -295,7 +295,7 @@ func TestGrabCoffee_PotEmpties(t *testing.T) {
 	}
 }
 
-func TestGrabCoffee_CupsCapToRemainingML(t *testing.T) {
+func TestGrabCoffee_CupsCappedToRemainingLiters(t *testing.T) {
 	resetBrewStates(t)
 	useFixedCupSize(t, 0.30) // cup wants 300ml but only 50ml left
 	brewMu.Lock()
@@ -309,8 +309,8 @@ func TestGrabCoffee_CupsCapToRemainingML(t *testing.T) {
 	if result.notReady {
 		t.Fatal("expected successful grab")
 	}
-	if result.cupML > 0.05+1e-9 {
-		t.Errorf("cupML = %.4f, want <= 0.05 (capped to remaining)", result.cupML)
+	if result.cupLiters > 0.05+1e-9 {
+		t.Errorf("cupLiters = %.4f, want <= 0.05 (capped to remaining)", result.cupLiters)
 	}
 	if !result.isEmpty {
 		t.Error("expected isEmpty=true after draining last drop")
@@ -353,7 +353,7 @@ func TestAddToLastCup_AddsMilk(t *testing.T) {
 	brewStates["guild1:channel1"] = &brewState{
 		isReady:      true,
 		coffeeLiters: potCapacity,
-		grabs:        []grabRecord{{userID: "user1", cup: CupTaken{ml: 0.25}}},
+		grabs:        []grabRecord{{userID: "user1", cup: CupTaken{liters: 0.25}}},
 	}
 	brewMu.Unlock()
 
@@ -380,7 +380,7 @@ func TestAddToLastCup_AddsSugar(t *testing.T) {
 	brewStates["guild1:channel1"] = &brewState{
 		isReady:      true,
 		coffeeLiters: potCapacity,
-		grabs:        []grabRecord{{userID: "user1", cup: CupTaken{ml: 0.25}}},
+		grabs:        []grabRecord{{userID: "user1", cup: CupTaken{liters: 0.25}}},
 	}
 	brewMu.Unlock()
 
@@ -401,7 +401,7 @@ func TestAddToLastCup_CombinesMilkAndSugar(t *testing.T) {
 	brewStates["guild1:channel1"] = &brewState{
 		isReady:      true,
 		coffeeLiters: potCapacity,
-		grabs:        []grabRecord{{userID: "user1", cup: CupTaken{ml: 0.25}}},
+		grabs:        []grabRecord{{userID: "user1", cup: CupTaken{liters: 0.25}}},
 	}
 	brewMu.Unlock()
 
@@ -424,8 +424,8 @@ func TestAddToLastCup_ModifiesLastCupOnly(t *testing.T) {
 		isReady:      true,
 		coffeeLiters: potCapacity,
 		grabs: []grabRecord{
-			{userID: "user1", cup: CupTaken{ml: 0.25}},
-			{userID: "user1", cup: CupTaken{ml: 0.20}},
+			{userID: "user1", cup: CupTaken{liters: 0.25}},
+			{userID: "user1", cup: CupTaken{liters: 0.20}},
 		},
 	}
 	brewMu.Unlock()
@@ -451,7 +451,7 @@ func TestAddToLastCup_DoesNotAffectPotLevel(t *testing.T) {
 	brewStates["guild1:channel1"] = &brewState{
 		isReady:      true,
 		coffeeLiters: potCapacity,
-		grabs:        []grabRecord{{userID: "user1", cup: CupTaken{ml: 0.25}}},
+		grabs:        []grabRecord{{userID: "user1", cup: CupTaken{liters: 0.25}}},
 	}
 	brewMu.Unlock()
 
@@ -498,9 +498,9 @@ func TestBuildBrewMessage_WithCups(t *testing.T) {
 		readyAnnouncement: "Coffee is ready!",
 		coffeeLiters:      1.25,
 		grabs: []grabRecord{
-			{userID: "alice", cup: CupTaken{ml: 0.25, milk: false, sugar: false}},
-			{userID: "bob", cup: CupTaken{ml: 0.25, milk: true, sugar: false}},
-			{userID: "alice", cup: CupTaken{ml: 0.25, milk: false, sugar: true}},
+			{userID: "alice", cup: CupTaken{liters: 0.25, milk: false, sugar: false}},
+			{userID: "bob", cup: CupTaken{liters: 0.25, milk: true, sugar: false}},
+			{userID: "alice", cup: CupTaken{liters: 0.25, milk: false, sugar: true}},
 		},
 	}
 	got := buildBrewMessage(st)
@@ -527,7 +527,7 @@ func TestBuildBrewMessage_EmptyPot(t *testing.T) {
 		readyAnnouncement: "Coffee is ready!",
 		coffeeLiters:      0.0,
 		grabs: []grabRecord{
-			{userID: "user1", cup: CupTaken{ml: 0.25}},
+			{userID: "user1", cup: CupTaken{liters: 0.25}},
 		},
 	}
 	got := buildBrewMessage(st)
