@@ -295,6 +295,35 @@ func TestGrabCoffee_PotEmpties(t *testing.T) {
 	}
 }
 
+func TestGrabCoffee_CupsCapToRemainingML(t *testing.T) {
+	resetBrewStates(t)
+	useFixedCupSize(t, 0.30) // cup wants 300ml but only 50ml left
+	brewMu.Lock()
+	brewStates["guild1:channel1"] = &brewState{
+		isReady:      true,
+		coffeeLiters: 0.05,
+	}
+	brewMu.Unlock()
+
+	result := grabCoffee("guild1", "channel1", "user1")
+	if result.notReady {
+		t.Fatal("expected successful grab")
+	}
+	if result.cupML > 0.05+1e-9 {
+		t.Errorf("cupML = %.4f, want <= 0.05 (capped to remaining)", result.cupML)
+	}
+	if !result.isEmpty {
+		t.Error("expected isEmpty=true after draining last drop")
+	}
+
+	brewMu.Lock()
+	_, exists := brewStates["guild1:channel1"]
+	brewMu.Unlock()
+	if exists {
+		t.Error("expected brew state deleted after pot is empty")
+	}
+}
+
 func TestAddToLastCup_NoBrew(t *testing.T) {
 	resetBrewStates(t)
 	result := addToLastCup("guild1", "channel1", "user1", true, false)
