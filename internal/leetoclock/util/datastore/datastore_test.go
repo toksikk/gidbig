@@ -44,6 +44,11 @@ func TestGetSeasonEndDateForDate(t *testing.T) {
 			date: time.Date(2000, time.February, 1, 0, 0, 0, 0, time.UTC),
 			want: time.Date(2000, time.February, 29, 23, 59, 59, 999999999, time.UTC),
 		},
+		{
+			name: "December month overflow (month+1=13 normalises to January next year)",
+			date: time.Date(2023, time.December, 15, 0, 0, 0, 0, time.UTC),
+			want: time.Date(2023, time.December, 31, 23, 59, 59, 999999999, time.UTC),
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -18,9 +18,9 @@ const (
 
 // CupTaken records the details of a single cup of coffee taken by a user.
 type CupTaken struct {
-	ml    float64
-	milk  bool
-	sugar bool
+	liters float64
+	milk   bool
+	sugar  bool
 }
 
 type grabRecord struct {
@@ -41,7 +41,7 @@ type grabResult struct {
 	notReady     bool
 	noCup        bool // tried to add milk/sugar but user has no cup in this brew
 	isEmpty      bool
-	cupML        float64
+	cupLiters    float64
 	updatedMsg   string
 	buttonLabels [3]string
 }
@@ -172,12 +172,12 @@ func grabCoffee(guildID, channelID, userID string) grabResult {
 	if !ok || !st.isReady || st.coffeeLiters < emptyThreshold {
 		return grabResult{notReady: true}
 	}
-	cup := CupTaken{ml: randCupSize()}
-	if cup.ml > st.coffeeLiters {
-		cup.ml = st.coffeeLiters
+	cup := CupTaken{liters: randCupSize()}
+	if cup.liters > st.coffeeLiters {
+		cup.liters = st.coffeeLiters
 	}
 	st.grabs = append(st.grabs, grabRecord{userID: userID, cup: cup})
-	st.coffeeLiters -= cup.ml
+	st.coffeeLiters -= cup.liters
 	labels := st.buttonLabels
 	isEmpty := st.coffeeLiters < emptyThreshold
 	updatedMsg := buildBrewMessage(st)
@@ -185,7 +185,7 @@ func grabCoffee(guildID, channelID, userID string) grabResult {
 		delete(brewStates, key)
 	}
 	return grabResult{
-		cupML:        cup.ml,
+		cupLiters:    cup.liters,
 		isEmpty:      isEmpty,
 		updatedMsg:   updatedMsg,
 		buttonLabels: labels,
@@ -246,10 +246,10 @@ func buildBrewMessage(st *brewState) string {
 
 	for _, uid := range userOrder {
 		cups := userGrabs[uid]
-		var totalML float64
+		var totalLiters float64
 		cupDescs := make([]string, 0, len(cups))
 		for _, c := range cups {
-			totalML += c.ml
+			totalLiters += c.liters
 			emoji := "☕"
 			if c.milk {
 				emoji += "🥛"
@@ -257,14 +257,14 @@ func buildBrewMessage(st *brewState) string {
 			if c.sugar {
 				emoji += "🍬"
 			}
-			cupDescs = append(cupDescs, fmt.Sprintf("%s ~%.0fml", emoji, c.ml*1000))
+			cupDescs = append(cupDescs, fmt.Sprintf("%s ~%.0fml", emoji, c.liters*1000))
 		}
 		cupsWord := "cup"
 		if len(cups) > 1 {
 			cupsWord = "cups"
 		}
 		fmt.Fprintf(&sb, "\n<@%s>: %d %s (~%.0fml) — %s",
-			uid, len(cups), cupsWord, totalML*1000, strings.Join(cupDescs, ", "))
+			uid, len(cups), cupsWord, totalLiters*1000, strings.Join(cupDescs, ", "))
 	}
 
 	if st.coffeeLiters < emptyThreshold {
