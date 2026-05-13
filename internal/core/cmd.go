@@ -23,6 +23,7 @@ import (
 	"github.com/toksikk/gidbig/internal/gippity"
 	"github.com/toksikk/gidbig/internal/leetoclock"
 	"github.com/toksikk/gidbig/internal/llm"
+	"github.com/toksikk/gidbig/internal/bot"
 	"github.com/toksikk/gidbig/internal/stoll"
 	"github.com/toksikk/gidbig/internal/wttrin"
 )
@@ -360,7 +361,13 @@ func StartGidbig() {
 	gamerstatus.Start(discord)
 	gippity.Start(discord)
 	leetoclock.Start(discord)
-	stoll.Start(discord)
+	stollMod := stoll.New()
+	if err := stollMod.Init(bot.Deps{Session: discord, OwnerID: conf.Discord.OwnerID}); err != nil {
+		slog.Error("stoll: init failed", "error", err)
+	}
+	for _, l := range stollMod.Listeners() {
+		discord.AddHandler(l)
+	}
 	wttrin.Start(discord)
 
 	cmds := []*discordgo.ApplicationCommand{

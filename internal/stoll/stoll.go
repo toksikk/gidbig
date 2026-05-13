@@ -6,33 +6,63 @@ import (
 	"strings"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/toksikk/gidbig/internal/bot"
 	"github.com/toksikk/gidbig/internal/util"
 )
 
-// Start the plugin
-func Start(discord *discordgo.Session) {
-	discord.AddHandler(onMessageCreate)
-	slog.Info("stoll function registered")
+// Module implements bot.Module for the stoll quote plugin.
+type Module struct {
+	session *discordgo.Session
 }
 
-func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
-	tok := strings.Split(m.Content, " ")
+// New returns a new stoll Module.
+func New() *Module {
+	return &Module{}
+}
+
+func (m *Module) Name() string { return "stoll" }
+
+func (m *Module) Init(d bot.Deps) error {
+	m.session = d.Session
+	slog.Info("stoll: initialized")
+	return nil
+}
+
+func (m *Module) Commands() []*discordgo.ApplicationCommand { return nil }
+
+func (m *Module) Listeners() []bot.EventListener {
+	return []bot.EventListener{m.onMessageCreate}
+}
+
+func (m *Module) Components() []bot.ComponentHandler { return nil }
+
+func (m *Module) Background() []bot.BackgroundTask { return nil }
+
+func (m *Module) Shutdown() error { return nil }
+
+func (m *Module) onMessageCreate(s *discordgo.Session, msg *discordgo.MessageCreate) {
+	tok := strings.Split(msg.Content, " ")
 	if len(tok) < 1 {
 		return
 	}
-	if strings.ToLower(tok[0]) == "!stoll" {
-		line := "> "
-		for i := 0; i < 3; i++ {
-			line += quotes[i][rand.Intn(len(quotes[i]))]
-			line += " "
-		}
-		line += "\n - Dr. Axel Stoll, promovierter Naturwissenschaftler"
-		stoll := line
-		msg, err := s.ChannelMessageSend(m.ChannelID, stoll)
-		if err == nil {
-			util.ReactOnMessage(s, msg.ChannelID, msg.ID, ":stoll:747387878916751421", "add")
-		}
+	if strings.ToLower(tok[0]) != "!stoll" {
+		return
 	}
+	line := buildQuote()
+	reply, err := s.ChannelMessageSend(msg.ChannelID, line)
+	if err == nil {
+		util.ReactOnMessage(s, reply.ChannelID, reply.ID, ":stoll:747387878916751421", "add")
+	}
+}
+
+func buildQuote() string {
+	line := "> "
+	for i := 0; i < 3; i++ {
+		line += quotes[i][rand.Intn(len(quotes[i]))]
+		line += " "
+	}
+	line += "\n - Dr. Axel Stoll, promovierter Naturwissenschaftler"
+	return line
 }
 
 var quotes = [][]string{
