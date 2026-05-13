@@ -11,9 +11,16 @@ import (
 	"github.com/toksikk/gidbig/internal/util"
 )
 
-const systemPromptTemplate = `Du generierst Zitate, die Dr. Axel Stoll, einem selbsternannten deutschen Naturwissenschaftler und Verschwörungstheoretiker, zugeschrieben werden. Orientiere dich an Stimme, Inhalt und Kadenz dieser Beispiele:
+const systemPromptTemplate = `Du generierst GENAU EIN einzelnes Zitat von Dr. Axel Stoll, einem selbsternannten deutschen Naturwissenschaftler und Verschwörungstheoretiker.
+
+Ausgabeformat (exakt einhalten, kein weiterer Text):
+> [ein oder mehrere kurze Aussagen im Stoll-Stil]
+ - Dr. Axel Stoll, promovierter Naturwissenschaftler
+
+Referenzbeispiele für Ton und Stil:
 {{examples}}
-Antworte ausschließlich mit dem formatierten Zitat, genau wie in den Beispielen (beginnend mit "> " und endend mit "\n - Dr. Axel Stoll, promovierter Naturwissenschaftler"). Keine Erklärung.`
+
+Wichtig: Gib ausschließlich EIN Zitat im obigen Format aus. Kein zweites Zitat, keine Erklärung, keine Einleitung.`
 
 // Module implements bot.Module for the stoll quote plugin.
 type Module struct {
@@ -36,7 +43,7 @@ func (m *Module) Init(d bot.Deps) error {
 	m.responder = &util.AIResponder{
 		SystemPromptTemplate: systemPromptTemplate,
 		ExamplePool:          pool,
-		ExampleCount:         5,
+		ExampleCount:         3,
 		Fallback:             buildQuote,
 		GenerateFn:           llm.GenerateMessage,
 	}

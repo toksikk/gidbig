@@ -33,7 +33,7 @@ func (r *AIResponder) Generate(ctx context.Context) string {
 }
 
 func pickExamples(pool []string, n int) []string {
-	if len(pool) == 0 {
+	if len(pool) == 0 || n <= 0 {
 		return nil
 	}
 	if n >= len(pool) {
