@@ -7,41 +7,24 @@ import (
 	"testing"
 
 	"github.com/bwmarrin/discordgo"
-	"github.com/toksikk/gidbig/internal/llm"
 )
 
-func stubLLM(t *testing.T, reply string, err error) {
-	t.Helper()
-	prev := generateLLMIntro
-	t.Cleanup(func() { generateLLMIntro = prev })
-	generateLLMIntro = func(_ context.Context, _, _ string) (string, error) {
-		return reply, err
-	}
-}
-
-func stubDetectLanguage(t *testing.T, lang string) {
-	t.Helper()
-	prev := detectLanguage
-	t.Cleanup(func() { detectLanguage = prev })
-	detectLanguage = func(_ *discordgo.Session, _ string) (string, error) {
-		return lang, nil
-	}
-}
-
-func stubGetWeather(t *testing.T, result wttrinResponse, err error) {
-	t.Helper()
-	prev := getWeatherFn
-	t.Cleanup(func() { getWeatherFn = prev })
-	getWeatherFn = func(_ string) (wttrinResponse, error) {
-		return result, err
+func newTestModule() *Module {
+	return &Module{
+		detectLang:   func(_ *discordgo.Session, _ string) (string, error) { return "English", nil },
+		generateFn:   func(_ context.Context, _, _ string) (string, error) { return "", nil },
+		getWeatherFn: func(_ string) (wttrinResponse, error) { return wttrinResponse{}, nil },
 	}
 }
 
 func TestBuildLLMWeatherOutro_ReturnsOnSuccess(t *testing.T) {
-	stubDetectLanguage(t, "German")
-	stubLLM(t, "Das Wetter heute ist angenehm.", nil)
+	m := newTestModule()
+	m.detectLang = func(_ *discordgo.Session, _ string) (string, error) { return "German", nil }
+	m.generateFn = func(_ context.Context, _, _ string) (string, error) {
+		return "Das Wetter heute ist angenehm.", nil
+	}
 
-	outro := buildLLMWeatherOutro(nil, &discordgo.MessageCreate{
+	outro := m.buildLLMWeatherOutro(nil, &discordgo.MessageCreate{
 		Message: &discordgo.Message{ChannelID: "ch1"},
 	}, "Berlin", "15°C sunny")
 
@@ -51,10 +34,12 @@ func TestBuildLLMWeatherOutro_ReturnsOnSuccess(t *testing.T) {
 }
 
 func TestBuildLLMWeatherOutro_EmptyOnLLMError(t *testing.T) {
-	stubDetectLanguage(t, "English")
-	stubLLM(t, "", errors.New("api error"))
+	m := newTestModule()
+	m.generateFn = func(_ context.Context, _, _ string) (string, error) {
+		return "", errors.New("api error")
+	}
 
-	outro := buildLLMWeatherOutro(nil, &discordgo.MessageCreate{
+	outro := m.buildLLMWeatherOutro(nil, &discordgo.MessageCreate{
 		Message: &discordgo.Message{ChannelID: "ch1"},
 	}, "London", "10°C rain")
 
@@ -64,10 +49,12 @@ func TestBuildLLMWeatherOutro_EmptyOnLLMError(t *testing.T) {
 }
 
 func TestBuildLLMWeatherOutro_TrimsWhitespace(t *testing.T) {
-	stubDetectLanguage(t, "English")
-	stubLLM(t, "  Nice weather!  ", nil)
+	m := newTestModule()
+	m.generateFn = func(_ context.Context, _, _ string) (string, error) {
+		return "  Nice weather!  ", nil
+	}
 
-	outro := buildLLMWeatherOutro(nil, &discordgo.MessageCreate{
+	outro := m.buildLLMWeatherOutro(nil, &discordgo.MessageCreate{
 		Message: &discordgo.Message{ChannelID: "ch1"},
 	}, "London", "data")
 
@@ -76,12 +63,17 @@ func TestBuildLLMWeatherOutro_TrimsWhitespace(t *testing.T) {
 	}
 }
 
-// Verify the package-level vars are wired to the llm package.
-func TestDefaultsWiredToLLMPackage(t *testing.T) {
-	if generateLLMIntro == nil {
-		t.Error("generateLLMIntro must not be nil")
+func TestDefaultsWiredCorrectly(t *testing.T) {
+	m := New()
+	if m.generateFn == nil {
+		t.Error("generateFn must not be nil")
 	}
-	_ = llm.GenerateMessage // ensure llm package is referenced
+	if m.detectLang == nil {
+		t.Error("detectLang must not be nil")
+	}
+	if m.getWeatherFn == nil {
+		t.Error("getWeatherFn must not be nil")
+	}
 }
 
 func minimalWeatherResponse() wttrinResponse {
@@ -244,11 +236,11 @@ func TestMostOccurringWeatherCodeForDay_ReturnsDominantCode(t *testing.T) {
 }
 
 func TestConstructDiscordMessage_StructuredBeforeLLMOutro(t *testing.T) {
-	stubDetectLanguage(t, "English")
-	stubLLM(t, "Lovely day ahead!", nil)
-	stubGetWeather(t, minimalWeatherResponse(), nil)
+	m := newTestModule()
+	m.generateFn = func(_ context.Context, _, _ string) (string, error) { return "Lovely day ahead!", nil }
+	m.getWeatherFn = func(_ string) (wttrinResponse, error) { return minimalWeatherResponse(), nil }
 
-	msg := constructDiscordMessage(nil, &discordgo.MessageCreate{
+	msg := m.constructDiscordMessage(nil, &discordgo.MessageCreate{
 		Message: &discordgo.Message{ChannelID: "ch1"},
 	}, []string{"!wttr", "Berlin"}, &discordgo.Guild{}, false)
 
@@ -266,11 +258,11 @@ func TestConstructDiscordMessage_StructuredBeforeLLMOutro(t *testing.T) {
 }
 
 func TestConstructDiscordMessage_ForecastStructuredBeforeLLMOutro(t *testing.T) {
-	stubDetectLanguage(t, "English")
-	stubLLM(t, "Pack an umbrella!", nil)
-	stubGetWeather(t, minimalWeatherResponse(), nil)
+	m := newTestModule()
+	m.generateFn = func(_ context.Context, _, _ string) (string, error) { return "Pack an umbrella!", nil }
+	m.getWeatherFn = func(_ string) (wttrinResponse, error) { return minimalWeatherResponse(), nil }
 
-	msg := constructDiscordMessage(nil, &discordgo.MessageCreate{
+	msg := m.constructDiscordMessage(nil, &discordgo.MessageCreate{
 		Message: &discordgo.Message{ChannelID: "ch1"},
 	}, []string{"!wttrf", "Berlin"}, &discordgo.Guild{}, true)
 
@@ -288,11 +280,11 @@ func TestConstructDiscordMessage_ForecastStructuredBeforeLLMOutro(t *testing.T) 
 }
 
 func TestConstructDiscordMessage_LLMFailureReturnsOnlyStructured(t *testing.T) {
-	stubDetectLanguage(t, "English")
-	stubLLM(t, "", errors.New("llm down"))
-	stubGetWeather(t, minimalWeatherResponse(), nil)
+	m := newTestModule()
+	m.generateFn = func(_ context.Context, _, _ string) (string, error) { return "", errors.New("llm down") }
+	m.getWeatherFn = func(_ string) (wttrinResponse, error) { return minimalWeatherResponse(), nil }
 
-	msg := constructDiscordMessage(nil, &discordgo.MessageCreate{
+	msg := m.constructDiscordMessage(nil, &discordgo.MessageCreate{
 		Message: &discordgo.Message{ChannelID: "ch1"},
 	}, []string{"!wttr", "Berlin"}, &discordgo.Guild{}, false)
 
