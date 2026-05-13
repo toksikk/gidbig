@@ -105,6 +105,20 @@ func TestPickExamples_EmptyPool(t *testing.T) {
 	}
 }
 
+func TestPickExamples_ZeroN(t *testing.T) {
+	got := pickExamples([]string{"a", "b"}, 0)
+	if len(got) != 0 {
+		t.Fatalf("expected empty result for n=0, got %v", got)
+	}
+}
+
+func TestPickExamples_NegativeN(t *testing.T) {
+	got := pickExamples([]string{"a", "b"}, -1)
+	if len(got) != 0 {
+		t.Fatalf("expected empty result for negative n, got %v", got)
+	}
+}
+
 func TestPickExamples_NLargerThanPool(t *testing.T) {
 	pool := []string{"a", "b"}
 	got := pickExamples(pool, 10)
