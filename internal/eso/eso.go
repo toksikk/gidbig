@@ -1,69 +1,100 @@
 package eso
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
-	"math/rand"
-	"strings"
+	"math/rand/v2"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/toksikk/gidbig/internal/bot"
+	"github.com/toksikk/gidbig/internal/llm"
 	"github.com/toksikk/gidbig/internal/util"
 )
 
+const systemPromptTemplate = `Du bist ein esoterischer Unsinn-Generator. Produziere genau einen Satz mystischen, pseudo-tiefgründigen deutschen Unsinns. Orientiere dich an Ton und Struktur dieser Beispiele:
+{{examples}}
+Antworte ausschließlich mit dem generierten Satz auf Deutsch. Keine Erklärung, keine Begrüßung.`
+
 // Module implements bot.Module for the eso conspiracy-text plugin.
 type Module struct {
-	session *discordgo.Session
+	session   *discordgo.Session
+	responder *util.AIResponder
 }
 
 // New returns a new eso Module.
-func New() *Module {
-	return &Module{}
-}
+func New() *Module { return &Module{} }
 
 func (m *Module) Name() string { return "eso" }
 
 func (m *Module) Init(d bot.Deps) error {
 	m.session = d.Session
+
+	pool := make([]string, 20)
+	for i := range pool {
+		pool[i] = buildMessage()
+	}
+	m.responder = &util.AIResponder{
+		SystemPromptTemplate: systemPromptTemplate,
+		ExamplePool:          pool,
+		ExampleCount:         5,
+		Fallback:             buildMessage,
+		GenerateFn:           llm.GenerateMessage,
+	}
+
 	slog.Info("eso: initialized")
 	return nil
 }
 
-func (m *Module) Commands() []*discordgo.ApplicationCommand { return nil }
+func (m *Module) Commands() []*discordgo.ApplicationCommand {
+	return []*discordgo.ApplicationCommand{
+		{Name: "eso", Description: "Erhalte esoterischen Unsinn"},
+	}
+}
 
 func (m *Module) Listeners() []bot.EventListener {
-	return []bot.EventListener{m.onMessageCreate}
+	return []bot.EventListener{m.onInteractionCreate}
 }
 
 func (m *Module) Components() []bot.ComponentHandler { return nil }
+func (m *Module) Background() []bot.BackgroundTask   { return nil }
+func (m *Module) Shutdown() error                    { return nil }
 
-func (m *Module) Background() []bot.BackgroundTask { return nil }
-
-func (m *Module) Shutdown() error { return nil }
-
-func (m *Module) onMessageCreate(s *discordgo.Session, msg *discordgo.MessageCreate) {
-	tok := strings.Split(msg.Content, " ")
-	if len(tok) < 1 {
+func (m *Module) onInteractionCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	if i.Type != discordgo.InteractionApplicationCommand {
 		return
 	}
-	if strings.ToLower(tok[0]) != "!eso" {
+	if i.ApplicationCommandData().Name != "eso" {
 		return
 	}
-	text := buildMessage()
-	reply, err := s.ChannelMessageSend(msg.ChannelID, text)
-	if err == nil {
-		util.ReactOnMessage(s, reply.ChannelID, reply.ID, "🧠", "add")
+
+	if err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
+	}); err != nil {
+		slog.Error("eso: failed to defer interaction", "error", err)
+		return
 	}
+
+	go func() {
+		text := m.responder.Generate(context.Background())
+		if _, err := s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: &text}); err != nil {
+			slog.Error("eso: failed to edit interaction response", "error", err)
+			return
+		}
+		if msg, err := s.InteractionResponse(i.Interaction); err == nil && msg != nil {
+			util.ReactOnMessage(s, msg.ChannelID, msg.ID, "🧠", "add")
+		}
+	}()
 }
 
 func buildMessage() string {
 	return fmt.Sprintf(
 		"%s%s%s%s%s",
-		ohai[rand.Intn(len(ohai))],
-		buty[rand.Intn(len(buty))],
-		wat[rand.Intn(len(wat))],
-		dointings[rand.Intn(len(dointings))],
-		todotings[rand.Intn(len(todotings))],
+		ohai[rand.IntN(len(ohai))],
+		buty[rand.IntN(len(buty))],
+		wat[rand.IntN(len(wat))],
+		dointings[rand.IntN(len(dointings))],
+		todotings[rand.IntN(len(todotings))],
 	)
 }
 

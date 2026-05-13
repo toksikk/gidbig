@@ -1,6 +1,8 @@
 package eso
 
 import (
+	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -30,11 +32,18 @@ func TestModule_Init(t *testing.T) {
 	if m.session != s {
 		t.Fatal("Init did not store session")
 	}
+	if m.responder == nil {
+		t.Fatal("Init did not create responder")
+	}
 }
 
-func TestModule_Commands_Empty(t *testing.T) {
-	if cmds := New().Commands(); len(cmds) != 0 {
-		t.Fatalf("expected 0 commands, got %d", len(cmds))
+func TestModule_Commands_HasEso(t *testing.T) {
+	cmds := New().Commands()
+	if len(cmds) != 1 {
+		t.Fatalf("expected 1 command, got %d", len(cmds))
+	}
+	if cmds[0].Name != "eso" {
+		t.Fatalf("expected command name 'eso', got %q", cmds[0].Name)
 	}
 }
 
@@ -63,42 +72,89 @@ func TestModule_Listeners_Count(t *testing.T) {
 	}
 }
 
-func TestModule_OnMessageCreate_IgnoresNonEso(t *testing.T) {
-	m := New()
-	m.onMessageCreate(nil, &discordgo.MessageCreate{
-		Message: &discordgo.Message{Content: "hello world"},
-	})
-}
-
-func TestModule_OnMessageCreate_IgnoresEmptyContent(t *testing.T) {
-	m := New()
-	m.onMessageCreate(nil, &discordgo.MessageCreate{
-		Message: &discordgo.Message{Content: ""},
-	})
-}
-
-func TestModule_OnMessageCreate_IgnoresOtherCommands(t *testing.T) {
-	m := New()
-	m.onMessageCreate(nil, &discordgo.MessageCreate{
-		Message: &discordgo.Message{Content: "!other"},
-	})
-}
-
-func TestModule_OnMessageCreate_EsoCommand(t *testing.T) {
+func TestModule_OnInteractionCreate_IgnoresNonApplicationCommand(t *testing.T) {
 	m := New()
 	s, _ := discordgo.New("Bot fake-token")
-	// HTTP send fails but must not panic; err != nil path is handled gracefully.
-	m.onMessageCreate(s, &discordgo.MessageCreate{
-		Message: &discordgo.Message{Content: "!eso", ChannelID: "123"},
-	})
+	if err := m.Init(bot.Deps{Session: s}); err != nil {
+		t.Fatalf("Init failed: %v", err)
+	}
+	i := &discordgo.InteractionCreate{
+		Interaction: &discordgo.Interaction{
+			Type: discordgo.InteractionMessageComponent,
+		},
+	}
+	m.onInteractionCreate(s, i)
 }
 
-func TestModule_OnMessageCreate_EsoCommandCaseInsensitive(t *testing.T) {
+func TestModule_OnInteractionCreate_IgnoresOtherCommand(t *testing.T) {
 	m := New()
 	s, _ := discordgo.New("Bot fake-token")
-	m.onMessageCreate(s, &discordgo.MessageCreate{
-		Message: &discordgo.Message{Content: "!ESO", ChannelID: "123"},
-	})
+	if err := m.Init(bot.Deps{Session: s}); err != nil {
+		t.Fatalf("Init failed: %v", err)
+	}
+	i := &discordgo.InteractionCreate{
+		Interaction: &discordgo.Interaction{
+			Type: discordgo.InteractionApplicationCommand,
+			Data: discordgo.ApplicationCommandInteractionData{Name: "other"},
+		},
+	}
+	m.onInteractionCreate(s, i)
+}
+
+func TestModule_OnInteractionCreate_EsoCommand(t *testing.T) {
+	m := New()
+	s, _ := discordgo.New("Bot fake-token")
+	if err := m.Init(bot.Deps{Session: s}); err != nil {
+		t.Fatalf("Init failed: %v", err)
+	}
+	i := &discordgo.InteractionCreate{
+		Interaction: &discordgo.Interaction{
+			Type: discordgo.InteractionApplicationCommand,
+			Data: discordgo.ApplicationCommandInteractionData{Name: "eso"},
+		},
+	}
+	// InteractionRespond fails (no real connection) → handler returns early, no panic.
+	m.onInteractionCreate(s, i)
+}
+
+func TestModule_Responder_AIPath(t *testing.T) {
+	m := New()
+	s, _ := discordgo.New("Bot fake-token")
+	if err := m.Init(bot.Deps{Session: s}); err != nil {
+		t.Fatalf("Init failed: %v", err)
+	}
+	m.responder.GenerateFn = func(_ context.Context, _, _ string) (string, error) {
+		return "AI generated eso text", nil
+	}
+	got := m.responder.Generate(context.Background())
+	if got != "AI generated eso text" {
+		t.Fatalf("expected AI text, got %q", got)
+	}
+}
+
+func TestModule_Responder_FallbackOnError(t *testing.T) {
+	m := New()
+	s, _ := discordgo.New("Bot fake-token")
+	if err := m.Init(bot.Deps{Session: s}); err != nil {
+		t.Fatalf("Init failed: %v", err)
+	}
+	m.responder.GenerateFn = func(_ context.Context, _, _ string) (string, error) {
+		return "", errors.New("simulated LLM failure")
+	}
+	got := m.responder.Generate(context.Background())
+	if got == "" {
+		t.Fatal("fallback returned empty string")
+	}
+	hasOhai := false
+	for _, o := range ohai {
+		if strings.HasPrefix(got, o) {
+			hasOhai = true
+			break
+		}
+	}
+	if !hasOhai {
+		t.Fatalf("fallback output not a valid eso message: %q", got)
+	}
 }
 
 func TestBuildMessage_NonEmpty(t *testing.T) {
@@ -113,7 +169,6 @@ func TestBuildMessage_NonEmpty(t *testing.T) {
 func TestBuildMessage_ContainsAllParts(t *testing.T) {
 	for range 100 {
 		msg := buildMessage()
-		// Must start with one of the ohai entries (all end with ", ")
 		hasOhai := false
 		for _, o := range ohai {
 			if strings.HasPrefix(msg, o) {
@@ -124,7 +179,6 @@ func TestBuildMessage_ContainsAllParts(t *testing.T) {
 		if !hasOhai {
 			t.Fatalf("buildMessage output missing ohai prefix: %q", msg)
 		}
-		// Must end with one of the todotings entries
 		hasTodo := false
 		for _, td := range todotings {
 			if strings.HasSuffix(msg, td) {
