@@ -1,31 +1,17 @@
 package stoll
 
 import (
-	"context"
 	"log/slog"
 	"math/rand/v2"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/toksikk/gidbig/internal/bot"
-	"github.com/toksikk/gidbig/internal/llm"
 	"github.com/toksikk/gidbig/internal/util"
 )
 
-const systemPromptTemplate = `Du generierst GENAU EIN einzelnes Zitat von Dr. Axel Stoll, einem selbsternannten deutschen Naturwissenschaftler und Verschwörungstheoretiker.
-
-Ausgabeformat (exakt einhalten, kein weiterer Text):
-> [ein oder mehrere kurze Aussagen im Stoll-Stil]
- - Dr. Axel Stoll, promovierter Naturwissenschaftler
-
-Referenzbeispiele für Ton und Stil:
-{{examples}}
-
-Wichtig: Gib ausschließlich EIN Zitat im obigen Format aus. Kein zweites Zitat, keine Erklärung, keine Einleitung.`
-
 // Module implements bot.Module for the stoll quote plugin.
 type Module struct {
-	session   *discordgo.Session
-	responder *util.AIResponder
+	session *discordgo.Session
 }
 
 // New returns a new stoll Module.
@@ -35,19 +21,6 @@ func (m *Module) Name() string { return "stoll" }
 
 func (m *Module) Init(d bot.Deps) error {
 	m.session = d.Session
-
-	pool := make([]string, 20)
-	for i := range pool {
-		pool[i] = buildQuote()
-	}
-	m.responder = &util.AIResponder{
-		SystemPromptTemplate: systemPromptTemplate,
-		ExamplePool:          pool,
-		ExampleCount:         3,
-		Fallback:             buildQuote,
-		GenerateFn:           llm.GenerateMessage,
-	}
-
 	slog.Info("stoll: initialized")
 	return nil
 }
@@ -74,23 +47,17 @@ func (m *Module) onInteractionCreate(s *discordgo.Session, i *discordgo.Interact
 		return
 	}
 
+	text := buildQuote()
 	if err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
+		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{Content: text},
 	}); err != nil {
-		slog.Error("stoll: failed to defer interaction", "error", err)
+		slog.Error("stoll: failed to respond to interaction", "error", err)
 		return
 	}
-
-	go func() {
-		text := m.responder.Generate(context.Background())
-		if _, err := s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: &text}); err != nil {
-			slog.Error("stoll: failed to edit interaction response", "error", err)
-			return
-		}
-		if msg, err := s.InteractionResponse(i.Interaction); err == nil && msg != nil {
-			util.ReactOnMessage(s, msg.ChannelID, msg.ID, ":stoll:747387878916751421", "add")
-		}
-	}()
+	if msg, err := s.InteractionResponse(i.Interaction); err == nil && msg != nil {
+		util.ReactOnMessage(s, msg.ChannelID, msg.ID, ":stoll:747387878916751421", "add")
+	}
 }
 
 func buildQuote() string {

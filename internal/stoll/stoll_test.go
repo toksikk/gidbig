@@ -1,8 +1,6 @@
 package stoll
 
 import (
-	"context"
-	"errors"
 	"strings"
 	"testing"
 
@@ -31,9 +29,6 @@ func TestModule_Init(t *testing.T) {
 	}
 	if m.session != s {
 		t.Fatal("Init did not store session")
-	}
-	if m.responder == nil {
-		t.Fatal("Init did not create responder")
 	}
 }
 
@@ -115,42 +110,6 @@ func TestModule_OnInteractionCreate_StollCommand(t *testing.T) {
 	}
 	// InteractionRespond fails (no real connection) → handler returns early, no panic.
 	m.onInteractionCreate(s, i)
-}
-
-func TestModule_Responder_AIPath(t *testing.T) {
-	m := New()
-	s, _ := discordgo.New("Bot fake-token")
-	if err := m.Init(bot.Deps{Session: s}); err != nil {
-		t.Fatalf("Init failed: %v", err)
-	}
-	m.responder.GenerateFn = func(_ context.Context, _, _ string) (string, error) {
-		return "> Die Sonne ist kalt!\n - Dr. Axel Stoll, promovierter Naturwissenschaftler", nil
-	}
-	got := m.responder.Generate(context.Background())
-	if !strings.HasPrefix(got, "> ") {
-		t.Fatalf("expected AI quote to start with '> ', got %q", got)
-	}
-}
-
-func TestModule_Responder_FallbackOnError(t *testing.T) {
-	m := New()
-	s, _ := discordgo.New("Bot fake-token")
-	if err := m.Init(bot.Deps{Session: s}); err != nil {
-		t.Fatalf("Init failed: %v", err)
-	}
-	m.responder.GenerateFn = func(_ context.Context, _, _ string) (string, error) {
-		return "", errors.New("simulated LLM failure")
-	}
-	got := m.responder.Generate(context.Background())
-	if got == "" {
-		t.Fatal("fallback returned empty string")
-	}
-	if !strings.HasPrefix(got, "> ") {
-		t.Fatalf("fallback output not a valid stoll quote: %q", got)
-	}
-	if !strings.HasSuffix(got, "Dr. Axel Stoll, promovierter Naturwissenschaftler") {
-		t.Fatalf("fallback output missing attribution suffix: %q", got)
-	}
 }
 
 func TestBuildQuote_Format(t *testing.T) {
