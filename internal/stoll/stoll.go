@@ -1,64 +1,95 @@
 package stoll
 
 import (
+	"context"
 	"log/slog"
-	"math/rand"
-	"strings"
+	"math/rand/v2"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/toksikk/gidbig/internal/bot"
+	"github.com/toksikk/gidbig/internal/llm"
 	"github.com/toksikk/gidbig/internal/util"
 )
 
+const systemPromptTemplate = `Du generierst Zitate, die Dr. Axel Stoll, einem selbsternannten deutschen Naturwissenschaftler und Verschwörungstheoretiker, zugeschrieben werden. Orientiere dich an Stimme, Inhalt und Kadenz dieser Beispiele:
+{{examples}}
+Antworte ausschließlich mit dem formatierten Zitat, genau wie in den Beispielen (beginnend mit "> " und endend mit "\n - Dr. Axel Stoll, promovierter Naturwissenschaftler"). Keine Erklärung.`
+
 // Module implements bot.Module for the stoll quote plugin.
 type Module struct {
-	session *discordgo.Session
+	session   *discordgo.Session
+	responder *util.AIResponder
 }
 
 // New returns a new stoll Module.
-func New() *Module {
-	return &Module{}
-}
+func New() *Module { return &Module{} }
 
 func (m *Module) Name() string { return "stoll" }
 
 func (m *Module) Init(d bot.Deps) error {
 	m.session = d.Session
+
+	pool := make([]string, 20)
+	for i := range pool {
+		pool[i] = buildQuote()
+	}
+	m.responder = &util.AIResponder{
+		SystemPromptTemplate: systemPromptTemplate,
+		ExamplePool:          pool,
+		ExampleCount:         5,
+		Fallback:             buildQuote,
+		GenerateFn:           llm.GenerateMessage,
+	}
+
 	slog.Info("stoll: initialized")
 	return nil
 }
 
-func (m *Module) Commands() []*discordgo.ApplicationCommand { return nil }
+func (m *Module) Commands() []*discordgo.ApplicationCommand {
+	return []*discordgo.ApplicationCommand{
+		{Name: "stoll", Description: "Erhalte ein Zitat von Dr. Axel Stoll"},
+	}
+}
 
 func (m *Module) Listeners() []bot.EventListener {
-	return []bot.EventListener{m.onMessageCreate}
+	return []bot.EventListener{m.onInteractionCreate}
 }
 
 func (m *Module) Components() []bot.ComponentHandler { return nil }
+func (m *Module) Background() []bot.BackgroundTask   { return nil }
+func (m *Module) Shutdown() error                    { return nil }
 
-func (m *Module) Background() []bot.BackgroundTask { return nil }
-
-func (m *Module) Shutdown() error { return nil }
-
-func (m *Module) onMessageCreate(s *discordgo.Session, msg *discordgo.MessageCreate) {
-	tok := strings.Split(msg.Content, " ")
-	if len(tok) < 1 {
+func (m *Module) onInteractionCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	if i.Type != discordgo.InteractionApplicationCommand {
 		return
 	}
-	if strings.ToLower(tok[0]) != "!stoll" {
+	if i.ApplicationCommandData().Name != "stoll" {
 		return
 	}
-	line := buildQuote()
-	reply, err := s.ChannelMessageSend(msg.ChannelID, line)
-	if err == nil {
-		util.ReactOnMessage(s, reply.ChannelID, reply.ID, ":stoll:747387878916751421", "add")
+
+	if err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
+	}); err != nil {
+		slog.Error("stoll: failed to defer interaction", "error", err)
+		return
 	}
+
+	go func() {
+		text := m.responder.Generate(context.Background())
+		if _, err := s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: &text}); err != nil {
+			slog.Error("stoll: failed to edit interaction response", "error", err)
+			return
+		}
+		if msg, err := s.InteractionResponse(i.Interaction); err == nil && msg != nil {
+			util.ReactOnMessage(s, msg.ChannelID, msg.ID, ":stoll:747387878916751421", "add")
+		}
+	}()
 }
 
 func buildQuote() string {
 	line := "> "
 	for i := 0; i < 3; i++ {
-		line += quotes[i][rand.Intn(len(quotes[i]))]
+		line += quotes[i][rand.IntN(len(quotes[i]))]
 		line += " "
 	}
 	line += "\n - Dr. Axel Stoll, promovierter Naturwissenschaftler"

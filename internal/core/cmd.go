@@ -383,7 +383,9 @@ func StartGidbig() {
 	}
 	cmds = append(cmds, admin.Commands()...)
 	cmds = append(cmds, coffee.Commands()...)
+	cmds = append(cmds, esoMod.Commands()...)
 	cmds = append(cmds, gippity.Commands()...)
+	cmds = append(cmds, stollMod.Commands()...)
 	if _, err := discord.ApplicationCommandBulkOverwrite(discord.State.User.ID, "", cmds); err != nil {
 		slog.Error("Failed to register slash commands", "error", err)
 	}
