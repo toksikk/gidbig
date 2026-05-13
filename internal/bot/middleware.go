@@ -64,6 +64,10 @@ func RateLimit(d time.Duration) Middleware {
 
 	return func(next HandlerFunc) HandlerFunc {
 		return func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+			if i.Type != discordgo.InteractionApplicationCommand {
+				next(s, i)
+				return
+			}
 			key := interactionUserID(i) + ":" + i.ApplicationCommandData().Name
 
 			mu.Lock()
@@ -106,7 +110,11 @@ func WithCorrelationID() Middleware {
 	return func(next HandlerFunc) HandlerFunc {
 		return func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			id := counter.Add(1)
-			slog.Debug("bot/middleware: interaction", "correlation_id", id, "command", i.ApplicationCommandData().Name)
+			if i.Type == discordgo.InteractionApplicationCommand {
+				slog.Debug("bot/middleware: interaction", "correlation_id", id, "command", i.ApplicationCommandData().Name)
+			} else {
+				slog.Debug("bot/middleware: interaction", "correlation_id", id)
+			}
 			next(s, i)
 		}
 	}

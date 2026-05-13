@@ -7,6 +7,30 @@ import (
 	"time"
 )
 
+func waitForBool(t *testing.T, b *atomic.Bool, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if b.Load() {
+			return
+		}
+		time.Sleep(1 * time.Millisecond)
+	}
+	t.Fatal("timed out waiting for condition")
+}
+
+func waitForInt32(t *testing.T, b *atomic.Int32, want int32, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if b.Load() == want {
+			return
+		}
+		time.Sleep(1 * time.Millisecond)
+	}
+	t.Fatalf("timed out: want %d, got %d", want, b.Load())
+}
+
 func TestBackgroundSupervisor_RunsTask(t *testing.T) {
 	bs := newBackgroundSupervisor()
 	ctx, cancel := context.WithCancel(context.Background())
@@ -20,7 +44,7 @@ func TestBackgroundSupervisor_RunsTask(t *testing.T) {
 		},
 	})
 
-	time.Sleep(10 * time.Millisecond)
+	waitForBool(t, &ran, 500*time.Millisecond)
 	if !ran.Load() {
 		t.Fatal("task did not start")
 	}
@@ -46,7 +70,7 @@ func TestBackgroundSupervisor_MultipleTasksAllRun(t *testing.T) {
 	}
 	bs.Start(ctx, tasks...)
 
-	time.Sleep(20 * time.Millisecond)
+	waitForInt32(t, &count, 5, 500*time.Millisecond)
 	if got := count.Load(); got != 5 {
 		t.Fatalf("want 5 tasks running, got %d", got)
 	}
