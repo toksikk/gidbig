@@ -17,6 +17,8 @@ const Personality = "You have very dry humor. Keep every response as short as po
 
 const llmTimeout = 30 * time.Second
 const langCacheTTL = 1 * time.Hour
+const llmModel = openai.ChatModelGPT4oMini
+const llmMaxTokens = int64(150)
 
 var client openai.Client
 
@@ -27,9 +29,9 @@ var generateMessageFn = func(ctx context.Context, systemPrompt, userPrompt strin
 			openai.SystemMessage(systemPrompt),
 			openai.UserMessage(userPrompt),
 		},
-		Model:     openai.ChatModelGPT4oMini,
+		Model:     llmModel,
 		N:         openai.Int(1),
-		MaxTokens: openai.Int(150),
+		MaxTokens: openai.Int(llmMaxTokens),
 	})
 	if err != nil {
 		return "", err
@@ -73,9 +75,9 @@ func GenerateMessageWith(ctx context.Context, c *openai.Client, systemPrompt, us
 			openai.SystemMessage(systemPrompt),
 			openai.UserMessage(userPrompt),
 		},
-		Model:     openai.ChatModelGPT4oMini,
+		Model:     llmModel,
 		N:         openai.Int(1),
-		MaxTokens: openai.Int(150),
+		MaxTokens: openai.Int(llmMaxTokens),
 	})
 	if err != nil {
 		return "", err

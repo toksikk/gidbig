@@ -306,6 +306,7 @@ func (m *Module) onMessageCreate(s *discordgo.Session, mc *discordgo.MessageCrea
 }
 
 func (m *Module) sendMessage(s *discordgo.Session, mc *discordgo.MessageCreate, message string) {
+	// Empty string means the caller already handled the error (logged + notified user).
 	if message == "" {
 		return
 	}
