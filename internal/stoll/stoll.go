@@ -326,7 +326,7 @@ var quotes = [][]string{
 		"Wisst Ihr was das heißt? Eine Million Jahre?",
 		"Da haben wirs mit einem Satz!",
 		"Ja.. summ summ summ.",
-		"Ich weiß auch mittlerweile auch, wo die Vril Odin (hinge?)startet ist - zum Aldebaran.",
+		"Ich weiß auch mittlerweile auch, wo die Vril Odin hingestartet ist - zum Aldebaran.",
 		"Geht in eine kalte Fusion.",
 		"Und der wurde vom Finanzjudentum auch nur ausgenutzt.",
 		"Dafür musste er sterben.",

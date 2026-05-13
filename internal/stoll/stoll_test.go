@@ -78,12 +78,27 @@ func TestModule_OnMessageCreate_IgnoresEmptyContent(t *testing.T) {
 	})
 }
 
-func TestModule_OnMessageCreate_CaseInsensitive(t *testing.T) {
-	// verify that "!STOLL" also doesn't panic with nil session (non-matching path
-	// because strings.ToLower check — but we're testing the guard itself)
+func TestModule_OnMessageCreate_IgnoresOtherCommands(t *testing.T) {
 	m := New()
 	m.onMessageCreate(nil, &discordgo.MessageCreate{
 		Message: &discordgo.Message{Content: "!other"},
+	})
+}
+
+func TestModule_OnMessageCreate_StollCommand(t *testing.T) {
+	m := New()
+	s, _ := discordgo.New("Bot fake-token")
+	// HTTP send fails but must not panic; err != nil path is handled gracefully.
+	m.onMessageCreate(s, &discordgo.MessageCreate{
+		Message: &discordgo.Message{Content: "!stoll", ChannelID: "123"},
+	})
+}
+
+func TestModule_OnMessageCreate_StollCommandCaseInsensitive(t *testing.T) {
+	m := New()
+	s, _ := discordgo.New("Bot fake-token")
+	m.onMessageCreate(s, &discordgo.MessageCreate{
+		Message: &discordgo.Message{Content: "!STOLL", ChannelID: "123"},
 	})
 }
 

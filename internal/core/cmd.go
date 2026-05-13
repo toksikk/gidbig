@@ -364,9 +364,10 @@ func StartGidbig() {
 	stollMod := stoll.New()
 	if err := stollMod.Init(bot.Deps{Session: discord, OwnerID: conf.Discord.OwnerID}); err != nil {
 		slog.Error("stoll: init failed", "error", err)
-	}
-	for _, l := range stollMod.Listeners() {
-		discord.AddHandler(l)
+	} else {
+		for _, l := range stollMod.Listeners() {
+			discord.AddHandler(l)
+		}
 	}
 	wttrin.Start(discord)
 
