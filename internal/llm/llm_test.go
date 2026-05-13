@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 	"testing"
-
-	openai "github.com/openai/openai-go/v3"
 )
 
 func TestDetectChannelLanguage_EmptyMessages(t *testing.T) {
@@ -92,8 +90,3 @@ func TestGenerateMessage_DelegatesToFn(t *testing.T) {
 	}
 }
 
-func TestGenerateMessageWith_Signature(t *testing.T) {
-	// Compile-time check: GenerateMessageWith must accept the types expected by
-	// module Init functions that receive a *openai.Client via bot.Deps.
-	var _ func(context.Context, *openai.Client, string, string) (string, error) = GenerateMessageWith
-}
