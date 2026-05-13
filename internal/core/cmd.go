@@ -376,7 +376,14 @@ func StartGidbig() {
 			discord.AddHandler(l)
 		}
 	}
-	wttrin.Start(discord)
+	wttrinMod := wttrin.New()
+	if err := wttrinMod.Init(bot.Deps{Session: discord, OwnerID: conf.Discord.OwnerID, LLM: llm.GetClient()}); err != nil {
+		slog.Error("wttrin: init failed", "error", err)
+	} else {
+		for _, l := range wttrinMod.Listeners() {
+			discord.AddHandler(l)
+		}
+	}
 
 	cmds := []*discordgo.ApplicationCommand{
 		{Name: "status", Description: "Show bot runtime status (owner only)"},

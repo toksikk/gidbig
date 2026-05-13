@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/toksikk/gidbig/internal/bot"
 	"github.com/toksikk/gidbig/internal/llm"
 )
 
@@ -242,89 +243,112 @@ type wttrinResponse struct {
 	} `json:"weather"`
 }
 
-var (
-	detectLanguage   = llm.DetectChannelLanguage
-	generateLLMIntro = llm.GenerateMessage
-	getWeatherFn     = getWeather
-)
-
-// Start the plugin
-func Start(discord *discordgo.Session) {
-	discord.AddHandler(onMessageCreate)
-	slog.Info("wttrin function registered")
+// Module implements bot.Module for the wttrin weather plugin.
+type Module struct {
+	session      *discordgo.Session
+	detectLang   func(*discordgo.Session, string) (string, error)
+	generateFn   func(context.Context, string, string) (string, error)
+	getWeatherFn func(string) (wttrinResponse, error)
 }
 
-func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
-	msg := strings.Replace(m.ContentWithMentionsReplaced(), s.State.User.Username, "username", 1)
+// New returns a new wttrin Module with default LLM functions.
+func New() *Module {
+	return &Module{
+		detectLang:   llm.DetectChannelLanguage,
+		generateFn:   llm.GenerateMessage,
+		getWeatherFn: getWeather,
+	}
+}
+
+func (m *Module) Name() string { return "wttrin" }
+
+func (m *Module) Init(d bot.Deps) error {
+	m.session = d.Session
+	if d.LLM != nil {
+		llmClient := d.LLM
+		m.generateFn = func(ctx context.Context, system, user string) (string, error) {
+			return llm.GenerateMessageWith(ctx, llmClient, system, user)
+		}
+	}
+	slog.Info("wttrin: initialized")
+	return nil
+}
+
+func (m *Module) Commands() []*discordgo.ApplicationCommand { return nil }
+
+func (m *Module) Listeners() []bot.EventListener {
+	return []bot.EventListener{m.onMessageCreate}
+}
+
+func (m *Module) Components() []bot.ComponentHandler { return nil }
+func (m *Module) Background() []bot.BackgroundTask   { return nil }
+func (m *Module) Shutdown() error                    { return nil }
+
+func (m *Module) onMessageCreate(s *discordgo.Session, mc *discordgo.MessageCreate) {
+	msg := strings.Replace(mc.ContentWithMentionsReplaced(), s.State.User.Username, "username", 1)
 	parts := strings.Split(msg, " ")
-	channel, err := s.State.Channel(m.ChannelID)
+	channel, err := s.State.Channel(mc.ChannelID)
 	if channel == nil {
-		slog.Error("Failed to grab channel", "MessageID", m.ID, "ChannelID", m.ChannelID, "Error", err)
+		slog.Error("Failed to grab channel", "MessageID", mc.ID, "ChannelID", mc.ChannelID, "Error", err)
 		return
 	}
-
 	guild, err := s.State.Guild(channel.GuildID)
 	if guild == nil {
-		slog.Error("Failed to grab guild", "MessageID", m.ID, "Channel", channel, "GuildID", channel.GuildID, "Error", err)
+		slog.Error("Failed to grab guild", "MessageID", mc.ID, "Channel", channel, "GuildID", channel.GuildID, "Error", err)
 		return
 	}
-
 	switch strings.ToLower(parts[0]) {
 	case "!wttr":
-		sendMessage(s, m, constructDiscordMessage(s, m, parts, guild, false))
+		m.sendMessage(s, mc, m.constructDiscordMessage(s, mc, parts, guild, false))
 	case "!wttrf":
-		sendMessage(s, m, constructDiscordMessage(s, m, parts, guild, true))
+		m.sendMessage(s, mc, m.constructDiscordMessage(s, mc, parts, guild, true))
 	}
 }
 
-func sendMessage(s *discordgo.Session, m *discordgo.MessageCreate, message string) {
-	resultDiscordMessage, err := s.ChannelMessageSend(m.ChannelID, message)
-	if err != nil {
-		slog.Error("Failed to send message", "MessageID", resultDiscordMessage.ID, "ChannelID", resultDiscordMessage.ChannelID, "Error", err)
+func (m *Module) sendMessage(s *discordgo.Session, mc *discordgo.MessageCreate, message string) {
+	if message == "" {
+		return
+	}
+	if _, err := s.ChannelMessageSend(mc.ChannelID, message); err != nil {
+		slog.Error("Failed to send message", "ChannelID", mc.ChannelID, "Error", err)
 	}
 }
 
-func constructDiscordMessage(s *discordgo.Session, m *discordgo.MessageCreate, parts []string, g *discordgo.Guild, forecast bool) string {
+func (m *Module) constructDiscordMessage(s *discordgo.Session, mc *discordgo.MessageCreate, parts []string, g *discordgo.Guild, forecast bool) string {
 	if len(parts) <= 1 {
 		return ""
 	}
-
 	location := strings.Join(parts[1:], "+")
-	weatherResult, err := getWeatherFn(location)
+	weatherResult, err := m.getWeatherFn(location)
 	if err != nil {
-		slog.Error("Failed to get weather", "MessageID", m.ID, "Location", location, "Error", err)
-		discordErrorMessage, err := s.ChannelMessageSend(m.ChannelID, "Failed to get weather for "+location+": "+err.Error())
-		if err != nil {
-			slog.Error("Failed to send message", "MessageID", discordErrorMessage.ID, "ChannelID", discordErrorMessage.ChannelID, "Error", err)
+		slog.Error("Failed to get weather", "MessageID", mc.ID, "Location", location, "Error", err)
+		if _, err2 := s.ChannelMessageSend(mc.ChannelID, "Failed to get weather for "+location+": "+err.Error()); err2 != nil {
+			slog.Error("Failed to send error message", "ChannelID", mc.ChannelID, "Error", err2)
 		}
 		return ""
 	}
-
 	var structured string
 	if forecast {
 		structured = buildForecastString(weatherResult)
 	} else {
 		structured = buildWeatherString(weatherResult)
 	}
-
-	outro := buildLLMWeatherOutro(s, m, location, structured)
+	outro := m.buildLLMWeatherOutro(s, mc, location, structured)
 	if outro != "" {
 		return structured + "\n" + outro
 	}
 	return structured
 }
 
-func buildLLMWeatherOutro(s *discordgo.Session, m *discordgo.MessageCreate, location, weatherData string) string {
-	lang, err := detectLanguage(s, m.ChannelID)
+func (m *Module) buildLLMWeatherOutro(s *discordgo.Session, mc *discordgo.MessageCreate, location, weatherData string) string {
+	lang, err := m.detectLang(s, mc.ChannelID)
 	if err != nil {
 		slog.Warn("wttrin: language detection failed", "error", err)
 		lang = "English"
 	}
-
 	systemPrompt := "You are a Discord bot. Write one sentence describing the current weather for the given location — set the mood without repeating the raw numbers. " + llm.Personality + " Respond in " + lang + "."
 	userPrompt := "Location: " + location + "\n" + weatherData
-
-	outro, err := generateLLMIntro(context.Background(), systemPrompt, userPrompt)
+	outro, err := m.generateFn(context.Background(), systemPrompt, userPrompt)
 	if err != nil {
 		slog.Warn("wttrin: LLM outro generation failed", "error", err)
 		return ""
@@ -361,7 +385,6 @@ func getWeatherConditionEmoji(weatherCode string) (weatherConditionEmoji string)
 			break
 		}
 	}
-
 	if weatherConditionEmoji == "🌈" {
 		slog.Warn("Unknown weather code", "Code", weatherCode)
 	}
@@ -400,12 +423,10 @@ func mostOccurringWeatherCodeForDay(hours []hourly) string {
 	if len(hours) == 0 {
 		return ""
 	}
-
 	weatherCodeCounts := make(map[string]int)
 	for _, hour := range hours {
 		weatherCodeCounts[hour.WeatherCode]++
 	}
-
 	maxCount := 0
 	mostOccurringCode := ""
 	for code, count := range weatherCodeCounts {
@@ -414,7 +435,6 @@ func mostOccurringWeatherCodeForDay(hours []hourly) string {
 			maxCount = count
 		}
 	}
-
 	return mostOccurringCode
 }
 
@@ -506,11 +526,9 @@ func checkForHighChances(hourly []hourly) (highChances string) {
 	if highestChanceOfWindy > 0 {
 		highChances += "💨 " + strconv.Itoa(highestChanceOfWindy) + "% "
 	}
-
 	if highChances != "" {
 		highChances = "⚠️ " + highChances
 	}
-
 	return
 }
 
@@ -579,7 +597,7 @@ func buildForecastString(weatherResult wttrinResponse) (result string) {
 				}
 				result += fmt.Sprintf("🌧️ %.2fmm\n", averageRain)
 			} else {
-				result += "\n" // Add newline if no rain but snow
+				result += "\n"
 			}
 		}
 

@@ -63,6 +63,26 @@ func GenerateMessage(ctx context.Context, systemPrompt, userPrompt string) (stri
 	return generateMessageFn(ctx, systemPrompt, userPrompt)
 }
 
+// GenerateMessageWith is like GenerateMessage but uses an explicit client instead of the global.
+// Use this when the client arrives via dependency injection rather than llm.Initialize().
+func GenerateMessageWith(ctx context.Context, c *openai.Client, systemPrompt, userPrompt string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, llmTimeout)
+	defer cancel()
+	completion, err := c.Chat.Completions.New(ctx, openai.ChatCompletionNewParams{
+		Messages: []openai.ChatCompletionMessageParamUnion{
+			openai.SystemMessage(systemPrompt),
+			openai.UserMessage(userPrompt),
+		},
+		Model:     openai.ChatModelGPT4oMini,
+		N:         openai.Int(1),
+		MaxTokens: openai.Int(150),
+	})
+	if err != nil {
+		return "", err
+	}
+	return completion.Choices[0].Message.Content, nil
+}
+
 // DetectChannelLanguage fetches recent messages from a Discord channel and asks the LLM
 // to identify the primary language. Results are cached per channel for 1 hour.
 // Returns "English" on any error or empty channel.
