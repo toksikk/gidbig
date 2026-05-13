@@ -19,7 +19,9 @@ func newBackgroundSupervisor() *BackgroundSupervisor {
 // Each task is supervised: panics are logged and do not crash the process.
 func (bs *BackgroundSupervisor) Start(ctx context.Context, tasks ...BackgroundTask) {
 	for _, t := range tasks {
-		bs.wg.Go(func() {
+		bs.wg.Add(1)
+		go func(t BackgroundTask) {
+			defer bs.wg.Done()
 			defer func() {
 				if r := recover(); r != nil {
 					slog.Error("bot/background: task panicked", "task", t.Name, "panic", r)
@@ -28,7 +30,7 @@ func (bs *BackgroundSupervisor) Start(ctx context.Context, tasks ...BackgroundTa
 			slog.Info("bot/background: task started", "task", t.Name)
 			t.Run(ctx)
 			slog.Info("bot/background: task stopped", "task", t.Name)
-		})
+		}(t)
 	}
 }
 
