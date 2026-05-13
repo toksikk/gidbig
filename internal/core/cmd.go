@@ -357,7 +357,14 @@ func StartGidbig() {
 	llm.Initialize()
 	admin.Start(discord, conf.Discord.OwnerID, buildBotStatsMessage)
 	coffee.Start(discord)
-	eso.Start(discord)
+	esoMod := eso.New()
+	if err := esoMod.Init(bot.Deps{Session: discord, OwnerID: conf.Discord.OwnerID}); err != nil {
+		slog.Error("eso: init failed", "error", err)
+	} else {
+		for _, l := range esoMod.Listeners() {
+			discord.AddHandler(l)
+		}
+	}
 	gamerstatus.Start(discord)
 	gippity.Start(discord)
 	leetoclock.Start(discord)
