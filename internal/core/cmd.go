@@ -2,6 +2,7 @@ package gidbig
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"log/slog"
 	"os"
@@ -15,6 +16,7 @@ import (
 	"github.com/bwmarrin/discordgo"
 	humanize "github.com/dustin/go-humanize"
 	"github.com/toksikk/gidbig/internal/admin"
+	"github.com/toksikk/gidbig/internal/bot"
 	"github.com/toksikk/gidbig/internal/cfg"
 	"github.com/toksikk/gidbig/internal/coffee"
 	"github.com/toksikk/gidbig/internal/eso"
@@ -23,7 +25,6 @@ import (
 	"github.com/toksikk/gidbig/internal/gippity"
 	"github.com/toksikk/gidbig/internal/leetoclock"
 	"github.com/toksikk/gidbig/internal/llm"
-	"github.com/toksikk/gidbig/internal/bot"
 	"github.com/toksikk/gidbig/internal/stoll"
 	"github.com/toksikk/gidbig/internal/wttrin"
 )
@@ -365,7 +366,14 @@ func StartGidbig() {
 			discord.AddHandler(l)
 		}
 	}
-	gamerstatus.Start(discord)
+	bgCtx, bgCancel := context.WithCancel(context.Background())
+	bgSupervisor := bot.NewSupervisor()
+	gamerstatusMod := gamerstatus.New()
+	if err := gamerstatusMod.Init(bot.Deps{Session: discord, OwnerID: conf.Discord.OwnerID}); err != nil {
+		slog.Error("gamerstatus: init failed", "error", err)
+	} else {
+		bgSupervisor.Start(bgCtx, gamerstatusMod.Background()...)
+	}
 	gippity.Start(discord)
 	leetoclock.Start(discord)
 	stollMod := stoll.New()
@@ -410,6 +418,9 @@ func StartGidbig() {
 	<-c
 
 	slog.Info("shutting down")
+
+	bgCancel()
+	bgSupervisor.Wait()
 
 	shutdownDone := make(chan struct{})
 	go func() {
