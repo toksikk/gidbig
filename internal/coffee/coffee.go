@@ -40,8 +40,6 @@ var messages = []string{
 
 // Module implements bot.Module and bot.AdminProvider for the coffee plugin.
 type Module struct {
-	session *discordgo.Session
-
 	// DB state
 	dbMu sync.RWMutex
 	db   *gorm.DB
@@ -88,7 +86,6 @@ func (m *Module) Name() string { return "coffee" }
 
 // Init opens the beverage-preference store using the DB path from Deps.Config.
 func (m *Module) Init(d bot.Deps) error {
-	m.session = d.Session
 	dbPath := "gidbig.db"
 	if d.Config != nil && d.Config.Database.Path != "" {
 		dbPath = d.Config.Database.Path
