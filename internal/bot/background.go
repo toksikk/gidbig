@@ -15,6 +15,11 @@ func newBackgroundSupervisor() *BackgroundSupervisor {
 	return &BackgroundSupervisor{}
 }
 
+// NewSupervisor creates an exported BackgroundSupervisor for use outside the bot package.
+func NewSupervisor() *BackgroundSupervisor {
+	return &BackgroundSupervisor{}
+}
+
 // Start launches each task in its own goroutine under ctx.
 // Each task is supervised: panics are logged and do not crash the process.
 func (bs *BackgroundSupervisor) Start(ctx context.Context, tasks ...BackgroundTask) {
