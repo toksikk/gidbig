@@ -6,14 +6,21 @@ import (
 	"strings"
 
 	"github.com/bwmarrin/discordgo"
-	"github.com/toksikk/gidbig/internal/coffee"
+	"github.com/toksikk/gidbig/internal/bot"
 	"github.com/toksikk/gidbig/internal/gippity"
 )
 
 var (
-	ownerID string
-	infoFn  func(s *discordgo.Session) string
+	ownerID   string
+	infoFn    func(s *discordgo.Session) string
+	providers []bot.AdminProvider
 )
+
+// RegisterProvider registers a module as an admin subcommand provider.
+// Must be called before Start.
+func RegisterProvider(p bot.AdminProvider) {
+	providers = append(providers, p)
+}
 
 // Start registers the /admin interaction handler.
 func Start(s *discordgo.Session, oid string, info func(s *discordgo.Session) string) {
@@ -33,49 +40,43 @@ func Commands() []*discordgo.ApplicationCommand {
 			Required:    false,
 		}
 	}
+
+	opts := make([]*discordgo.ApplicationCommandOption, 0, len(providers)+2)
+	for _, p := range providers {
+		opts = append(opts, p.AdminSubcommandGroup())
+	}
+	opts = append(opts,
+		&discordgo.ApplicationCommandOption{
+			Type:        discordgo.ApplicationCommandOptionSubCommandGroup,
+			Name:        "gippity",
+			Description: "Gippity admin queries",
+			Options: []*discordgo.ApplicationCommandOption{
+				{
+					Type:        discordgo.ApplicationCommandOptionSubCommand,
+					Name:        "privacy",
+					Description: "Show gippity privacy setting for a user or all users",
+					Options:     []*discordgo.ApplicationCommandOption{userOpt("Target user (omit for all)")},
+				},
+				{
+					Type:        discordgo.ApplicationCommandOptionSubCommand,
+					Name:        "history",
+					Description: "Show whether a user has stored conversation history",
+					Options:     []*discordgo.ApplicationCommandOption{userOpt("Target user (omit for all)")},
+				},
+			},
+		},
+		&discordgo.ApplicationCommandOption{
+			Type:        discordgo.ApplicationCommandOptionSubCommand,
+			Name:        "info",
+			Description: "General bot info: uptime, guild count, loaded plugins",
+		},
+	)
+
 	return []*discordgo.ApplicationCommand{
 		{
 			Name:        "admin",
 			Description: "Admin commands (owner only)",
-			Options: []*discordgo.ApplicationCommandOption{
-				{
-					Type:        discordgo.ApplicationCommandOptionSubCommandGroup,
-					Name:        "coffee",
-					Description: "Coffee admin queries",
-					Options: []*discordgo.ApplicationCommandOption{
-						{
-							Type:        discordgo.ApplicationCommandOptionSubCommand,
-							Name:        "beverages",
-							Description: "Show beverage settings for a user or all users",
-							Options:     []*discordgo.ApplicationCommandOption{userOpt("Target user (omit for all)")},
-						},
-					},
-				},
-				{
-					Type:        discordgo.ApplicationCommandOptionSubCommandGroup,
-					Name:        "gippity",
-					Description: "Gippity admin queries",
-					Options: []*discordgo.ApplicationCommandOption{
-						{
-							Type:        discordgo.ApplicationCommandOptionSubCommand,
-							Name:        "privacy",
-							Description: "Show gippity privacy setting for a user or all users",
-							Options:     []*discordgo.ApplicationCommandOption{userOpt("Target user (omit for all)")},
-						},
-						{
-							Type:        discordgo.ApplicationCommandOptionSubCommand,
-							Name:        "history",
-							Description: "Show whether a user has stored conversation history",
-							Options:     []*discordgo.ApplicationCommandOption{userOpt("Target user (omit for all)")},
-						},
-					},
-				},
-				{
-					Type:        discordgo.ApplicationCommandOptionSubCommand,
-					Name:        "info",
-					Description: "General bot info: uptime, guild count, loaded plugins",
-				},
-			},
+			Options:     opts,
 		},
 	}
 }
@@ -121,13 +122,18 @@ func onAdminInteractionCreate(s *discordgo.Session, i *discordgo.InteractionCrea
 	switch top.Name {
 	case "info":
 		ephemeral(s, i, "```"+infoFn(s)+"```")
-	case "coffee":
-		if len(top.Options) > 0 {
-			handleCoffeeAdmin(s, i, top.Options[0])
-		}
 	case "gippity":
 		if len(top.Options) > 0 {
 			handleGippityAdmin(s, i, top.Options[0])
+		}
+	default:
+		for _, p := range providers {
+			if p.AdminSubcommandGroup().Name == top.Name {
+				if len(top.Options) > 0 {
+					p.HandleAdminSubcommand(s, i, top.Options[0])
+				}
+				return
+			}
 		}
 	}
 }
@@ -143,36 +149,6 @@ func optUserID(s *discordgo.Session, opts []*discordgo.ApplicationCommandInterac
 		}
 	}
 	return ""
-}
-
-func handleCoffeeAdmin(s *discordgo.Session, i *discordgo.InteractionCreate, sub *discordgo.ApplicationCommandInteractionDataOption) {
-	if sub.Name != "beverages" {
-		return
-	}
-	targetID := optUserID(s, sub.Options)
-	if targetID != "" {
-		pref, found := coffee.AdminGetBeveragePreference(targetID)
-		if !found {
-			ephemeral(s, i, fmt.Sprintf("No beverage preference found for <@%s>.", targetID))
-			return
-		}
-		ephemeral(s, i, fmt.Sprintf("<@%s>: %s (introduced: %v)", targetID, pref.BeverageEmoji, pref.HasSeenIntro))
-		return
-	}
-	prefs, err := coffee.AdminGetAllBeveragePreferences()
-	if err != nil {
-		ephemeral(s, i, fmt.Sprintf("Error querying beverage preferences: %v", err))
-		return
-	}
-	if len(prefs) == 0 {
-		ephemeral(s, i, "No beverage preferences stored.")
-		return
-	}
-	var sb strings.Builder
-	for _, p := range prefs {
-		fmt.Fprintf(&sb, "<@%s>: %s (introduced: %v)\n", p.UserID, p.BeverageEmoji, p.HasSeenIntro)
-	}
-	ephemeral(s, i, sb.String())
 }
 
 func handleGippityAdmin(s *discordgo.Session, i *discordgo.InteractionCreate, sub *discordgo.ApplicationCommandInteractionDataOption) {

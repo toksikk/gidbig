@@ -1,6 +1,8 @@
 package coffee
 
 import (
+	"fmt"
+	"net/url"
 	"testing"
 	"time"
 
@@ -8,47 +10,52 @@ import (
 	"gorm.io/gorm"
 )
 
-func openInMemoryStore(t *testing.T) {
+// newTestModule creates a Module with an isolated in-memory SQLite store.
+func newTestModule(t *testing.T) *Module {
 	t.Helper()
-	gormDB, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	m := New()
+	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", url.PathEscape(t.Name()))
+	gormDB, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("failed to open in-memory store: %v", err)
 	}
 	if err := gormDB.AutoMigrate(&UserBeveragePreference{}, &UserGreeting{}); err != nil {
 		t.Fatalf("failed to migrate: %v", err)
 	}
-	dbMu.Lock()
-	db = gormDB
-	dbMu.Unlock()
+	m.dbMu.Lock()
+	m.db = gormDB
+	m.dbMu.Unlock()
 	t.Cleanup(func() {
-		dbMu.Lock()
-		defer dbMu.Unlock()
-		sqlDB, _ := db.DB()
-		if err := sqlDB.Close(); err != nil {
-			t.Logf("warning: failed to close test DB: %v", err)
+		m.dbMu.Lock()
+		defer m.dbMu.Unlock()
+		if m.db == nil {
+			return
 		}
-		db = nil
+		sqlDB, _ := m.db.DB()
+		if sqlDB != nil {
+			if err := sqlDB.Close(); err != nil {
+				t.Logf("warning: failed to close test DB: %v", err)
+			}
+		}
+		m.db = nil
 	})
+	return m
 }
 
-func useNow(t *testing.T, now time.Time) {
+func useNow(m *Module, t *testing.T, now time.Time) {
 	t.Helper()
-	previous := nowFunc
-	nowFunc = func() time.Time {
-		return now
-	}
-	t.Cleanup(func() {
-		nowFunc = previous
-	})
+	previous := m.nowFunc
+	m.nowFunc = func() time.Time { return now }
+	t.Cleanup(func() { m.nowFunc = previous })
 }
 
 func TestSetAndGetBeverageEmoji(t *testing.T) {
-	openInMemoryStore(t)
+	m := newTestModule(t)
 
-	if err := setBeverageEmoji("user1", "🍺"); err != nil {
+	if err := m.setBeverageEmoji("user1", "🍺"); err != nil {
 		t.Fatalf("setBeverageEmoji: %v", err)
 	}
-	emoji, ok := getBeverageEmoji("user1")
+	emoji, ok := m.getBeverageEmoji("user1")
 	if !ok {
 		t.Fatal("expected ok=true, got false")
 	}
@@ -56,31 +63,30 @@ func TestSetAndGetBeverageEmoji(t *testing.T) {
 		t.Errorf("got %q, want %q", emoji, "🍺")
 	}
 
-	if !isUserIntroduced("user1") {
+	if !m.isUserIntroduced("user1") {
 		t.Error("expected user1 to be introduced after setting beverage")
 	}
 }
 
 func TestIsUserIntroduced_UnknownUser(t *testing.T) {
-	openInMemoryStore(t)
-	if isUserIntroduced("unknown") {
+	m := newTestModule(t)
+	if m.isUserIntroduced("unknown") {
 		t.Error("expected false for unknown user")
 	}
 }
 
 func TestMarkUserIntroduced(t *testing.T) {
-	openInMemoryStore(t)
+	m := newTestModule(t)
 
-	if err := markUserIntroduced("user_intro"); err != nil {
+	if err := m.markUserIntroduced("user_intro"); err != nil {
 		t.Fatalf("markUserIntroduced: %v", err)
 	}
 
-	if !isUserIntroduced("user_intro") {
+	if !m.isUserIntroduced("user_intro") {
 		t.Error("expected user_intro to be introduced")
 	}
 
-	// Verify it sets fallback beverage if it didn't exist
-	emoji, ok := getBeverageEmoji("user_intro")
+	emoji, ok := m.getBeverageEmoji("user_intro")
 	if !ok {
 		t.Fatal("expected beverage to be set (fallback)")
 	}
@@ -90,25 +96,25 @@ func TestMarkUserIntroduced(t *testing.T) {
 }
 
 func TestGetBeverageEmoji_UnknownUser(t *testing.T) {
-	openInMemoryStore(t)
+	m := newTestModule(t)
 
-	_, ok := getBeverageEmoji("unknown")
+	_, ok := m.getBeverageEmoji("unknown")
 	if ok {
 		t.Fatal("expected ok=false for unknown user, got true")
 	}
 }
 
 func TestSetBeverageEmoji_Upsert(t *testing.T) {
-	openInMemoryStore(t)
+	m := newTestModule(t)
 
-	if err := setBeverageEmoji("user2", "🍵"); err != nil {
+	if err := m.setBeverageEmoji("user2", "🍵"); err != nil {
 		t.Fatalf("first setBeverageEmoji: %v", err)
 	}
-	if err := setBeverageEmoji("user2", "🧃"); err != nil {
+	if err := m.setBeverageEmoji("user2", "🧃"); err != nil {
 		t.Fatalf("second setBeverageEmoji: %v", err)
 	}
 
-	emoji, ok := getBeverageEmoji("user2")
+	emoji, ok := m.getBeverageEmoji("user2")
 	if !ok {
 		t.Fatal("expected ok=true after upsert")
 	}
@@ -116,7 +122,7 @@ func TestSetBeverageEmoji_Upsert(t *testing.T) {
 		t.Errorf("got %q, want %q after upsert", emoji, "🧃")
 	}
 
-	d := getDB()
+	d := m.getDB()
 	var count int64
 	d.Model(&UserBeveragePreference{}).Where("user_id = ?", "user2").Count(&count)
 	if count != 1 {
@@ -125,20 +131,20 @@ func TestSetBeverageEmoji_Upsert(t *testing.T) {
 }
 
 func TestHasGreetedToday_UnknownUser(t *testing.T) {
-	openInMemoryStore(t)
-	useNow(t, time.Date(2026, 5, 3, 10, 0, 0, 0, time.Local))
+	m := newTestModule(t)
+	useNow(m, t, time.Date(2026, 5, 3, 10, 0, 0, 0, time.Local))
 
-	if hasGreetedToday("unknown") {
+	if m.hasGreetedToday("unknown") {
 		t.Fatal("expected false for unknown user")
 	}
 }
 
 func TestHasGreetedToday_SameLocalDay(t *testing.T) {
-	openInMemoryStore(t)
+	m := newTestModule(t)
 	now := time.Date(2026, 5, 3, 10, 0, 0, 0, time.Local)
-	useNow(t, now)
+	useNow(m, t, now)
 
-	d := getDB()
+	d := m.getDB()
 	if err := d.Create(&UserGreeting{
 		UserID:    "user1",
 		GreetedAt: time.Date(2026, 5, 3, 7, 30, 0, 0, time.Local),
@@ -146,17 +152,17 @@ func TestHasGreetedToday_SameLocalDay(t *testing.T) {
 		t.Fatalf("failed to create greeting: %v", err)
 	}
 
-	if !hasGreetedToday("user1") {
+	if !m.hasGreetedToday("user1") {
 		t.Fatal("expected true for greeting earlier on the same local day")
 	}
 }
 
 func TestHasGreetedToday_PreviousLocalDay(t *testing.T) {
-	openInMemoryStore(t)
+	m := newTestModule(t)
 	now := time.Date(2026, 5, 3, 10, 0, 0, 0, time.Local)
-	useNow(t, now)
+	useNow(m, t, now)
 
-	d := getDB()
+	d := m.getDB()
 	if err := d.Create(&UserGreeting{
 		UserID:    "user1",
 		GreetedAt: time.Date(2026, 5, 2, 23, 59, 0, 0, time.Local),
@@ -164,7 +170,7 @@ func TestHasGreetedToday_PreviousLocalDay(t *testing.T) {
 		t.Fatalf("failed to create greeting: %v", err)
 	}
 
-	if hasGreetedToday("user1") {
+	if m.hasGreetedToday("user1") {
 		t.Fatal("expected false for greeting on the previous local day")
 	}
 }

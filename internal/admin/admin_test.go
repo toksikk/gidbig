@@ -1,10 +1,40 @@
 package admin
 
 import (
+	"os"
 	"testing"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/toksikk/gidbig/internal/bot"
 )
+
+// stubCoffeeProvider is a minimal bot.AdminProvider used in tests.
+type stubCoffeeProvider struct{}
+
+func (stubCoffeeProvider) AdminSubcommandGroup() *discordgo.ApplicationCommandOption {
+	return &discordgo.ApplicationCommandOption{
+		Type:        discordgo.ApplicationCommandOptionSubCommandGroup,
+		Name:        "coffee",
+		Description: "Coffee admin queries",
+		Options: []*discordgo.ApplicationCommandOption{
+			{
+				Type:        discordgo.ApplicationCommandOptionSubCommand,
+				Name:        "beverages",
+				Description: "Show beverage settings for a user or all users",
+			},
+		},
+	}
+}
+
+func (stubCoffeeProvider) HandleAdminSubcommand(_ *discordgo.Session, _ *discordgo.InteractionCreate, _ *discordgo.ApplicationCommandInteractionDataOption) {
+}
+
+var _ bot.AdminProvider = stubCoffeeProvider{}
+
+func TestMain(m *testing.M) {
+	RegisterProvider(stubCoffeeProvider{})
+	os.Exit(m.Run())
+}
 
 func TestCommands_Structure(t *testing.T) {
 	cmds := Commands()

@@ -5,22 +5,22 @@ import (
 )
 
 func TestAdminGetBeveragePreference_NotFound(t *testing.T) {
-	openInMemoryStore(t)
+	m := newTestModule(t)
 
-	pref, found := AdminGetBeveragePreference("unknown-user")
+	pref, found := m.adminGetBeveragePreference("unknown-user")
 	if found {
 		t.Errorf("expected found=false for unknown user, got pref=%v", pref)
 	}
 }
 
 func TestAdminGetBeveragePreference_Found(t *testing.T) {
-	openInMemoryStore(t)
+	m := newTestModule(t)
 
-	if err := setBeverageEmoji("user1", "🍵"); err != nil {
+	if err := m.setBeverageEmoji("user1", "🍵"); err != nil {
 		t.Fatalf("setBeverageEmoji: %v", err)
 	}
 
-	pref, found := AdminGetBeveragePreference("user1")
+	pref, found := m.adminGetBeveragePreference("user1")
 	if !found {
 		t.Fatal("expected found=true")
 	}
@@ -33,9 +33,9 @@ func TestAdminGetBeveragePreference_Found(t *testing.T) {
 }
 
 func TestAdminGetAllBeveragePreferences_Empty(t *testing.T) {
-	openInMemoryStore(t)
+	m := newTestModule(t)
 
-	prefs, err := AdminGetAllBeveragePreferences()
+	prefs, err := m.adminGetAllBeveragePreferences()
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -45,7 +45,7 @@ func TestAdminGetAllBeveragePreferences_Empty(t *testing.T) {
 }
 
 func TestAdminGetAllBeveragePreferences_Multiple(t *testing.T) {
-	openInMemoryStore(t)
+	m := newTestModule(t)
 
 	users := []struct {
 		id    string
@@ -56,12 +56,12 @@ func TestAdminGetAllBeveragePreferences_Multiple(t *testing.T) {
 		{"user-c", "🧃"},
 	}
 	for _, u := range users {
-		if err := setBeverageEmoji(u.id, u.emoji); err != nil {
+		if err := m.setBeverageEmoji(u.id, u.emoji); err != nil {
 			t.Fatalf("setBeverageEmoji(%q): %v", u.id, err)
 		}
 	}
 
-	prefs, err := AdminGetAllBeveragePreferences()
+	prefs, err := m.adminGetAllBeveragePreferences()
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -71,34 +71,24 @@ func TestAdminGetAllBeveragePreferences_Multiple(t *testing.T) {
 }
 
 func TestAdminGetBeveragePreference_NilDB(t *testing.T) {
-	dbMu.Lock()
-	prev := db
-	db = nil
-	dbMu.Unlock()
-	t.Cleanup(func() {
-		dbMu.Lock()
-		db = prev
-		dbMu.Unlock()
-	})
+	m := newTestModule(t)
+	m.dbMu.Lock()
+	m.db = nil
+	m.dbMu.Unlock()
 
-	_, found := AdminGetBeveragePreference("user1")
+	_, found := m.adminGetBeveragePreference("user1")
 	if found {
 		t.Error("expected found=false when DB is nil")
 	}
 }
 
 func TestAdminGetAllBeveragePreferences_NilDB(t *testing.T) {
-	dbMu.Lock()
-	prev := db
-	db = nil
-	dbMu.Unlock()
-	t.Cleanup(func() {
-		dbMu.Lock()
-		db = prev
-		dbMu.Unlock()
-	})
+	m := newTestModule(t)
+	m.dbMu.Lock()
+	m.db = nil
+	m.dbMu.Unlock()
 
-	_, err := AdminGetAllBeveragePreferences()
+	_, err := m.adminGetAllBeveragePreferences()
 	if err == nil {
 		t.Error("expected error when DB is nil")
 	}
