@@ -31,3 +31,9 @@ type Module interface {
 	Background() []BackgroundTask
 	Shutdown() error
 }
+
+// AdminProvider allows a Module to expose a subcommand group under /admin.
+type AdminProvider interface {
+	AdminSubcommandGroup() *discordgo.ApplicationCommandOption
+	HandleAdminSubcommand(s *discordgo.Session, i *discordgo.InteractionCreate, sub *discordgo.ApplicationCommandInteractionDataOption)
+}

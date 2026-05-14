@@ -356,8 +356,16 @@ func StartGidbig() {
 	}
 
 	llm.Initialize()
+	coffeeMod := coffee.New()
+	if err := coffeeMod.Init(bot.Deps{Session: discord, Config: conf}); err != nil {
+		slog.Error("coffee: init failed", "error", err)
+	} else {
+		for _, l := range coffeeMod.Listeners() {
+			discord.AddHandler(l)
+		}
+	}
+	admin.RegisterProvider(coffeeMod)
 	admin.Start(discord, conf.Discord.OwnerID, buildBotStatsMessage)
-	coffee.Start(discord)
 	esoMod := eso.New()
 	if err := esoMod.Init(bot.Deps{Session: discord, OwnerID: conf.Discord.OwnerID}); err != nil {
 		slog.Error("eso: init failed", "error", err)
@@ -397,7 +405,7 @@ func StartGidbig() {
 		{Name: "status", Description: "Show bot runtime status (owner only)"},
 	}
 	cmds = append(cmds, admin.Commands()...)
-	cmds = append(cmds, coffee.Commands()...)
+	cmds = append(cmds, coffeeMod.Commands()...)
 	cmds = append(cmds, esoMod.Commands()...)
 	cmds = append(cmds, gippity.Commands()...)
 	cmds = append(cmds, stollMod.Commands()...)
@@ -431,7 +439,9 @@ func StartGidbig() {
 		gippity.Shutdown()
 		gippity.CloseDB()
 		leetoclock.Shutdown()
-		coffee.Shutdown()
+		if err := coffeeMod.Shutdown(); err != nil {
+			slog.Error("coffee: shutdown failed", "error", err)
+		}
 	}()
 
 	select {

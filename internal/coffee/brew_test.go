@@ -13,50 +13,51 @@ type capturedBrewReadyCall struct {
 	channelID string
 }
 
-func captureBrewReadyMessages(t *testing.T) func() []capturedBrewReadyCall {
+func captureBrewReadyMessages(m *Module, t *testing.T) func() []capturedBrewReadyCall {
 	t.Helper()
-	previous := sendBrewReadyMessage
+	previous := m.sendBrewReadyMessage
 	calls := []capturedBrewReadyCall{}
-	sendBrewReadyMessage = func(_ *discordgo.Session, guildID, channelID string) {
+	m.sendBrewReadyMessage = func(_ *discordgo.Session, guildID, channelID string) {
 		calls = append(calls, capturedBrewReadyCall{guildID: guildID, channelID: channelID})
 	}
-	t.Cleanup(func() { sendBrewReadyMessage = previous })
+	t.Cleanup(func() { m.sendBrewReadyMessage = previous })
 	return func() []capturedBrewReadyCall { return calls }
 }
 
-func useFixedCupSize(t *testing.T, size float64) {
+func useFixedCupSize(m *Module, t *testing.T, size float64) {
 	t.Helper()
-	previous := randCupSize
-	randCupSize = func() float64 { return size }
-	t.Cleanup(func() { randCupSize = previous })
+	previous := m.randCupSize
+	m.randCupSize = func() float64 { return size }
+	t.Cleanup(func() { m.randCupSize = previous })
 }
 
-func resetBrewStates(t *testing.T) {
+func resetBrewStates(m *Module, t *testing.T) {
 	t.Helper()
-	brewMu.Lock()
-	brewStates = map[string]*brewState{}
-	brewMu.Unlock()
+	m.brewMu.Lock()
+	m.brewStates = map[string]*brewState{}
+	m.brewMu.Unlock()
 	t.Cleanup(func() {
-		brewMu.Lock()
-		brewStates = map[string]*brewState{}
-		brewMu.Unlock()
+		m.brewMu.Lock()
+		m.brewStates = map[string]*brewState{}
+		m.brewMu.Unlock()
 	})
 }
 
-func setBrewReady(guildID, channelID string) {
-	brewMu.Lock()
-	defer brewMu.Unlock()
+func setBrewReady(m *Module, guildID, channelID string) {
+	m.brewMu.Lock()
+	defer m.brewMu.Unlock()
 	key := brewStateKey(guildID, channelID)
-	if st, ok := brewStates[key]; ok {
+	if st, ok := m.brewStates[key]; ok {
 		st.isReady = true
 	}
 }
 
 func TestStartBrew_NewBrew(t *testing.T) {
-	resetBrewStates(t)
-	useNow(t, time.Date(2026, 5, 4, 10, 0, 0, 0, time.UTC))
+	m := newTestModule(t)
+	resetBrewStates(m, t)
+	useNow(m, t, time.Date(2026, 5, 4, 10, 0, 0, 0, time.UTC))
 
-	alreadyBrewing, readyAt := startBrew(nil, "guild1", "channel1")
+	alreadyBrewing, readyAt := m.startBrew(nil, "guild1", "channel1")
 
 	if alreadyBrewing {
 		t.Fatal("expected new brew, got alreadyBrewing=true")
@@ -66,9 +67,9 @@ func TestStartBrew_NewBrew(t *testing.T) {
 		t.Errorf("readyAt = %v, want %v", readyAt, expected)
 	}
 
-	brewMu.Lock()
-	st := brewStates[brewStateKey("guild1", "channel1")]
-	brewMu.Unlock()
+	m.brewMu.Lock()
+	st := m.brewStates[brewStateKey("guild1", "channel1")]
+	m.brewMu.Unlock()
 
 	if st == nil {
 		t.Fatal("expected brew state to be created")
@@ -82,11 +83,12 @@ func TestStartBrew_NewBrew(t *testing.T) {
 }
 
 func TestStartBrew_AlreadyBrewing(t *testing.T) {
-	resetBrewStates(t)
-	useNow(t, time.Date(2026, 5, 4, 10, 0, 0, 0, time.UTC))
+	m := newTestModule(t)
+	resetBrewStates(m, t)
+	useNow(m, t, time.Date(2026, 5, 4, 10, 0, 0, 0, time.UTC))
 
-	startBrew(nil, "guild1", "channel1")
-	alreadyBrewing, readyAt := startBrew(nil, "guild1", "channel1")
+	m.startBrew(nil, "guild1", "channel1")
+	alreadyBrewing, readyAt := m.startBrew(nil, "guild1", "channel1")
 
 	if !alreadyBrewing {
 		t.Fatal("expected alreadyBrewing=true for second /brew")
@@ -98,35 +100,37 @@ func TestStartBrew_AlreadyBrewing(t *testing.T) {
 }
 
 func TestStartBrew_AllowsNewBrewAfterReady(t *testing.T) {
-	resetBrewStates(t)
-	useNow(t, time.Date(2026, 5, 4, 10, 0, 0, 0, time.UTC))
+	m := newTestModule(t)
+	resetBrewStates(m, t)
+	useNow(m, t, time.Date(2026, 5, 4, 10, 0, 0, 0, time.UTC))
 
-	startBrew(nil, "guild1", "channel1")
-	setBrewReady("guild1", "channel1")
+	m.startBrew(nil, "guild1", "channel1")
+	setBrewReady(m, "guild1", "channel1")
 
-	alreadyBrewing, _ := startBrew(nil, "guild1", "channel1")
+	alreadyBrewing, _ := m.startBrew(nil, "guild1", "channel1")
 	if alreadyBrewing {
 		t.Error("expected to allow new brew after previous brew is ready")
 	}
 }
 
 func TestMarkBrewReady_SendsMessage(t *testing.T) {
-	resetBrewStates(t)
-	getReadyCalls := captureBrewReadyMessages(t)
+	m := newTestModule(t)
+	resetBrewStates(m, t)
+	getReadyCalls := captureBrewReadyMessages(m, t)
 
-	brewMu.Lock()
-	brewStates["guild1:channel1"] = &brewState{
+	m.brewMu.Lock()
+	m.brewStates["guild1:channel1"] = &brewState{
 		readyAt:      time.Now(),
 		isReady:      false,
 		coffeeLiters: potCapacity,
 	}
-	brewMu.Unlock()
+	m.brewMu.Unlock()
 
-	markBrewReady(nil, "guild1", "channel1")
+	m.markBrewReady(nil, "guild1", "channel1")
 
-	brewMu.Lock()
-	st := brewStates["guild1:channel1"]
-	brewMu.Unlock()
+	m.brewMu.Lock()
+	st := m.brewStates["guild1:channel1"]
+	m.brewMu.Unlock()
 
 	if st == nil || !st.isReady {
 		t.Error("expected brew to be marked ready")
@@ -142,10 +146,11 @@ func TestMarkBrewReady_SendsMessage(t *testing.T) {
 }
 
 func TestMarkBrewReady_NoStateDoesNothing(t *testing.T) {
-	resetBrewStates(t)
-	getReadyCalls := captureBrewReadyMessages(t)
+	m := newTestModule(t)
+	resetBrewStates(m, t)
+	getReadyCalls := captureBrewReadyMessages(m, t)
 
-	markBrewReady(nil, "guild1", "channel1")
+	m.markBrewReady(nil, "guild1", "channel1")
 
 	if len(getReadyCalls()) != 0 {
 		t.Error("expected no ready message when no brew state exists")
@@ -167,41 +172,45 @@ func TestBrewStateKey_WithoutGuild(t *testing.T) {
 }
 
 func TestHasActiveBrew_NoState(t *testing.T) {
-	resetBrewStates(t)
-	if hasActiveBrew("guild1", "channel1") {
+	m := newTestModule(t)
+	resetBrewStates(m, t)
+	if m.hasActiveBrew("guild1", "channel1") {
 		t.Error("expected false with no brew state")
 	}
 }
 
 func TestHasActiveBrew_WithState(t *testing.T) {
-	resetBrewStates(t)
-	brewMu.Lock()
-	brewStates["guild1:channel1"] = &brewState{coffeeLiters: potCapacity}
-	brewMu.Unlock()
+	m := newTestModule(t)
+	resetBrewStates(m, t)
+	m.brewMu.Lock()
+	m.brewStates["guild1:channel1"] = &brewState{coffeeLiters: potCapacity}
+	m.brewMu.Unlock()
 
-	if !hasActiveBrew("guild1", "channel1") {
+	if !m.hasActiveBrew("guild1", "channel1") {
 		t.Error("expected true with active brew state")
 	}
 }
 
 func TestGrabCoffee_NotReady(t *testing.T) {
-	resetBrewStates(t)
-	result := grabCoffee("guild1", "channel1", "user1")
+	m := newTestModule(t)
+	resetBrewStates(m, t)
+	result := m.grabCoffee("guild1", "channel1", "user1")
 	if !result.notReady {
 		t.Error("expected notReady=true with no brew state")
 	}
 }
 
 func TestGrabCoffee_RandomCupSize(t *testing.T) {
-	resetBrewStates(t)
-	brewMu.Lock()
-	brewStates["guild1:channel1"] = &brewState{
+	m := newTestModule(t)
+	resetBrewStates(m, t)
+	m.brewMu.Lock()
+	m.brewStates["guild1:channel1"] = &brewState{
 		isReady:      true,
 		coffeeLiters: potCapacity,
 	}
-	brewMu.Unlock()
+	m.brewMu.Unlock()
 
-	result := grabCoffee("guild1", "channel1", "user1")
+	result := m.grabCoffee("guild1", "channel1", "user1")
 	if result.notReady {
 		t.Fatal("expected successful grab")
 	}
@@ -215,27 +224,28 @@ func TestGrabCoffee_RandomCupSize(t *testing.T) {
 }
 
 func TestGrabCoffee_MultipleCupsAllowed(t *testing.T) {
-	resetBrewStates(t)
-	useFixedCupSize(t, 0.25)
-	brewMu.Lock()
-	brewStates["guild1:channel1"] = &brewState{
+	m := newTestModule(t)
+	resetBrewStates(m, t)
+	useFixedCupSize(m, t, 0.25)
+	m.brewMu.Lock()
+	m.brewStates["guild1:channel1"] = &brewState{
 		isReady:      true,
 		coffeeLiters: potCapacity,
 	}
-	brewMu.Unlock()
+	m.brewMu.Unlock()
 
-	r1 := grabCoffee("guild1", "channel1", "user1")
+	r1 := m.grabCoffee("guild1", "channel1", "user1")
 	if r1.notReady {
 		t.Fatal("first grab should succeed")
 	}
-	r2 := grabCoffee("guild1", "channel1", "user1")
+	r2 := m.grabCoffee("guild1", "channel1", "user1")
 	if r2.notReady {
 		t.Fatal("second grab by same user should also succeed (no alreadyTaken restriction)")
 	}
 
-	brewMu.Lock()
-	st := brewStates["guild1:channel1"]
-	brewMu.Unlock()
+	m.brewMu.Lock()
+	st := m.brewStates["guild1:channel1"]
+	m.brewMu.Unlock()
 
 	if st == nil {
 		t.Fatal("expected brew state to still exist after two 0.25L grabs from 2L")
@@ -250,19 +260,20 @@ func TestGrabCoffee_MultipleCupsAllowed(t *testing.T) {
 }
 
 func TestGrabCoffee_AlwaysPlain(t *testing.T) {
-	resetBrewStates(t)
-	brewMu.Lock()
-	brewStates["guild1:channel1"] = &brewState{
+	m := newTestModule(t)
+	resetBrewStates(m, t)
+	m.brewMu.Lock()
+	m.brewStates["guild1:channel1"] = &brewState{
 		isReady:      true,
 		coffeeLiters: potCapacity,
 	}
-	brewMu.Unlock()
+	m.brewMu.Unlock()
 
-	grabCoffee("guild1", "channel1", "user1")
+	m.grabCoffee("guild1", "channel1", "user1")
 
-	brewMu.Lock()
-	st := brewStates["guild1:channel1"]
-	brewMu.Unlock()
+	m.brewMu.Lock()
+	st := m.brewStates["guild1:channel1"]
+	m.brewMu.Unlock()
 
 	if st.grabs[0].cup.milk || st.grabs[0].cup.sugar {
 		t.Error("grabCoffee should always produce a plain cup; milk/sugar are added separately")
@@ -270,16 +281,17 @@ func TestGrabCoffee_AlwaysPlain(t *testing.T) {
 }
 
 func TestGrabCoffee_PotEmpties(t *testing.T) {
-	resetBrewStates(t)
-	useFixedCupSize(t, 0.25)
-	brewMu.Lock()
-	brewStates["guild1:channel1"] = &brewState{
+	m := newTestModule(t)
+	resetBrewStates(m, t)
+	useFixedCupSize(m, t, 0.25)
+	m.brewMu.Lock()
+	m.brewStates["guild1:channel1"] = &brewState{
 		isReady:      true,
 		coffeeLiters: 0.25,
 	}
-	brewMu.Unlock()
+	m.brewMu.Unlock()
 
-	result := grabCoffee("guild1", "channel1", "user1")
+	result := m.grabCoffee("guild1", "channel1", "user1")
 	if result.notReady {
 		t.Fatal("expected successful grab")
 	}
@@ -287,25 +299,26 @@ func TestGrabCoffee_PotEmpties(t *testing.T) {
 		t.Error("expected isEmpty=true after draining the pot")
 	}
 
-	brewMu.Lock()
-	_, exists := brewStates["guild1:channel1"]
-	brewMu.Unlock()
+	m.brewMu.Lock()
+	_, exists := m.brewStates["guild1:channel1"]
+	m.brewMu.Unlock()
 	if exists {
 		t.Error("expected brew state deleted after pot is empty")
 	}
 }
 
 func TestGrabCoffee_CupsCappedToRemainingLiters(t *testing.T) {
-	resetBrewStates(t)
-	useFixedCupSize(t, 0.30) // cup wants 300ml but only 50ml left
-	brewMu.Lock()
-	brewStates["guild1:channel1"] = &brewState{
+	m := newTestModule(t)
+	resetBrewStates(m, t)
+	useFixedCupSize(m, t, 0.30)
+	m.brewMu.Lock()
+	m.brewStates["guild1:channel1"] = &brewState{
 		isReady:      true,
 		coffeeLiters: 0.05,
 	}
-	brewMu.Unlock()
+	m.brewMu.Unlock()
 
-	result := grabCoffee("guild1", "channel1", "user1")
+	result := m.grabCoffee("guild1", "channel1", "user1")
 	if result.notReady {
 		t.Fatal("expected successful grab")
 	}
@@ -316,55 +329,58 @@ func TestGrabCoffee_CupsCappedToRemainingLiters(t *testing.T) {
 		t.Error("expected isEmpty=true after draining last drop")
 	}
 
-	brewMu.Lock()
-	_, exists := brewStates["guild1:channel1"]
-	brewMu.Unlock()
+	m.brewMu.Lock()
+	_, exists := m.brewStates["guild1:channel1"]
+	m.brewMu.Unlock()
 	if exists {
 		t.Error("expected brew state deleted after pot is empty")
 	}
 }
 
 func TestAddToLastCup_NoBrew(t *testing.T) {
-	resetBrewStates(t)
-	result := addToLastCup("guild1", "channel1", "user1", true, false)
+	m := newTestModule(t)
+	resetBrewStates(m, t)
+	result := m.addToLastCup("guild1", "channel1", "user1", true, false)
 	if !result.notReady {
 		t.Error("expected notReady=true with no brew state")
 	}
 }
 
 func TestAddToLastCup_NoCup(t *testing.T) {
-	resetBrewStates(t)
-	brewMu.Lock()
-	brewStates["guild1:channel1"] = &brewState{
+	m := newTestModule(t)
+	resetBrewStates(m, t)
+	m.brewMu.Lock()
+	m.brewStates["guild1:channel1"] = &brewState{
 		isReady:      true,
 		coffeeLiters: potCapacity,
 	}
-	brewMu.Unlock()
+	m.brewMu.Unlock()
 
-	result := addToLastCup("guild1", "channel1", "user1", true, false)
+	result := m.addToLastCup("guild1", "channel1", "user1", true, false)
 	if !result.noCup {
 		t.Error("expected noCup=true when user has not grabbed a cup")
 	}
 }
 
 func TestAddToLastCup_AddsMilk(t *testing.T) {
-	resetBrewStates(t)
-	brewMu.Lock()
-	brewStates["guild1:channel1"] = &brewState{
+	m := newTestModule(t)
+	resetBrewStates(m, t)
+	m.brewMu.Lock()
+	m.brewStates["guild1:channel1"] = &brewState{
 		isReady:      true,
 		coffeeLiters: potCapacity,
 		grabs:        []grabRecord{{userID: "user1", cup: CupTaken{liters: 0.25}}},
 	}
-	brewMu.Unlock()
+	m.brewMu.Unlock()
 
-	result := addToLastCup("guild1", "channel1", "user1", true, false)
+	result := m.addToLastCup("guild1", "channel1", "user1", true, false)
 	if result.noCup || result.notReady {
 		t.Fatal("expected successful modification")
 	}
 
-	brewMu.Lock()
-	cup := brewStates["guild1:channel1"].grabs[0].cup
-	brewMu.Unlock()
+	m.brewMu.Lock()
+	cup := m.brewStates["guild1:channel1"].grabs[0].cup
+	m.brewMu.Unlock()
 
 	if !cup.milk {
 		t.Error("expected milk=true after addToLastCup with milk")
@@ -375,20 +391,21 @@ func TestAddToLastCup_AddsMilk(t *testing.T) {
 }
 
 func TestAddToLastCup_AddsSugar(t *testing.T) {
-	resetBrewStates(t)
-	brewMu.Lock()
-	brewStates["guild1:channel1"] = &brewState{
+	m := newTestModule(t)
+	resetBrewStates(m, t)
+	m.brewMu.Lock()
+	m.brewStates["guild1:channel1"] = &brewState{
 		isReady:      true,
 		coffeeLiters: potCapacity,
 		grabs:        []grabRecord{{userID: "user1", cup: CupTaken{liters: 0.25}}},
 	}
-	brewMu.Unlock()
+	m.brewMu.Unlock()
 
-	addToLastCup("guild1", "channel1", "user1", false, true)
+	m.addToLastCup("guild1", "channel1", "user1", false, true)
 
-	brewMu.Lock()
-	cup := brewStates["guild1:channel1"].grabs[0].cup
-	brewMu.Unlock()
+	m.brewMu.Lock()
+	cup := m.brewStates["guild1:channel1"].grabs[0].cup
+	m.brewMu.Unlock()
 
 	if !cup.sugar {
 		t.Error("expected sugar=true after addToLastCup with sugar")
@@ -396,21 +413,22 @@ func TestAddToLastCup_AddsSugar(t *testing.T) {
 }
 
 func TestAddToLastCup_CombinesMilkAndSugar(t *testing.T) {
-	resetBrewStates(t)
-	brewMu.Lock()
-	brewStates["guild1:channel1"] = &brewState{
+	m := newTestModule(t)
+	resetBrewStates(m, t)
+	m.brewMu.Lock()
+	m.brewStates["guild1:channel1"] = &brewState{
 		isReady:      true,
 		coffeeLiters: potCapacity,
 		grabs:        []grabRecord{{userID: "user1", cup: CupTaken{liters: 0.25}}},
 	}
-	brewMu.Unlock()
+	m.brewMu.Unlock()
 
-	addToLastCup("guild1", "channel1", "user1", true, false)
-	addToLastCup("guild1", "channel1", "user1", false, true)
+	m.addToLastCup("guild1", "channel1", "user1", true, false)
+	m.addToLastCup("guild1", "channel1", "user1", false, true)
 
-	brewMu.Lock()
-	cup := brewStates["guild1:channel1"].grabs[0].cup
-	brewMu.Unlock()
+	m.brewMu.Lock()
+	cup := m.brewStates["guild1:channel1"].grabs[0].cup
+	m.brewMu.Unlock()
 
 	if !cup.milk || !cup.sugar {
 		t.Errorf("expected milk=true sugar=true after both modifications, got milk=%v sugar=%v", cup.milk, cup.sugar)
@@ -418,9 +436,10 @@ func TestAddToLastCup_CombinesMilkAndSugar(t *testing.T) {
 }
 
 func TestAddToLastCup_ModifiesLastCupOnly(t *testing.T) {
-	resetBrewStates(t)
-	brewMu.Lock()
-	brewStates["guild1:channel1"] = &brewState{
+	m := newTestModule(t)
+	resetBrewStates(m, t)
+	m.brewMu.Lock()
+	m.brewStates["guild1:channel1"] = &brewState{
 		isReady:      true,
 		coffeeLiters: potCapacity,
 		grabs: []grabRecord{
@@ -428,13 +447,13 @@ func TestAddToLastCup_ModifiesLastCupOnly(t *testing.T) {
 			{userID: "user1", cup: CupTaken{liters: 0.20}},
 		},
 	}
-	brewMu.Unlock()
+	m.brewMu.Unlock()
 
-	addToLastCup("guild1", "channel1", "user1", true, false)
+	m.addToLastCup("guild1", "channel1", "user1", true, false)
 
-	brewMu.Lock()
-	grabs := brewStates["guild1:channel1"].grabs
-	brewMu.Unlock()
+	m.brewMu.Lock()
+	grabs := m.brewStates["guild1:channel1"].grabs
+	m.brewMu.Unlock()
 
 	if grabs[0].cup.milk {
 		t.Error("first cup should not be modified")
@@ -445,21 +464,22 @@ func TestAddToLastCup_ModifiesLastCupOnly(t *testing.T) {
 }
 
 func TestAddToLastCup_DoesNotAffectPotLevel(t *testing.T) {
-	resetBrewStates(t)
-	useFixedCupSize(t, 0.25)
-	brewMu.Lock()
-	brewStates["guild1:channel1"] = &brewState{
+	m := newTestModule(t)
+	resetBrewStates(m, t)
+	useFixedCupSize(m, t, 0.25)
+	m.brewMu.Lock()
+	m.brewStates["guild1:channel1"] = &brewState{
 		isReady:      true,
 		coffeeLiters: potCapacity,
 		grabs:        []grabRecord{{userID: "user1", cup: CupTaken{liters: 0.25}}},
 	}
-	brewMu.Unlock()
+	m.brewMu.Unlock()
 
-	addToLastCup("guild1", "channel1", "user1", true, false)
+	m.addToLastCup("guild1", "channel1", "user1", true, false)
 
-	brewMu.Lock()
-	liters := brewStates["guild1:channel1"].coffeeLiters
-	brewMu.Unlock()
+	m.brewMu.Lock()
+	liters := m.brewStates["guild1:channel1"].coffeeLiters
+	m.brewMu.Unlock()
 
 	if liters != potCapacity {
 		t.Errorf("addToLastCup should not change pot level, got %.2fL", liters)

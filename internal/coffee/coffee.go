@@ -5,62 +5,17 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/toksikk/gidbig/internal/bot"
 	"github.com/toksikk/gidbig/internal/llm"
 	"github.com/toksikk/gidbig/internal/util"
+	"gorm.io/gorm"
 )
 
 const fallbackBeverage = "☕"
-
-var (
-	isSpecialDay         = util.IsSpecial
-	reactOnMessage       = util.ReactOnMessage
-	sendIntroDM          = sendIntroDMFunc
-	detectLanguage       = llm.DetectChannelLanguage
-	generateLLMMessage   = llm.GenerateMessage
-	deferInteraction     = deferInteractionImpl
-	editDeferredResponse = editDeferredResponseImpl
-)
-
-func deferInteractionImpl(s *discordgo.Session, i *discordgo.InteractionCreate, ephemeral bool) error {
-	var flags discordgo.MessageFlags
-	if ephemeral {
-		flags = discordgo.MessageFlagsEphemeral
-	}
-	return s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
-		Data: &discordgo.InteractionResponseData{Flags: flags},
-	})
-}
-
-func editDeferredResponseImpl(s *discordgo.Session, i *discordgo.InteractionCreate, content string) {
-	if _, err := s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: &content}); err != nil {
-		slog.Error("coffee: failed to edit deferred response", "error", err)
-	}
-}
-
-// generateInteractionMessage detects the channel language and uses the LLM to generate
-// a response for the given scenario. Returns fallback on any error.
-func generateInteractionMessage(s *discordgo.Session, channelID, scenario, fallback string) string {
-	lang, _ := detectLanguage(s, channelID)
-	if lang == "" {
-		lang = "English"
-	}
-	systemPrompt := "You are a Discord bot managing a coffee station in a community chat. " + llm.Personality + " Respond in " + lang + "."
-	msg, err := generateLLMMessage(context.Background(), systemPrompt, scenario)
-	if err != nil || strings.TrimSpace(msg) == "" {
-		return fallback
-	}
-	return strings.TrimSpace(msg)
-}
-
-func beverageEmojiFor(userID string) string {
-	if emoji, ok := getBeverageEmoji(userID); ok {
-		return emoji
-	}
-	return fallbackBeverage
-}
 
 var messages = []string{
 	"moin",
@@ -83,8 +38,70 @@ var messages = []string{
 	"christkindl",
 }
 
+// Module implements bot.Module and bot.AdminProvider for the coffee plugin.
+type Module struct {
+	session *discordgo.Session
+
+	// DB state
+	dbMu sync.RWMutex
+	db   *gorm.DB
+
+	// Brew state
+	brewMu     sync.RWMutex
+	brewStates map[string]*brewState
+
+	// Test hooks
+	nowFunc              func() time.Time
+	isSpecialDay         func() bool
+	reactOnMessage       func(*discordgo.Session, string, string, string, string)
+	sendIntroDM          func(*discordgo.Session, string, string)
+	detectLanguage       func(*discordgo.Session, string) (string, error)
+	generateLLMMessage   func(context.Context, string, string) (string, error)
+	deferInteraction     func(*discordgo.Session, *discordgo.InteractionCreate, bool) error
+	editDeferredResponse func(*discordgo.Session, *discordgo.InteractionCreate, string)
+
+	sendBrewReadyMessage     func(*discordgo.Session, string, string)
+	randCupSize              func() float64
+	generateBrewButtonLabels func(*discordgo.Session, string) [3]string
+}
+
+// New returns a Module with production-default hook implementations.
+func New() *Module {
+	m := &Module{
+		brewStates: make(map[string]*brewState),
+		nowFunc:    time.Now,
+	}
+	m.isSpecialDay = util.IsSpecial
+	m.reactOnMessage = util.ReactOnMessage
+	m.sendIntroDM = m.sendIntroDMImpl
+	m.detectLanguage = llm.DetectChannelLanguage
+	m.generateLLMMessage = llm.GenerateMessage
+	m.deferInteraction = m.deferInteractionImpl
+	m.editDeferredResponse = m.editDeferredResponseImpl
+	m.sendBrewReadyMessage = m.defaultSendBrewReadyMessage
+	m.randCupSize = defaultRandCupSize
+	m.generateBrewButtonLabels = m.buildBrewButtonLabels
+	return m
+}
+
+func (m *Module) Name() string { return "coffee" }
+
+// Init opens the beverage-preference store using the DB path from Deps.Config.
+func (m *Module) Init(d bot.Deps) error {
+	m.session = d.Session
+	dbPath := "gidbig.db"
+	if d.Config != nil && d.Config.Database.Path != "" {
+		dbPath = d.Config.Database.Path
+	}
+	if err := m.openStore(dbPath); err != nil {
+		return fmt.Errorf("coffee: open store: %w", err)
+	}
+	slog.Info("coffee: initialized")
+	return nil
+}
+
 // Commands returns the slash command definitions for this plugin.
-func Commands() []*discordgo.ApplicationCommand {
+func (m *Module) Commands() []*discordgo.ApplicationCommand {
 	return []*discordgo.ApplicationCommand{
 		{
 			Name:        "setbeverage",
@@ -105,74 +122,107 @@ func Commands() []*discordgo.ApplicationCommand {
 	}
 }
 
-// Start the plugin
-func Start(discord *discordgo.Session) {
-	generateBrewButtonLabels = buildBrewButtonLabels
-	discord.AddHandler(onMessageCreate)
-	discord.AddHandler(onInteractionCreate)
-	if err := openStore("coffee.db"); err != nil {
-		slog.Error("coffee: failed to open store", "error", err)
+// Listeners returns the Discord event listeners for this module.
+func (m *Module) Listeners() []bot.EventListener {
+	return []bot.EventListener{m.onMessageCreate, m.onInteractionCreate}
+}
+
+// Components returns the message-component handlers for this module.
+func (m *Module) Components() []bot.ComponentHandler {
+	return []bot.ComponentHandler{
+		{Prefix: "coffee:", Handler: m.handleComponent},
 	}
-	slog.Info("coffee function registered")
 }
 
-// Shutdown closes the beverage preference store.
-func Shutdown() {
-	closeStore()
+// Background returns no background tasks.
+func (m *Module) Background() []bot.BackgroundTask { return nil }
+
+// Shutdown closes the beverage-preference store.
+func (m *Module) Shutdown() error {
+	return m.closeStore()
 }
 
-func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
-	if m.Author == nil || m.Author.Bot {
+func (m *Module) deferInteractionImpl(s *discordgo.Session, i *discordgo.InteractionCreate, ephemeral bool) error {
+	var flags discordgo.MessageFlags
+	if ephemeral {
+		flags = discordgo.MessageFlagsEphemeral
+	}
+	return s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{Flags: flags},
+	})
+}
+
+func (m *Module) editDeferredResponseImpl(s *discordgo.Session, i *discordgo.InteractionCreate, content string) {
+	if _, err := s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: &content}); err != nil {
+		slog.Error("coffee: failed to edit deferred response", "error", err)
+	}
+}
+
+func (m *Module) generateInteractionMessage(s *discordgo.Session, channelID, scenario, fallback string) string {
+	lang, _ := m.detectLanguage(s, channelID)
+	if lang == "" {
+		lang = "English"
+	}
+	systemPrompt := "You are a Discord bot managing a coffee station in a community chat. " + llm.Personality + " Respond in " + lang + "."
+	msg, err := m.generateLLMMessage(context.Background(), systemPrompt, scenario)
+	if err != nil || strings.TrimSpace(msg) == "" {
+		return fallback
+	}
+	return strings.TrimSpace(msg)
+}
+
+func (m *Module) beverageEmojiFor(userID string) string {
+	if emoji, ok := m.getBeverageEmoji(userID); ok {
+		return emoji
+	}
+	return fallbackBeverage
+}
+
+func (m *Module) onMessageCreate(s *discordgo.Session, mc *discordgo.MessageCreate) {
+	if mc.Author == nil || mc.Author.Bot {
 		return
 	}
 
 	for _, v := range messages {
-		if v == strings.ToLower(m.Content) {
-			if hasGreetedToday(m.Author.ID) {
+		if v == strings.ToLower(mc.Content) {
+			if m.hasGreetedToday(mc.Author.ID) {
 				return
 			}
 
-			emoji := beverageEmojiFor(m.Author.ID)
-			if isSpecialDay() {
-				reactOnMessage(s, m.ChannelID, m.ID, string(util.Ae[util.RandomRange(0, len(util.Ae))]), "add")
-				reactOnMessage(s, m.ChannelID, m.ID, string(util.Cl), "add")
+			emoji := m.beverageEmojiFor(mc.Author.ID)
+			if m.isSpecialDay() {
+				m.reactOnMessage(s, mc.ChannelID, mc.ID, string(util.Ae[util.RandomRange(0, len(util.Ae))]), "add")
+				m.reactOnMessage(s, mc.ChannelID, mc.ID, string(util.Cl), "add")
 			} else {
-				reactOnMessage(s, m.ChannelID, m.ID, emoji, "add")
-				// faces
-				if m.Author.ID == "269898849714307073" {
-					reactOnMessage(s, m.ChannelID, m.ID, ":sidus:576309032789475328", "add")
+				m.reactOnMessage(s, mc.ChannelID, mc.ID, emoji, "add")
+				if mc.Author.ID == "269898849714307073" {
+					m.reactOnMessage(s, mc.ChannelID, mc.ID, ":sidus:576309032789475328", "add")
 				}
-				if m.Author.ID == "125230846629249024" {
-					reactOnMessage(s, m.ChannelID, m.ID, ":sikk:355329009824825355", "add")
-				}
-			}
-
-			if !isUserIntroduced(m.Author.ID) {
-				sendIntroDM(s, m.Author.ID, emoji)
-				if err := markUserIntroduced(m.Author.ID); err != nil {
-					slog.Error("coffee: failed to mark user as introduced", "error", err, "userID", m.Author.ID)
+				if mc.Author.ID == "125230846629249024" {
+					m.reactOnMessage(s, mc.ChannelID, mc.ID, ":sikk:355329009824825355", "add")
 				}
 			}
 
-			if err := recordGreeting(m.Author.ID); err != nil {
-				slog.Error("coffee: failed to record daily greeting", "error", err, "userID", m.Author.ID)
+			if !m.isUserIntroduced(mc.Author.ID) {
+				m.sendIntroDM(s, mc.Author.ID, emoji)
+				if err := m.markUserIntroduced(mc.Author.ID); err != nil {
+					slog.Error("coffee: failed to mark user as introduced", "error", err, "userID", mc.Author.ID)
+				}
+			}
+
+			if err := m.recordGreeting(mc.Author.ID); err != nil {
+				slog.Error("coffee: failed to record daily greeting", "error", err, "userID", mc.Author.ID)
 			}
 			return
 		}
 	}
 }
 
-func onInteractionCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (m *Module) onInteractionCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	switch i.Type {
 	case discordgo.InteractionMessageComponent:
-		switch i.MessageComponentData().CustomID {
-		case "grab_coffee":
-			handleGrabCoffeeButton(s, i)
-		case "grab_milk":
-			handleModifyLastCupButton(s, i, true, false)
-		case "grab_sugar":
-			handleModifyLastCupButton(s, i, false, true)
-		}
+		m.handleComponent(s, i)
 		return
 	case discordgo.InteractionApplicationCommand:
 	default:
@@ -182,7 +232,7 @@ func onInteractionCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	data := i.ApplicationCommandData()
 	switch data.Name {
 	case "brew":
-		handleBrewInteraction(s, i)
+		m.handleBrewInteraction(s, i)
 		return
 	case "setbeverage":
 	default:
@@ -209,9 +259,9 @@ func onInteractionCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		userID = i.User.ID
 	}
 
-	introducedBefore := isUserIntroduced(userID)
+	introducedBefore := m.isUserIntroduced(userID)
 
-	if err := setBeverageEmoji(userID, emoji); err != nil {
+	if err := m.setBeverageEmoji(userID, emoji); err != nil {
 		slog.Error("coffee: failed to set beverage emoji", "error", err, "userID", userID)
 		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
@@ -223,45 +273,57 @@ func onInteractionCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		return
 	}
 
-	if err := deferInteraction(s, i, true); err != nil {
+	if err := m.deferInteraction(s, i, true); err != nil {
 		slog.Error("coffee: failed to defer interaction", "error", err)
 		return
 	}
-	confirmMsg := generateInteractionMessage(s, i.ChannelID,
+	confirmMsg := m.generateInteractionMessage(s, i.ChannelID,
 		fmt.Sprintf("Confirm to the user that their morning beverage is now set to %s.", emoji),
 		fmt.Sprintf("Your morning beverage is now %s ☑️", emoji))
-	editDeferredResponse(s, i, confirmMsg)
+	m.editDeferredResponse(s, i, confirmMsg)
 
 	if !introducedBefore {
-		sendIntroDM(s, userID, emoji)
+		m.sendIntroDM(s, userID, emoji)
 	}
 }
 
-func handleBrewInteraction(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	alreadyBrewing, readyAt := startBrew(s, i.GuildID, i.ChannelID)
+// handleComponent dispatches coffee:* message component interactions.
+func (m *Module) handleComponent(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	switch i.MessageComponentData().CustomID {
+	case "coffee:grab_coffee":
+		m.handleGrabCoffeeButton(s, i)
+	case "coffee:grab_milk":
+		m.handleModifyLastCupButton(s, i, true, false)
+	case "coffee:grab_sugar":
+		m.handleModifyLastCupButton(s, i, false, true)
+	}
+}
+
+func (m *Module) handleBrewInteraction(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	alreadyBrewing, readyAt := m.startBrew(s, i.GuildID, i.ChannelID)
 	ts := fmt.Sprintf("<t:%d:R>", readyAt.Unix())
 	if alreadyBrewing {
-		if err := deferInteraction(s, i, true); err != nil {
+		if err := m.deferInteraction(s, i, true); err != nil {
 			slog.Error("coffee: failed to defer interaction", "error", err)
 			return
 		}
-		msg := generateInteractionMessage(s, i.ChannelID,
+		msg := m.generateInteractionMessage(s, i.ChannelID,
 			"Coffee is already brewing. Tell the user in one short sentence.",
 			"☕ Coffee is already brewing!") + " " + ts
-		editDeferredResponse(s, i, msg)
+		m.editDeferredResponse(s, i, msg)
 		return
 	}
-	if err := deferInteraction(s, i, false); err != nil {
+	if err := m.deferInteraction(s, i, false); err != nil {
 		slog.Error("coffee: failed to defer interaction", "error", err)
 		return
 	}
-	msg := generateInteractionMessage(s, i.ChannelID,
+	msg := m.generateInteractionMessage(s, i.ChannelID,
 		"A user just started brewing coffee. It will be ready in about 3 minutes. Announce this in one short sentence.",
 		"☕ Brewing coffee... Ready") + " " + ts
-	editDeferredResponse(s, i, msg)
+	m.editDeferredResponse(s, i, msg)
 }
 
-func handleGrabCoffeeButton(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (m *Module) handleGrabCoffeeButton(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	var userID string
 	if i.Member != nil {
 		userID = i.Member.User.ID
@@ -269,17 +331,17 @@ func handleGrabCoffeeButton(s *discordgo.Session, i *discordgo.InteractionCreate
 		userID = i.User.ID
 	}
 
-	result := grabCoffee(i.GuildID, i.ChannelID, userID)
+	result := m.grabCoffee(i.GuildID, i.ChannelID, userID)
 
 	if result.notReady {
-		if err := deferInteraction(s, i, true); err != nil {
+		if err := m.deferInteraction(s, i, true); err != nil {
 			slog.Error("coffee: failed to defer interaction", "error", err)
 			return
 		}
-		msg := generateInteractionMessage(s, i.ChannelID,
+		msg := m.generateInteractionMessage(s, i.ChannelID,
 			"A user tried to grab coffee but the pot is empty or not ready. Tell them in one short sentence.",
 			"Too late — the coffee pot is empty! ☕")
-		editDeferredResponse(s, i, msg)
+		m.editDeferredResponse(s, i, msg)
 		return
 	}
 
@@ -287,14 +349,12 @@ func handleGrabCoffeeButton(s *discordgo.Session, i *discordgo.InteractionCreate
 		Type: discordgo.InteractionResponseUpdateMessage,
 		Data: &discordgo.InteractionResponseData{
 			Content:    result.updatedMsg,
-			Components: brewComponents(result.buttonLabels, result.isEmpty),
+			Components: m.brewComponents(result.buttonLabels, result.isEmpty),
 		},
 	})
 }
 
-// handleModifyLastCupButton adds milk or sugar to the user's most recent cup without
-// pouring a new one. Shows an ephemeral error if the user has no cup in this brew.
-func handleModifyLastCupButton(s *discordgo.Session, i *discordgo.InteractionCreate, milk, sugar bool) {
+func (m *Module) handleModifyLastCupButton(s *discordgo.Session, i *discordgo.InteractionCreate, milk, sugar bool) {
 	var userID string
 	if i.Member != nil {
 		userID = i.Member.User.ID
@@ -302,28 +362,28 @@ func handleModifyLastCupButton(s *discordgo.Session, i *discordgo.InteractionCre
 		userID = i.User.ID
 	}
 
-	result := addToLastCup(i.GuildID, i.ChannelID, userID, milk, sugar)
+	result := m.addToLastCup(i.GuildID, i.ChannelID, userID, milk, sugar)
 
 	if result.notReady {
-		if err := deferInteraction(s, i, true); err != nil {
+		if err := m.deferInteraction(s, i, true); err != nil {
 			slog.Error("coffee: failed to defer interaction", "error", err)
 			return
 		}
-		msg := generateInteractionMessage(s, i.ChannelID,
+		msg := m.generateInteractionMessage(s, i.ChannelID,
 			"A user tried to add milk or sugar but the coffee pot is no longer available. Tell them in one short sentence.",
 			"No coffee available! ☕")
-		editDeferredResponse(s, i, msg)
+		m.editDeferredResponse(s, i, msg)
 		return
 	}
 	if result.noCup {
-		if err := deferInteraction(s, i, true); err != nil {
+		if err := m.deferInteraction(s, i, true); err != nil {
 			slog.Error("coffee: failed to defer interaction", "error", err)
 			return
 		}
-		msg := generateInteractionMessage(s, i.ChannelID,
+		msg := m.generateInteractionMessage(s, i.ChannelID,
 			"A user tried to add milk or sugar but hasn't grabbed a cup yet. Tell them to grab a cup first, in one short sentence.",
 			"Grab a cup first! ☕")
-		editDeferredResponse(s, i, msg)
+		m.editDeferredResponse(s, i, msg)
 		return
 	}
 
@@ -331,12 +391,12 @@ func handleModifyLastCupButton(s *discordgo.Session, i *discordgo.InteractionCre
 		Type: discordgo.InteractionResponseUpdateMessage,
 		Data: &discordgo.InteractionResponseData{
 			Content:    result.updatedMsg,
-			Components: brewComponents(result.buttonLabels, false),
+			Components: m.brewComponents(result.buttonLabels, false),
 		},
 	})
 }
 
-func brewComponents(labels [3]string, empty bool) []discordgo.MessageComponent {
+func (m *Module) brewComponents(labels [3]string, empty bool) []discordgo.MessageComponent {
 	if empty {
 		return nil
 	}
@@ -346,32 +406,32 @@ func brewComponents(labels [3]string, empty bool) []discordgo.MessageComponent {
 				discordgo.Button{
 					Label:    labels[0],
 					Style:    discordgo.PrimaryButton,
-					CustomID: "grab_coffee",
+					CustomID: "coffee:grab_coffee",
 				},
 				discordgo.Button{
 					Label:    labels[1],
 					Style:    discordgo.SecondaryButton,
-					CustomID: "grab_milk",
+					CustomID: "coffee:grab_milk",
 				},
 				discordgo.Button{
 					Label:    labels[2],
 					Style:    discordgo.SecondaryButton,
-					CustomID: "grab_sugar",
+					CustomID: "coffee:grab_sugar",
 				},
 			},
 		},
 	}
 }
 
-func buildBrewButtonLabels(s *discordgo.Session, channelID string) [3]string {
+func (m *Module) buildBrewButtonLabels(s *discordgo.Session, channelID string) [3]string {
 	fallback := [3]string{"☕ Grab a cup", "🥛 With milk", "🍬 With sugar"}
-	lang, _ := detectLanguage(s, channelID)
+	lang, _ := m.detectLanguage(s, channelID)
 	if lang == "" {
 		lang = "English"
 	}
 	systemPrompt := "You translate button labels for a coffee bot. " + llm.Personality +
 		" Respond in " + lang + ". Format: exactly 3 labels separated by | with no other text. Each label must be 2-4 words."
-	msg, err := generateLLMMessage(context.Background(), systemPrompt, "Grab a cup|With milk|With sugar")
+	msg, err := m.generateLLMMessage(context.Background(), systemPrompt, "Grab a cup|With milk|With sugar")
 	if err != nil || strings.TrimSpace(msg) == "" {
 		return fallback
 	}
@@ -386,7 +446,7 @@ func buildBrewButtonLabels(s *discordgo.Session, channelID string) [3]string {
 	}
 }
 
-func sendIntroDMFunc(s *discordgo.Session, userID string, emoji string) {
+func (m *Module) sendIntroDMImpl(s *discordgo.Session, userID string, emoji string) {
 	channel, err := s.UserChannelCreate(userID)
 	if err != nil {
 		slog.Error("coffee: failed to create DM channel", "error", err, "userID", userID)

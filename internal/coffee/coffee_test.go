@@ -17,11 +17,11 @@ type capturedReaction struct {
 	reactionType string
 }
 
-func captureReactions(t *testing.T) func() []capturedReaction {
+func captureReactions(m *Module, t *testing.T) func() []capturedReaction {
 	t.Helper()
-	previous := reactOnMessage
+	previous := m.reactOnMessage
 	reactions := []capturedReaction{}
-	reactOnMessage = func(_ *discordgo.Session, channelID, messageID, emoji, reactionType string) {
+	m.reactOnMessage = func(_ *discordgo.Session, channelID, messageID, emoji, reactionType string) {
 		reactions = append(reactions, capturedReaction{
 			channelID:    channelID,
 			messageID:    messageID,
@@ -30,21 +30,21 @@ func captureReactions(t *testing.T) func() []capturedReaction {
 		})
 	}
 	t.Cleanup(func() {
-		reactOnMessage = previous
+		m.reactOnMessage = previous
 	})
 	return func() []capturedReaction {
 		return reactions
 	}
 }
 
-func useSpecialDay(t *testing.T, special bool) {
+func useSpecialDay(m *Module, t *testing.T, special bool) {
 	t.Helper()
-	previous := isSpecialDay
-	isSpecialDay = func() bool {
+	previous := m.isSpecialDay
+	m.isSpecialDay = func() bool {
 		return special
 	}
 	t.Cleanup(func() {
-		isSpecialDay = previous
+		m.isSpecialDay = previous
 	})
 }
 
@@ -61,9 +61,9 @@ func greetingMessage(userID, content string) *discordgo.MessageCreate {
 	}
 }
 
-func countGreetings(t *testing.T, userID string) int64 {
+func countGreetings(m *Module, t *testing.T, userID string) int64 {
 	t.Helper()
-	d := getDB()
+	d := m.getDB()
 	var count int64
 	if err := d.Model(&UserGreeting{}).Where("user_id = ?", userID).Count(&count).Error; err != nil {
 		t.Fatalf("failed to count greetings: %v", err)
@@ -76,18 +76,18 @@ type capturedDM struct {
 	emoji  string
 }
 
-func captureIntroDMs(t *testing.T) func() []capturedDM {
+func captureIntroDMs(m *Module, t *testing.T) func() []capturedDM {
 	t.Helper()
-	previous := sendIntroDM
+	previous := m.sendIntroDM
 	dms := []capturedDM{}
-	sendIntroDM = func(_ *discordgo.Session, userID string, emoji string) {
+	m.sendIntroDM = func(_ *discordgo.Session, userID string, emoji string) {
 		dms = append(dms, capturedDM{
 			userID: userID,
 			emoji:  emoji,
 		})
 	}
 	t.Cleanup(func() {
-		sendIntroDM = previous
+		m.sendIntroDM = previous
 	})
 	return func() []capturedDM {
 		return dms
@@ -95,13 +95,13 @@ func captureIntroDMs(t *testing.T) func() []capturedDM {
 }
 
 func TestOnMessageCreate_TriggersIntroDMOnFirstGreeting(t *testing.T) {
-	openInMemoryStore(t)
-	useNow(t, time.Date(2026, 5, 3, 9, 0, 0, 0, time.Local))
-	useSpecialDay(t, false)
-	_ = captureReactions(t)
-	getDMs := captureIntroDMs(t)
+	m := newTestModule(t)
+	useNow(m, t, time.Date(2026, 5, 3, 9, 0, 0, 0, time.Local))
+	useSpecialDay(m, t, false)
+	_ = captureReactions(m, t)
+	getDMs := captureIntroDMs(m, t)
 
-	onMessageCreate(nil, greetingMessage("user_new", "moin"))
+	m.onMessageCreate(nil, greetingMessage("user_new", "moin"))
 
 	dms := getDMs()
 	if len(dms) != 1 {
@@ -114,21 +114,21 @@ func TestOnMessageCreate_TriggersIntroDMOnFirstGreeting(t *testing.T) {
 		t.Errorf("DM emoji = %q, want %q", dms[0].emoji, fallbackBeverage)
 	}
 
-	if !isUserIntroduced("user_new") {
+	if !m.isUserIntroduced("user_new") {
 		t.Error("expected user_new to be marked as introduced")
 	}
 }
 
 func TestOnMessageCreate_DoesNotTriggerIntroDMIfAlreadyIntroduced(t *testing.T) {
-	openInMemoryStore(t)
-	useNow(t, time.Date(2026, 5, 3, 9, 0, 0, 0, time.Local))
-	useSpecialDay(t, false)
-	_ = captureReactions(t)
-	getDMs := captureIntroDMs(t)
+	m := newTestModule(t)
+	useNow(m, t, time.Date(2026, 5, 3, 9, 0, 0, 0, time.Local))
+	useSpecialDay(m, t, false)
+	_ = captureReactions(m, t)
+	getDMs := captureIntroDMs(m, t)
 
-	_ = setBeverageEmoji("user_old", "🧃") // sets introduced=true
+	_ = m.setBeverageEmoji("user_old", "🧃")
 
-	onMessageCreate(nil, greetingMessage("user_old", "moin"))
+	m.onMessageCreate(nil, greetingMessage("user_old", "moin"))
 
 	dms := getDMs()
 	if len(dms) != 0 {
@@ -150,22 +150,16 @@ func TestIsValidBeverageEmoji(t *testing.T) {
 		input string
 		valid bool
 	}{
-		// valid Unicode emoji
 		{"🫖", true},
 		{"☕", true},
 		{"🍺", true},
 		{"🧃", true},
-		// valid Discord custom emoji
 		{"<:customemoji:123456789>", true},
 		{"<a:animatedemoji:987654321>", true},
-		// invalid: plain text
 		{"hello", false},
 		{"hello world", false},
-		// invalid: empty
 		{"", false},
-		// invalid: number
 		{"42", false},
-		// invalid: mixed text
 		{"coffee", false},
 	}
 	for _, tt := range tests {
@@ -177,6 +171,7 @@ func TestIsValidBeverageEmoji(t *testing.T) {
 }
 
 func TestBeverageEmojiFor(t *testing.T) {
+	m := newTestModule(t)
 	tests := []struct {
 		userID   string
 		expected string
@@ -187,7 +182,7 @@ func TestBeverageEmojiFor(t *testing.T) {
 		{"", "☕"},
 	}
 	for _, tt := range tests {
-		got := beverageEmojiFor(tt.userID)
+		got := m.beverageEmojiFor(tt.userID)
 		if got != tt.expected {
 			t.Errorf("beverageEmojiFor(%q) = %q; want %q", tt.userID, got, tt.expected)
 		}
@@ -195,13 +190,13 @@ func TestBeverageEmojiFor(t *testing.T) {
 }
 
 func TestOnMessageCreate_FirstGreetingReactsAndRecordsGreeting(t *testing.T) {
-	openInMemoryStore(t)
-	useNow(t, time.Date(2026, 5, 3, 9, 0, 0, 0, time.Local))
-	useSpecialDay(t, false)
-	getReactions := captureReactions(t)
-	_ = captureIntroDMs(t)
+	m := newTestModule(t)
+	useNow(m, t, time.Date(2026, 5, 3, 9, 0, 0, 0, time.Local))
+	useSpecialDay(m, t, false)
+	getReactions := captureReactions(m, t)
+	_ = captureIntroDMs(m, t)
 
-	onMessageCreate(nil, greetingMessage("user1", "moin"))
+	m.onMessageCreate(nil, greetingMessage("user1", "moin"))
 
 	reactions := getReactions()
 	if len(reactions) != 1 {
@@ -213,38 +208,38 @@ func TestOnMessageCreate_FirstGreetingReactsAndRecordsGreeting(t *testing.T) {
 	if reactions[0].reactionType != "add" {
 		t.Errorf("reaction type = %q, want add", reactions[0].reactionType)
 	}
-	if count := countGreetings(t, "user1"); count != 1 {
+	if count := countGreetings(m, t, "user1"); count != 1 {
 		t.Errorf("expected 1 greeting row, got %d", count)
 	}
 }
 
 func TestOnMessageCreate_DuplicateSameDayGreetingIsSuppressed(t *testing.T) {
-	openInMemoryStore(t)
-	useNow(t, time.Date(2026, 5, 3, 9, 0, 0, 0, time.Local))
-	useSpecialDay(t, false)
-	getReactions := captureReactions(t)
-	_ = captureIntroDMs(t)
+	m := newTestModule(t)
+	useNow(m, t, time.Date(2026, 5, 3, 9, 0, 0, 0, time.Local))
+	useSpecialDay(m, t, false)
+	getReactions := captureReactions(m, t)
+	_ = captureIntroDMs(m, t)
 
-	onMessageCreate(nil, greetingMessage("user1", "moin"))
-	onMessageCreate(nil, greetingMessage("user1", "hi"))
+	m.onMessageCreate(nil, greetingMessage("user1", "moin"))
+	m.onMessageCreate(nil, greetingMessage("user1", "hi"))
 
 	reactions := getReactions()
 	if len(reactions) != 1 {
 		t.Fatalf("expected only the first greeting to react, got %d reactions", len(reactions))
 	}
-	if count := countGreetings(t, "user1"); count != 1 {
+	if count := countGreetings(m, t, "user1"); count != 1 {
 		t.Errorf("expected duplicate greeting to keep 1 row, got %d", count)
 	}
 }
 
 func TestOnMessageCreate_PriorDayGreetingAllowsNextDayReaction(t *testing.T) {
-	openInMemoryStore(t)
-	useNow(t, time.Date(2026, 5, 3, 9, 0, 0, 0, time.Local))
-	useSpecialDay(t, false)
-	getReactions := captureReactions(t)
-	_ = captureIntroDMs(t)
+	m := newTestModule(t)
+	useNow(m, t, time.Date(2026, 5, 3, 9, 0, 0, 0, time.Local))
+	useSpecialDay(m, t, false)
+	getReactions := captureReactions(m, t)
+	_ = captureIntroDMs(m, t)
 
-	d := getDB()
+	d := m.getDB()
 	if err := d.Create(&UserGreeting{
 		UserID:    "user1",
 		GreetedAt: time.Date(2026, 5, 2, 23, 0, 0, 0, time.Local),
@@ -252,25 +247,25 @@ func TestOnMessageCreate_PriorDayGreetingAllowsNextDayReaction(t *testing.T) {
 		t.Fatalf("failed to create prior greeting: %v", err)
 	}
 
-	onMessageCreate(nil, greetingMessage("user1", "moin"))
+	m.onMessageCreate(nil, greetingMessage("user1", "moin"))
 
 	reactions := getReactions()
 	if len(reactions) != 1 {
 		t.Fatalf("expected next-day greeting to react once, got %d reactions", len(reactions))
 	}
-	if count := countGreetings(t, "user1"); count != 2 {
+	if count := countGreetings(m, t, "user1"); count != 2 {
 		t.Errorf("expected prior and new greeting rows, got %d", count)
 	}
 }
 
 func TestOnMessageCreate_SpecialDayFirstGreetingReactsAndRecordsGreeting(t *testing.T) {
-	openInMemoryStore(t)
-	useNow(t, time.Date(2026, 5, 3, 9, 0, 0, 0, time.Local))
-	useSpecialDay(t, true)
-	getReactions := captureReactions(t)
-	_ = captureIntroDMs(t)
+	m := newTestModule(t)
+	useNow(m, t, time.Date(2026, 5, 3, 9, 0, 0, 0, time.Local))
+	useSpecialDay(m, t, true)
+	getReactions := captureReactions(m, t)
+	_ = captureIntroDMs(m, t)
 
-	onMessageCreate(nil, greetingMessage("user1", "moin"))
+	m.onMessageCreate(nil, greetingMessage("user1", "moin"))
 
 	reactions := getReactions()
 	if len(reactions) != 2 {
@@ -282,24 +277,24 @@ func TestOnMessageCreate_SpecialDayFirstGreetingReactsAndRecordsGreeting(t *test
 	if reactions[1].emoji != string(util.Cl) {
 		t.Errorf("second special-day reaction = %q, want %q", reactions[1].emoji, string(util.Cl))
 	}
-	if count := countGreetings(t, "user1"); count != 1 {
+	if count := countGreetings(m, t, "user1"); count != 1 {
 		t.Errorf("expected 1 greeting row, got %d", count)
 	}
 }
 
-func stubLLM(t *testing.T, reply string, callErr error) func() []string {
+func stubLLM(m *Module, t *testing.T, reply string, callErr error) func() []string {
 	t.Helper()
-	prevDetect := detectLanguage
-	prevGenerate := generateLLMMessage
+	prevDetect := m.detectLanguage
+	prevGenerate := m.generateLLMMessage
 	t.Cleanup(func() {
-		detectLanguage = prevDetect
-		generateLLMMessage = prevGenerate
+		m.detectLanguage = prevDetect
+		m.generateLLMMessage = prevGenerate
 	})
-	detectLanguage = func(_ *discordgo.Session, _ string) (string, error) {
+	m.detectLanguage = func(_ *discordgo.Session, _ string) (string, error) {
 		return "English", nil
 	}
 	calls := []string{}
-	generateLLMMessage = func(_ context.Context, _, userPrompt string) (string, error) {
+	m.generateLLMMessage = func(_ context.Context, _, userPrompt string) (string, error) {
 		calls = append(calls, userPrompt)
 		return reply, callErr
 	}
@@ -307,9 +302,9 @@ func stubLLM(t *testing.T, reply string, callErr error) func() []string {
 }
 
 func TestGenerateInteractionMessage_ReturnsLLMText(t *testing.T) {
-	getCalls := stubLLM(t, "Der Kaffee ist fertig.", nil)
-	got := generateInteractionMessage(nil, "ch1", "Coffee is ready.", "fallback")
-	// nil session → detectLanguage returns "English" (stubbed), generateLLMMessage still called
+	m := newTestModule(t)
+	getCalls := stubLLM(m, t, "Der Kaffee ist fertig.", nil)
+	got := m.generateInteractionMessage(nil, "ch1", "Coffee is ready.", "fallback")
 	if got != "Der Kaffee ist fertig." {
 		t.Errorf("got %q, want LLM reply", got)
 	}
@@ -319,16 +314,18 @@ func TestGenerateInteractionMessage_ReturnsLLMText(t *testing.T) {
 }
 
 func TestGenerateInteractionMessage_FallsBackOnError(t *testing.T) {
-	stubLLM(t, "", fmt.Errorf("api failure"))
-	got := generateInteractionMessage(nil, "ch1", "scenario", "my fallback")
+	m := newTestModule(t)
+	stubLLM(m, t, "", fmt.Errorf("api failure"))
+	got := m.generateInteractionMessage(nil, "ch1", "scenario", "my fallback")
 	if got != "my fallback" {
 		t.Errorf("got %q, want fallback", got)
 	}
 }
 
 func TestGenerateInteractionMessage_FallsBackOnEmptyReply(t *testing.T) {
-	stubLLM(t, "   ", nil)
-	got := generateInteractionMessage(nil, "ch1", "scenario", "my fallback")
+	m := newTestModule(t)
+	stubLLM(m, t, "   ", nil)
+	got := m.generateInteractionMessage(nil, "ch1", "scenario", "my fallback")
 	if got != "my fallback" {
 		t.Errorf("got %q, want fallback on empty LLM reply", got)
 	}
@@ -342,25 +339,25 @@ type editCall struct {
 	content string
 }
 
-func stubInteractionHelpers(t *testing.T, deferErr error) (func() []deferCall, func() []editCall) {
+func stubInteractionHelpers(m *Module, t *testing.T, deferErr error) (func() []deferCall, func() []editCall) {
 	t.Helper()
 
-	prevDefer := deferInteraction
-	prevEdit := editDeferredResponse
+	prevDefer := m.deferInteraction
+	prevEdit := m.editDeferredResponse
 	defers := []deferCall{}
 	edits := []editCall{}
 
-	deferInteraction = func(_ *discordgo.Session, _ *discordgo.InteractionCreate, ephemeral bool) error {
+	m.deferInteraction = func(_ *discordgo.Session, _ *discordgo.InteractionCreate, ephemeral bool) error {
 		defers = append(defers, deferCall{ephemeral: ephemeral})
 		return deferErr
 	}
-	editDeferredResponse = func(_ *discordgo.Session, _ *discordgo.InteractionCreate, content string) {
+	m.editDeferredResponse = func(_ *discordgo.Session, _ *discordgo.InteractionCreate, content string) {
 		edits = append(edits, editCall{content: content})
 	}
 
 	t.Cleanup(func() {
-		deferInteraction = prevDefer
-		editDeferredResponse = prevEdit
+		m.deferInteraction = prevDefer
+		m.editDeferredResponse = prevEdit
 	})
 
 	return func() []deferCall { return defers }, func() []editCall { return edits }
@@ -392,15 +389,15 @@ func makeComponentInteraction(guildID, channelID, customID, userID string) *disc
 }
 
 func TestHandleBrewInteraction_DefersEphemeralWhenAlreadyBrewing(t *testing.T) {
-	openInMemoryStore(t)
-	resetBrewStates(t)
-	getDefers, getEdits := stubInteractionHelpers(t, nil)
-	stubLLM(t, "Already brewing!", nil)
-	captureBrewReadyMessages(t)
+	m := newTestModule(t)
+	resetBrewStates(m, t)
+	getDefers, getEdits := stubInteractionHelpers(m, t, nil)
+	stubLLM(m, t, "Already brewing!", nil)
+	captureBrewReadyMessages(m, t)
 
 	i := makeBrewInteraction("g1", "ch1")
-	handleBrewInteraction(nil, i)
-	handleBrewInteraction(nil, i)
+	m.handleBrewInteraction(nil, i)
+	m.handleBrewInteraction(nil, i)
 
 	defers := getDefers()
 	edits := getEdits()
@@ -416,13 +413,13 @@ func TestHandleBrewInteraction_DefersEphemeralWhenAlreadyBrewing(t *testing.T) {
 }
 
 func TestHandleBrewInteraction_DefersPublicOnNewBrew(t *testing.T) {
-	openInMemoryStore(t)
-	resetBrewStates(t)
-	getDefers, getEdits := stubInteractionHelpers(t, nil)
-	stubLLM(t, "Coffee brewing!", nil)
-	captureBrewReadyMessages(t)
+	m := newTestModule(t)
+	resetBrewStates(m, t)
+	getDefers, getEdits := stubInteractionHelpers(m, t, nil)
+	stubLLM(m, t, "Coffee brewing!", nil)
+	captureBrewReadyMessages(m, t)
 
-	handleBrewInteraction(nil, makeBrewInteraction("g2", "ch2"))
+	m.handleBrewInteraction(nil, makeBrewInteraction("g2", "ch2"))
 
 	defers := getDefers()
 	if len(defers) != 1 {
@@ -437,13 +434,13 @@ func TestHandleBrewInteraction_DefersPublicOnNewBrew(t *testing.T) {
 }
 
 func TestHandleBrewInteraction_AbortsOnDeferError(t *testing.T) {
-	openInMemoryStore(t)
-	resetBrewStates(t)
-	_, getEdits := stubInteractionHelpers(t, fmt.Errorf("discord unavailable"))
-	stubLLM(t, "Coffee!", nil)
-	captureBrewReadyMessages(t)
+	m := newTestModule(t)
+	resetBrewStates(m, t)
+	_, getEdits := stubInteractionHelpers(m, t, fmt.Errorf("discord unavailable"))
+	stubLLM(m, t, "Coffee!", nil)
+	captureBrewReadyMessages(m, t)
 
-	handleBrewInteraction(nil, makeBrewInteraction("g3", "ch3"))
+	m.handleBrewInteraction(nil, makeBrewInteraction("g3", "ch3"))
 
 	if len(getEdits()) != 0 {
 		t.Error("edit should not be called when defer fails")
@@ -451,12 +448,12 @@ func TestHandleBrewInteraction_AbortsOnDeferError(t *testing.T) {
 }
 
 func TestHandleGrabCoffeeButton_DefersEphemeralWhenNotReady(t *testing.T) {
-	openInMemoryStore(t)
-	resetBrewStates(t)
-	getDefers, getEdits := stubInteractionHelpers(t, nil)
-	stubLLM(t, "Pot is empty!", nil)
+	m := newTestModule(t)
+	resetBrewStates(m, t)
+	getDefers, getEdits := stubInteractionHelpers(m, t, nil)
+	stubLLM(m, t, "Pot is empty!", nil)
 
-	handleGrabCoffeeButton(nil, makeComponentInteraction("g4", "ch4", "grab_coffee", "user1"))
+	m.handleGrabCoffeeButton(nil, makeComponentInteraction("g4", "ch4", "coffee:grab_coffee", "user1"))
 
 	defers := getDefers()
 	if len(defers) != 1 {
