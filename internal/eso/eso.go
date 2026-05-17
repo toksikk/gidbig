@@ -57,6 +57,7 @@ func (m *Module) Commands() []*discordgo.ApplicationCommand {
 					Name:        "thema",
 					Description: "Optionales Thema für den esoterischen Unsinn",
 					Required:    false,
+					MaxLength:   200,
 				},
 			},
 		},
