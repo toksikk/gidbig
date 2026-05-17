@@ -88,9 +88,10 @@ func (m *Module) onInteractionCreate(s *discordgo.Session, i *discordgo.Interact
 	}
 
 	var subject string
+	restoreMentions := func(s string) string { return s }
 	for _, opt := range i.ApplicationCommandData().Options {
 		if opt.Name == "thema" {
-			subject = util.ResolveMentions(s, i.GuildID, opt.StringValue())
+			subject, restoreMentions = util.ResolveMentionsWithRestore(s, i.GuildID, opt.StringValue())
 			break
 		}
 	}
@@ -100,7 +101,7 @@ func (m *Module) onInteractionCreate(s *discordgo.Session, i *discordgo.Interact
 		if subject != "" {
 			userPrompt = "Generiere esoterischen Unsinn über das Thema: " + subject
 		}
-		text := m.responder.GenerateWithPrompt(context.Background(), userPrompt)
+		text := restoreMentions(m.responder.GenerateWithPrompt(context.Background(), userPrompt))
 		if _, err := s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: &text}); err != nil {
 			slog.Error("eso: failed to edit interaction response", "error", err)
 			return

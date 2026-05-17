@@ -180,23 +180,41 @@ func GetUsernameForUserIDInGuild(discordSession *discordgo.Session, userid strin
 // the display name of the referenced user. Falls back to GetUsernameForUserIDInGuild
 // for unknown users. Returns the original text unchanged when there are no mentions.
 func ResolveMentions(session *discordgo.Session, guildID, text string) string {
+	resolved, _ := ResolveMentionsWithRestore(session, guildID, text)
+	return resolved
+}
+
+// ResolveMentionsWithRestore is like ResolveMentions but also returns a restore
+// function that replaces display names in a generated string back to their original
+// Discord mention tokens. Use it when the resolved text is sent to an LLM and the
+// output should contain real pings rather than plain names.
+func ResolveMentionsWithRestore(session *discordgo.Session, guildID, text string) (string, func(string) string) {
 	matches := mentionRe.FindAllStringSubmatch(text, -1)
 	if len(matches) == 0 {
-		return text
+		return text, func(s string) string { return s }
 	}
-	idToName := make(map[string]string, len(matches))
+	tokenToName := make(map[string]string, len(matches))
+	nameToToken := make(map[string]string, len(matches))
 	for _, m := range matches {
 		full, id := m[0], m[1]
-		if _, seen := idToName[full]; seen {
+		if _, seen := tokenToName[full]; seen {
 			continue
 		}
-		idToName[full] = GetUsernameForUserIDInGuild(session, id, guildID)
+		name := GetUsernameForUserIDInGuild(session, id, guildID)
+		tokenToName[full] = name
+		nameToToken[name] = full
 	}
-	result := text
-	for full, name := range idToName {
-		result = strings.ReplaceAll(result, full, name)
+	resolved := text
+	for token, name := range tokenToName {
+		resolved = strings.ReplaceAll(resolved, token, name)
 	}
-	return result
+	restore := func(generated string) string {
+		for name, token := range nameToToken {
+			generated = strings.ReplaceAll(generated, name, token)
+		}
+		return generated
+	}
+	return resolved, restore
 }
 
 // ReactOnMessage reacts to a message with an emoji concurrently
