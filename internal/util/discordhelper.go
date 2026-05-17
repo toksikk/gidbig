@@ -2,11 +2,15 @@ package util
 
 import (
 	"log/slog"
+	"regexp"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
 )
+
+var mentionRe = regexp.MustCompile(`<@!?(\d+)>`)
 
 type reactionItem struct {
 	session      *discordgo.Session
@@ -170,6 +174,29 @@ func GetUsernameForUserIDInGuild(discordSession *discordgo.Session, userid strin
 	}
 	slog.Warn("Error while getting user", "error", err, "user_id", userid)
 	return "Unbekannter Benutzer"
+}
+
+// ResolveMentions replaces Discord mention tokens (<@ID> / <@!ID>) in text with
+// the display name of the referenced user. Falls back to GetUsernameForUserIDInGuild
+// for unknown users. Returns the original text unchanged when there are no mentions.
+func ResolveMentions(session *discordgo.Session, guildID, text string) string {
+	matches := mentionRe.FindAllStringSubmatch(text, -1)
+	if len(matches) == 0 {
+		return text
+	}
+	idToName := make(map[string]string, len(matches))
+	for _, m := range matches {
+		full, id := m[0], m[1]
+		if _, seen := idToName[full]; seen {
+			continue
+		}
+		idToName[full] = GetUsernameForUserIDInGuild(session, id, guildID)
+	}
+	result := text
+	for full, name := range idToName {
+		result = strings.ReplaceAll(result, full, name)
+	}
+	return result
 }
 
 // ReactOnMessage reacts to a message with an emoji concurrently
