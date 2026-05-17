@@ -90,7 +90,7 @@ func (m *Module) onInteractionCreate(s *discordgo.Session, i *discordgo.Interact
 	var subject string
 	for _, opt := range i.ApplicationCommandData().Options {
 		if opt.Name == "thema" {
-			subject = opt.StringValue()
+			subject = util.ResolveMentions(s, i.GuildID, opt.StringValue())
 			break
 		}
 	}

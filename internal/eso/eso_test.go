@@ -137,6 +137,29 @@ func TestModule_OnInteractionCreate_EsoCommand(t *testing.T) {
 	m.onInteractionCreate(s, i)
 }
 
+func TestModule_Responder_ResolvedSubjectReachesLLM(t *testing.T) {
+	// Verifies that a pre-resolved subject (mention already replaced by name)
+	// reaches the LLM user prompt unchanged — i.e. no raw <@ID> tokens.
+	m := New()
+	s, _ := discordgo.New("Bot fake-token")
+	if err := m.Init(bot.Deps{Session: s}); err != nil {
+		t.Fatalf("Init failed: %v", err)
+	}
+	var capturedUser string
+	m.responder.GenerateFn = func(_ context.Context, _, user string) (string, error) {
+		capturedUser = user
+		return "output", nil
+	}
+	resolved := "Alice" // what util.ResolveMentions would return for a known user
+	m.responder.GenerateWithPrompt(context.Background(), "Generiere esoterischen Unsinn über das Thema: "+resolved)
+	if !strings.Contains(capturedUser, "Alice") {
+		t.Fatalf("resolved name not in LLM prompt: %q", capturedUser)
+	}
+	if strings.Contains(capturedUser, "<@") {
+		t.Fatalf("raw mention token leaked into LLM prompt: %q", capturedUser)
+	}
+}
+
 func TestModule_Responder_WithSubject(t *testing.T) {
 	m := New()
 	s, _ := discordgo.New("Bot fake-token")
