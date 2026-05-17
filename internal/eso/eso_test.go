@@ -62,6 +62,9 @@ func TestModule_Commands_HasThemaOption(t *testing.T) {
 	if opt.Required {
 		t.Fatal("thema option must not be required")
 	}
+	if opt.MaxLength != 200 {
+		t.Fatalf("expected MaxLength 200, got %d", opt.MaxLength)
+	}
 }
 
 func TestModule_Components_Empty(t *testing.T) {
