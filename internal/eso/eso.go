@@ -12,7 +12,7 @@ import (
 	"github.com/toksikk/gidbig/internal/util"
 )
 
-const systemPromptTemplate = `Du bist ein esoterischer Unsinn-Generator. Produziere genau einen Satz mystischen, pseudo-tiefgründigen deutschen Unsinns. Orientiere dich an Ton und Struktur dieser Beispiele:
+const systemPromptTemplate = `Du bist ein esoterischer Unsinn-Generator. Produziere genau einen Satz mystischen, pseudo-tiefgründigen deutschen Unsinns. Falls ein Thema angegeben wird, beziehe dich darauf. Orientiere dich an Ton und Struktur dieser Beispiele:
 {{examples}}
 Antworte ausschließlich mit dem generierten Satz auf Deutsch. Keine Erklärung, keine Begrüßung.`
 
@@ -48,7 +48,18 @@ func (m *Module) Init(d bot.Deps) error {
 
 func (m *Module) Commands() []*discordgo.ApplicationCommand {
 	return []*discordgo.ApplicationCommand{
-		{Name: "eso", Description: "Erhalte esoterischen Unsinn"},
+		{
+			Name:        "eso",
+			Description: "Erhalte esoterischen Unsinn",
+			Options: []*discordgo.ApplicationCommandOption{
+				{
+					Type:        discordgo.ApplicationCommandOptionString,
+					Name:        "thema",
+					Description: "Optionales Thema für den esoterischen Unsinn",
+					Required:    false,
+				},
+			},
+		},
 	}
 }
 
@@ -75,8 +86,20 @@ func (m *Module) onInteractionCreate(s *discordgo.Session, i *discordgo.Interact
 		return
 	}
 
+	var subject string
+	for _, opt := range i.ApplicationCommandData().Options {
+		if opt.Name == "thema" {
+			subject = opt.StringValue()
+			break
+		}
+	}
+
 	go func() {
-		text := m.responder.Generate(context.Background())
+		userPrompt := "Generiere einen esoterischen Unsinn-Satz."
+		if subject != "" {
+			userPrompt = "Generiere esoterischen Unsinn über das Thema: " + subject
+		}
+		text := m.responder.GenerateWithPrompt(context.Background(), userPrompt)
 		if _, err := s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: &text}); err != nil {
 			slog.Error("eso: failed to edit interaction response", "error", err)
 			return

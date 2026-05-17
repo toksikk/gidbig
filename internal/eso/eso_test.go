@@ -47,6 +47,23 @@ func TestModule_Commands_HasEso(t *testing.T) {
 	}
 }
 
+func TestModule_Commands_HasThemaOption(t *testing.T) {
+	cmds := New().Commands()
+	if len(cmds[0].Options) != 1 {
+		t.Fatalf("expected 1 option, got %d", len(cmds[0].Options))
+	}
+	opt := cmds[0].Options[0]
+	if opt.Name != "thema" {
+		t.Fatalf("expected option name 'thema', got %q", opt.Name)
+	}
+	if opt.Type != discordgo.ApplicationCommandOptionString {
+		t.Fatalf("expected string option type, got %v", opt.Type)
+	}
+	if opt.Required {
+		t.Fatal("thema option must not be required")
+	}
+}
+
 func TestModule_Components_Empty(t *testing.T) {
 	if comps := New().Components(); len(comps) != 0 {
 		t.Fatalf("expected 0 components, got %d", len(comps))
@@ -115,6 +132,26 @@ func TestModule_OnInteractionCreate_EsoCommand(t *testing.T) {
 	}
 	// InteractionRespond fails (no real connection) → handler returns early, no panic.
 	m.onInteractionCreate(s, i)
+}
+
+func TestModule_Responder_WithSubject(t *testing.T) {
+	m := New()
+	s, _ := discordgo.New("Bot fake-token")
+	if err := m.Init(bot.Deps{Session: s}); err != nil {
+		t.Fatalf("Init failed: %v", err)
+	}
+	var capturedUser string
+	m.responder.GenerateFn = func(_ context.Context, _, user string) (string, error) {
+		capturedUser = user
+		return "Kristallenergie fließt durch dein Auto.", nil
+	}
+	got := m.responder.GenerateWithPrompt(context.Background(), "Generiere esoterischen Unsinn über das Thema: Auto")
+	if got != "Kristallenergie fließt durch dein Auto." {
+		t.Fatalf("unexpected result: %q", got)
+	}
+	if !strings.Contains(capturedUser, "Auto") {
+		t.Fatalf("subject not in user prompt: %q", capturedUser)
+	}
 }
 
 func TestModule_Responder_AIPath(t *testing.T) {

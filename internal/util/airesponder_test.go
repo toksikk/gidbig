@@ -98,6 +98,34 @@ func TestAIResponder_Generate_TrimsResponse(t *testing.T) {
 	}
 }
 
+func TestAIResponder_GenerateWithPrompt_PassesUserMessage(t *testing.T) {
+	var capturedUser string
+	r := &AIResponder{
+		SystemPromptTemplate: "{{examples}}",
+		ExamplePool:          []string{"a"},
+		ExampleCount:         1,
+		Fallback:             func() string { return "x" },
+		GenerateFn: func(_ context.Context, _, user string) (string, error) {
+			capturedUser = user
+			return "ok", nil
+		},
+	}
+	r.GenerateWithPrompt(context.Background(), "custom user prompt")
+	if capturedUser != "custom user prompt" {
+		t.Fatalf("expected custom user prompt, got %q", capturedUser)
+	}
+}
+
+func TestAIResponder_GenerateWithPrompt_FallbackWhenGenerateFnNil(t *testing.T) {
+	r := &AIResponder{
+		Fallback: func() string { return "fallback" },
+	}
+	got := r.GenerateWithPrompt(context.Background(), "any prompt")
+	if got != "fallback" {
+		t.Fatalf("expected 'fallback', got %q", got)
+	}
+}
+
 func TestPickExamples_EmptyPool(t *testing.T) {
 	got := pickExamples(nil, 3)
 	if len(got) != 0 {
