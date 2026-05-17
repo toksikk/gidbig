@@ -54,3 +54,38 @@ func TestResolveMentions_DuplicateMention_ResolvedOnce(t *testing.T) {
 		t.Fatalf("expected %q, got %q", expected, got)
 	}
 }
+
+func TestResolveMentionsWithRestore_NoMentions_NoopRestore(t *testing.T) {
+	s, _ := discordgo.New("Bot fake-token")
+	resolved, restore := ResolveMentionsWithRestore(s, "guild-1", "kein Mention hier")
+	if resolved != "kein Mention hier" {
+		t.Fatalf("expected unchanged text, got %q", resolved)
+	}
+	if got := restore("some generated text"); got != "some generated text" {
+		t.Fatalf("no-op restore changed text: %q", got)
+	}
+}
+
+func TestResolveMentionsWithRestore_RestoresToken(t *testing.T) {
+	s, _ := discordgo.New("Bot fake-token")
+	// Fake session: unknown user → "Unbekannter Benutzer"
+	_, restore := ResolveMentionsWithRestore(s, "guild-1", "<@123456789>")
+	generated := "Die Energie von Unbekannter Benutzer ist stark."
+	got := restore(generated)
+	if got != "Die Energie von <@123456789> ist stark." {
+		t.Fatalf("unexpected restored text: %q", got)
+	}
+}
+
+func TestResolveMentionsWithRestore_ResolveThenRestore_RoundTrip(t *testing.T) {
+	s, _ := discordgo.New("Bot fake-token")
+	input := "Unsinn über <@999>"
+	resolved, restore := ResolveMentionsWithRestore(s, "guild-1", input)
+	if resolved == input {
+		t.Fatal("resolve should have replaced the mention token")
+	}
+	restored := restore(resolved)
+	if restored != input {
+		t.Fatalf("round-trip failed: got %q, want %q", restored, input)
+	}
+}
