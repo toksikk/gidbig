@@ -13,9 +13,9 @@ jobs:
             go: ${{ steps.filter.outputs.go }}
 
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
-            - uses: dorny/paths-filter@v3
+            - uses: dorny/paths-filter@6852f92c20ea7fd3b0c25de3b5112db3a98da050 # v3
               id: filter
               with:
                   filters: |
@@ -32,16 +32,16 @@ jobs:
         runs-on: ubuntu-latest
 
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
             - name: Setup Go
-              uses: actions/setup-go@v6
+              uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
               with:
                   go-version-file: go.mod
                   cache-dependency-path: go.sum
 
             - name: Lint
-              uses: golangci/golangci-lint-action@v9
+              uses: golangci/golangci-lint-action@1e7e51e771db61008b38414a730f564565cf7c20 # v9
 
             - name: Test
               run: go test ./...
@@ -53,10 +53,10 @@ jobs:
         runs-on: ubuntu-latest
 
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
             - name: Setup Go
-              uses: actions/setup-go@v6
+              uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
               with:
                   go-version-file: go.mod
                   cache-dependency-path: go.sum
@@ -94,7 +94,7 @@ jobs:
 
             - name: Dispatch Deploy Repo
               if: steps.check.outputs.deploy == 'true'
-              uses: peter-evans/repository-dispatch@v4.0.1
+              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
               with:
                   token: ${{ secrets.DEPLOY_REPO_ACCESS_TOKEN }}
                   repository: toksikk/deploy-gidbig
