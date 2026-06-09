@@ -4,6 +4,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Working conventions
 
+### Commit messages
+
+Use scoped commits: `scope: description`. Scope is the subsystem, package, or area changed (e.g. `eso`, `gippity`, `audio`, `.gitignore`). No conventional-commit type prefix — the type must be inferable from the description itself. When a GitHub issue exists, include its number in parentheses after the scope: `scope (#123): description`. See https://scopedcommits.com/.
+
+Good: `eso (#42): restore Discord mention pings in generated text`
+Bad: `feat(eso): restore Discord mention pings in generated text`
+
 ### Git and GitHub
 Operate git and GitHub autonomously — create branches, commit, push, open/merge PRs, comment on issues, close issues — without asking for confirmation first. The only exceptions are force-pushes to `master` and destructive operations (reset --hard, branch -D with unmerged work).
 
