@@ -347,7 +347,7 @@ func (m *Module) buildLLMWeatherOutro(s *discordgo.Session, mc *discordgo.Messag
 		slog.Warn("wttrin: language detection failed", "error", err)
 		lang = "English"
 	}
-	systemPrompt := "You are a Discord bot. Write one sentence describing the current weather for the given location — set the mood without repeating the raw numbers. " + llm.Personality + " Respond in " + lang + "."
+	systemPrompt := "Discord bot. One sentence on current weather for the location — set mood, no raw numbers. " + llm.Personality + " Respond in " + lang + "."
 	userPrompt := "Location: " + location + "\n" + weatherData
 	outro, err := m.generateFn(context.Background(), systemPrompt, userPrompt)
 	if err != nil {

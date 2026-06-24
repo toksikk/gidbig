@@ -311,21 +311,19 @@ func generateAnswer(m *discordgo.MessageCreate, imageURLs []string) (string, err
 		chatHistory = []LLMChatMessage{}
 	}
 
-	systemMessageBase := `Du bist ein Discord Chatbot mit dem Namen ` + util.GetBotDisplayName(m, discordSession) + `.
-Du befindest dich aktuell im Channel ` + util.GetChannelName(discordSession, m.ChannelID) + ` auf dem Server ` + util.GetGuildName(discordSession, m.GuildID) + ` und sprichst mit mehreren Benutzern gleichzeitig.
-Im Channel sind: ` + util.GetAllMembersOfChannelAsString(discordSession, m.ChannelID) + `.
+	systemMessageBase := `Discord-Chatbot, Name ` + util.GetBotDisplayName(m, discordSession) + `.
+Channel ` + util.GetChannelName(discordSession, m.ChannelID) + `, Server ` + util.GetGuildName(discordSession, m.GuildID) + `. Mehrere Benutzer gleichzeitig.
+Im Channel: ` + util.GetAllMembersOfChannelAsString(discordSession, m.ChannelID) + `.
 ---
-Die Nachrichten werden im folgenden Format übergeben:
-[Zeitstempel der Nachricht] [Name des Benutzers]: [Nachricht des Benutzers]
+Nachrichten kommen so: [Zeitstempel] [Benutzername]: [Nachricht]
 ---
-Deine Antwort muss dieses Format haben:
-[Deine Nachricht]
+Deine Antwort nur: [Deine Nachricht]
 ---
-Achte darauf, dass deine Antwort nicht im gleichen Format wie die Benutzernachrichten ist, also nicht mit einem Zeitstempel beginnt.
+Nicht im Benutzer-Format antworten — nicht mit Zeitstempel beginnen.
 ---
-Stelle keine abschließenden Fragen, um weitere Interaktionen zu provozieren.
+Keine abschließenden Fragen zum Weiterreden.
 ---
-Einige Benutzernamen im Chatverlauf sind Pseudonyme (Benutzer 1, Benutzer 2, …), die anonymen Teilnehmern zugewiesen wurden. Versuche nicht, die wahre Identität eines pseudonymisierten Teilnehmers aus dem Kontext, dem Schreibstil oder anderen Signalen abzuleiten. Anonymisierte Nachrichteninhalte wurden ersetzt und sind nicht verfügbar; behandle solche Nachrichten als opake Kontextnachrichten.`
+Manche Namen sind Pseudonyme (Benutzer 1, 2, …) für anonyme Teilnehmer. Echte Identität nicht erraten — nicht aus Kontext, Schreibstil oder anderen Signalen. Anonymisierte Inhalte ersetzt und nicht verfügbar; als opake Kontextnachrichten behandeln.`
 
 	systemMessage := systemMessageBase + "\n" + enrichSystemMessage(llm.Personality)
 

@@ -161,7 +161,7 @@ func (m *Module) generateInteractionMessage(s *discordgo.Session, channelID, sce
 	if lang == "" {
 		lang = "English"
 	}
-	systemPrompt := "You are a Discord bot managing a coffee station in a community chat. " + llm.Personality + " Respond in " + lang + "."
+	systemPrompt := "Discord bot running a coffee station in a community chat. " + llm.Personality + " Respond in " + lang + "."
 	msg, err := m.generateLLMMessage(context.Background(), systemPrompt, scenario)
 	if err != nil || strings.TrimSpace(msg) == "" {
 		return fallback
@@ -426,7 +426,7 @@ func (m *Module) buildBrewButtonLabels(s *discordgo.Session, channelID string) [
 	if lang == "" {
 		lang = "English"
 	}
-	systemPrompt := "You translate button labels for a coffee bot. " + llm.Personality +
+	systemPrompt := "Translate button labels for a coffee bot. " + llm.Personality +
 		" Respond in " + lang + ". Format: exactly 3 labels separated by | with no other text. Each label must be 2-4 words."
 	msg, err := m.generateLLMMessage(context.Background(), systemPrompt, "Grab a cup|With milk|With sugar")
 	if err != nil || strings.TrimSpace(msg) == "" {
