@@ -127,6 +127,13 @@ func (m *Module) Commands() []*discordgo.ApplicationCommand {
 					Description: "Add sugar",
 					Required:    false,
 				},
+				{
+					Type:        discordgo.ApplicationCommandOptionString,
+					Name:        "tea",
+					Description: "Drop in a tea bag (hot water only)",
+					Required:    false,
+					Choices:     teaChoices(),
+				},
 			},
 		},
 		{
@@ -176,6 +183,15 @@ func refillChoices() []*discordgo.ApplicationCommandOptionChoice {
 	choices := make([]*discordgo.ApplicationCommandOptionChoice, 0, len(refillParts))
 	for _, p := range refillParts {
 		choices = append(choices, &discordgo.ApplicationCommandOptionChoice{Name: p.label, Value: p.key})
+	}
+	return choices
+}
+
+// teaChoices builds the /brew tea option choices.
+func teaChoices() []*discordgo.ApplicationCommandOptionChoice {
+	choices := make([]*discordgo.ApplicationCommandOptionChoice, 0, len(teaFlavors))
+	for _, t := range teaFlavors {
+		choices = append(choices, &discordgo.ApplicationCommandOptionChoice{Name: t.label, Value: t.key})
 	}
 	return choices
 }

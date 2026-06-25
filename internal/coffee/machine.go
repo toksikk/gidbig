@@ -66,6 +66,33 @@ func recipeByKey(key string) (recipe, bool) {
 	return recipe{}, false
 }
 
+// teaFlavor is an optional tea-bag flavor for the hot-water drink. Tea is
+// cosmetic: it flavors the cup but consumes no tracked inventory.
+type teaFlavor struct {
+	key   string
+	label string
+}
+
+var teaFlavors = []teaFlavor{
+	{key: "black", label: "Black"},
+	{key: "green", label: "Green"},
+	{key: "earl_grey", label: "Earl Grey"},
+	{key: "peppermint", label: "Peppermint"},
+	{key: "chamomile", label: "Chamomile"},
+	{key: "rooibos", label: "Rooibos"},
+	{key: "fennel", label: "Fennel"},
+}
+
+// teaLabel returns the display label for a tea-flavor key.
+func teaLabel(key string) (string, bool) {
+	for _, t := range teaFlavors {
+		if t.key == key {
+			return t.label, true
+		}
+	}
+	return "", false
+}
+
 // refillPart describes a refillable tank/hopper exposed by /coffeemachine refill.
 type refillPart struct {
 	key   string // choice value, also RefillEvent.Part
@@ -340,8 +367,18 @@ func (inv MachineInventory) levelsLine() string {
 		inv.WaterMl, maxWaterMl, inv.MilkMl, maxMilkMl, inv.GroundsGrams, maxGroundsG)
 }
 
-// formatDispenseSuccess builds the public confirmation for a served drink.
-func formatDispenseSuccess(r recipe, splashMilk, withSugar bool, inv MachineInventory) string {
+// formatDispenseSuccess builds the public confirmation for a served drink. A
+// non-empty tea flavor turns hot water into the named tea (ignored otherwise).
+func formatDispenseSuccess(r recipe, splashMilk, withSugar bool, tea string, inv MachineInventory) string {
+	label, emoji := r.label, "☕"
+	if r.key == "hot_water" && tea != "" {
+		emoji = "🍵"
+		if tl, ok := teaLabel(tea); ok {
+			label = tl + " tea"
+		} else {
+			label = "tea"
+		}
+	}
 	extras := []string{}
 	if splashMilk {
 		extras = append(extras, "milk")
@@ -353,7 +390,7 @@ func formatDispenseSuccess(r recipe, splashMilk, withSugar bool, inv MachineInve
 	if len(extras) > 0 {
 		suffix = " with " + strings.Join(extras, " and ")
 	}
-	return fmt.Sprintf("☕ Here's your %s%s!\n%s", r.label, suffix, inv.levelsLine())
+	return fmt.Sprintf("%s Here's your %s%s!\n%s", emoji, label, suffix, inv.levelsLine())
 }
 
 // formatStatus renders the machine status, levels, and stat leaderboards.
@@ -391,6 +428,7 @@ func (m *Module) handleBrewInteraction(s *discordgo.Session, i *discordgo.Intera
 	data := i.ApplicationCommandData()
 	drinkKey := menu[0].key
 	addMilk, addSugar := false, false
+	tea := ""
 	for _, o := range data.Options {
 		switch o.Name {
 		case "drink":
@@ -399,6 +437,8 @@ func (m *Module) handleBrewInteraction(s *discordgo.Session, i *discordgo.Intera
 			addMilk = o.BoolValue()
 		case "sugar":
 			addSugar = o.BoolValue()
+		case "tea":
+			tea = o.StringValue()
 		}
 	}
 
@@ -412,7 +452,7 @@ func (m *Module) handleBrewInteraction(s *discordgo.Session, i *discordgo.Intera
 		m.respond(s, i, out.failMsg, true)
 		return
 	}
-	m.respond(s, i, formatDispenseSuccess(out.recipe, out.splashMilk, out.withSugar, out.inventory), false)
+	m.respond(s, i, formatDispenseSuccess(out.recipe, out.splashMilk, out.withSugar, tea, out.inventory), false)
 }
 
 // handleMachineInteraction handles /coffeemachine refill|empty|status.
