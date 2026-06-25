@@ -1,6 +1,7 @@
 package coffee
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -492,6 +493,8 @@ func TestHandleBrew_BlockedShowsErrorNoBrewing(t *testing.T) {
 
 func TestHandleBrew_SuccessShowsBrewingThenFinalNoStats(t *testing.T) {
 	m := newTestModule(t)
+	now := time.Date(2026, 6, 25, 9, 0, 0, 0, time.UTC)
+	useNow(m, t, now)
 	stubLLM(m, t, "", nil) // fallback messages
 	resp, edits, sleeps := captureBrewIO(m)
 
@@ -504,6 +507,10 @@ func TestHandleBrew_SuccessShowsBrewingThenFinalNoStats(t *testing.T) {
 		t.Errorf("first response should be a brewing status: %q", (*resp)[0].content)
 	}
 	coffee, _ := recipeByKey("coffee")
+	wantTS := fmt.Sprintf("<t:%d:R>", now.Add(brewTime(coffee)).Unix())
+	if !strings.Contains((*resp)[0].content, wantTS) {
+		t.Errorf("brewing status should carry the relative ready time %q, got %q", wantTS, (*resp)[0].content)
+	}
 	if len(*sleeps) != 1 || (*sleeps)[0] != brewTime(coffee) {
 		t.Errorf("expected one sleep of %v, got %v", brewTime(coffee), *sleeps)
 	}

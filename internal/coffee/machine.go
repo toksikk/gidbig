@@ -477,14 +477,17 @@ func (m *Module) handleBrewInteraction(s *discordgo.Session, i *discordgo.Intera
 	label := drinkLabel(out.recipe, tea)
 	extras := extrasSuffix(out.splashMilk, out.withSugar)
 
-	// Real machines take a few seconds; show a brewing status, then reveal the
-	// finished drink. The wait varies by drink.
+	// Real machines take a few seconds; show a brewing status with a Discord
+	// relative-time countdown, then reveal the finished drink. Wait varies by drink.
+	wait := brewTime(out.recipe)
+	readyAt := m.nowFunc().Add(wait)
+	ts := fmt.Sprintf("<t:%d:R>", readyAt.Unix())
 	brewing := m.generateInteractionMessage(s, i.ChannelID,
 		fmt.Sprintf("A user ordered a %s%s. Tell them it is brewing now, in one short sentence.", label, extras),
 		fmt.Sprintf("%s Brewing your %s%s…", drinkEmoji(out.recipe, tea), label, extras))
-	m.respond(s, i, brewing, false)
+	m.respond(s, i, brewing+" Ready "+ts, false)
 
-	m.sleep(brewTime(out.recipe))
+	m.sleep(wait)
 
 	final := m.generateInteractionMessage(s, i.ChannelID,
 		fmt.Sprintf("A freshly made %s%s is ready at the coffee machine. Announce it to the user in one short, inviting sentence.", label, extras),
