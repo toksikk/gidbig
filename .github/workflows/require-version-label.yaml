@@ -1,0 +1,33 @@
+name: Require version label
+
+# Gate every PR on having exactly the version label needed by version-tag.yaml,
+# which derives the semver bump (major/minor/breaking → otherwise patch) from the
+# merged PR's labels. Without this gate a mislabelled or unlabelled PR silently
+# bumps as patch on merge.
+
+on:
+    pull_request:
+        types: [opened, reopened, labeled, unlabeled, synchronize]
+        branches:
+            - master
+
+jobs:
+    require-label:
+        name: Require version label
+        runs-on: ubuntu-latest
+        steps:
+            - name: Check for a version label
+              env:
+                  LABELS: ${{ join(github.event.pull_request.labels.*.name, ' ') }}
+              run: |
+                  echo "PR labels: ${LABELS:-<none>}"
+                  for label in $LABELS; do
+                      case "$label" in
+                          major | minor | breaking | patch)
+                              echo "OK: found version label '$label'"
+                              exit 0
+                              ;;
+                      esac
+                  done
+                  echo "::error::PR must carry one version label (major, minor, breaking, or patch) so version-tag.yaml bumps the version correctly on merge. Add the right label and re-run."
+                  exit 1

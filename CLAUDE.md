@@ -20,6 +20,16 @@ Prefer a linear, readable history: use `--squash` when merging PRs, rebase featu
 
 Each PR should represent one logical, independently reversible change — don't bundle unrelated fixes or features into a single PR just because they're convenient. If a task touches multiple separable concerns, open a PR per concern.
 
+### Versioning
+
+`version-tag.yaml` auto-tags a new semver version on every push to `master`. It derives the bump level from the **labels of the PR associated with the pushed commit**: a `breaking` or `major` label → major bump, `minor` → minor bump, otherwise → **patch** bump. The repo defines four version labels: `major`, `minor`, `breaking`, `patch`.
+
+Because the bump comes from PR labels, **every PR must carry exactly one version label** — this is enforced by the `require-version-label.yaml` workflow, which fails the PR until a version label is present. Choose the label by semver intent: new feature → `minor`, bug fix / docs / chore → `patch`, backwards-incompatible change → `breaking`/`major`.
+
+**A direct push to `master` has no associated PR, so it always bumps as `patch`** — a feature or breaking change pushed directly will be mis-versioned. Features and breaking changes must therefore go through a labeled PR, never a direct push.
+
+IMPORTANT: If the user asks you to push directly to `master`, you MUST first inform them that a direct push yields only a `patch` bump (no PR labels are read), and confirm that is the intended version bump before pushing. If the change is actually a feature or breaking change, recommend a labeled PR instead.
+
 ### Bot commands
 
 Prefer Discord slash commands (`/` prefix) over legacy chat commands (`!` prefix). Register slash commands via `discordgo.Session.ApplicationCommandCreate` on startup and handle them in an `InteractionCreate` handler. When implementing a new command or touching an existing legacy `!`-prefix command during any task, refactor it to a slash command. Use ephemeral responses (`discordgo.MessageFlagsEphemeral`) for owner/admin replies to avoid leaking data in public channels.
