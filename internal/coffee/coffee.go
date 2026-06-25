@@ -44,9 +44,8 @@ type Module struct {
 	dbMu sync.RWMutex
 	db   *gorm.DB
 
-	// Brew state
-	brewMu     sync.RWMutex
-	brewStates map[string]*brewState
+	// machineMu serializes mutations to the per-guild machine inventory.
+	machineMu sync.Mutex
 
 	// Test hooks
 	nowFunc              func() time.Time
@@ -57,17 +56,12 @@ type Module struct {
 	generateLLMMessage   func(context.Context, string, string) (string, error)
 	deferInteraction     func(*discordgo.Session, *discordgo.InteractionCreate, bool) error
 	editDeferredResponse func(*discordgo.Session, *discordgo.InteractionCreate, string)
-
-	sendBrewReadyMessage     func(*discordgo.Session, string, string)
-	randCupSize              func() float64
-	generateBrewButtonLabels func(*discordgo.Session, string) [3]string
 }
 
 // New returns a Module with production-default hook implementations.
 func New() *Module {
 	m := &Module{
-		brewStates: make(map[string]*brewState),
-		nowFunc:    time.Now,
+		nowFunc: time.Now,
 	}
 	m.isSpecialDay = util.IsSpecial
 	m.reactOnMessage = util.ReactOnMessage
@@ -76,12 +70,10 @@ func New() *Module {
 	m.generateLLMMessage = llm.GenerateMessage
 	m.deferInteraction = m.deferInteractionImpl
 	m.editDeferredResponse = m.editDeferredResponseImpl
-	m.sendBrewReadyMessage = m.defaultSendBrewReadyMessage
-	m.randCupSize = defaultRandCupSize
-	m.generateBrewButtonLabels = m.buildBrewButtonLabels
 	return m
 }
 
+// Name returns the module's identifier.
 func (m *Module) Name() string { return "coffee" }
 
 // Init opens the beverage-preference store using the DB path from Deps.Config.
@@ -114,9 +106,78 @@ func (m *Module) Commands() []*discordgo.ApplicationCommand {
 		},
 		{
 			Name:        "brew",
-			Description: "Start brewing a pot of coffee (~3 minutes until ready)",
+			Description: "Get a fresh drink from the coffee machine",
+			Options: []*discordgo.ApplicationCommandOption{
+				{
+					Type:        discordgo.ApplicationCommandOptionString,
+					Name:        "drink",
+					Description: "What to brew (default: coffee)",
+					Required:    false,
+					Choices:     drinkChoices(),
+				},
+				{
+					Type:        discordgo.ApplicationCommandOptionBoolean,
+					Name:        "milk",
+					Description: "Add a splash of milk (ignored for milk-based drinks)",
+					Required:    false,
+				},
+				{
+					Type:        discordgo.ApplicationCommandOptionBoolean,
+					Name:        "sugar",
+					Description: "Add sugar",
+					Required:    false,
+				},
+			},
+		},
+		{
+			Name:        "coffeemachine",
+			Description: "Manage the coffee machine",
+			Options: []*discordgo.ApplicationCommandOption{
+				{
+					Type:        discordgo.ApplicationCommandOptionSubCommand,
+					Name:        "refill",
+					Description: "Refill a bean hopper or tank to the top",
+					Options: []*discordgo.ApplicationCommandOption{
+						{
+							Type:        discordgo.ApplicationCommandOptionString,
+							Name:        "part",
+							Description: "Which tank or hopper to refill",
+							Required:    true,
+							Choices:     refillChoices(),
+						},
+					},
+				},
+				{
+					Type:        discordgo.ApplicationCommandOptionSubCommand,
+					Name:        "empty",
+					Description: "Empty the coffee grounds container",
+				},
+				{
+					Type:        discordgo.ApplicationCommandOptionSubCommand,
+					Name:        "status",
+					Description: "Show machine levels and stats",
+				},
+			},
 		},
 	}
+}
+
+// drinkChoices builds the /brew drink option choices from the menu.
+func drinkChoices() []*discordgo.ApplicationCommandOptionChoice {
+	choices := make([]*discordgo.ApplicationCommandOptionChoice, 0, len(menu))
+	for _, r := range menu {
+		choices = append(choices, &discordgo.ApplicationCommandOptionChoice{Name: r.label, Value: r.key})
+	}
+	return choices
+}
+
+// refillChoices builds the /coffeemachine refill part option choices.
+func refillChoices() []*discordgo.ApplicationCommandOptionChoice {
+	choices := make([]*discordgo.ApplicationCommandOptionChoice, 0, len(refillParts))
+	for _, p := range refillParts {
+		choices = append(choices, &discordgo.ApplicationCommandOptionChoice{Name: p.label, Value: p.key})
+	}
+	return choices
 }
 
 // Listeners returns the Discord event listeners for this module.
@@ -124,12 +185,8 @@ func (m *Module) Listeners() []bot.EventListener {
 	return []bot.EventListener{m.onMessageCreate, m.onInteractionCreate}
 }
 
-// Components returns the message-component handlers for this module.
-func (m *Module) Components() []bot.ComponentHandler {
-	return []bot.ComponentHandler{
-		{Prefix: "coffee:", Handler: m.handleComponent},
-	}
-}
+// Components returns no message-component handlers for this module.
+func (m *Module) Components() []bot.ComponentHandler { return nil }
 
 // Background returns no background tasks.
 func (m *Module) Background() []bot.BackgroundTask { return nil }
@@ -217,12 +274,7 @@ func (m *Module) onMessageCreate(s *discordgo.Session, mc *discordgo.MessageCrea
 }
 
 func (m *Module) onInteractionCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	switch i.Type {
-	case discordgo.InteractionMessageComponent:
-		m.handleComponent(s, i)
-		return
-	case discordgo.InteractionApplicationCommand:
-	default:
+	if i.Type != discordgo.InteractionApplicationCommand {
 		return
 	}
 
@@ -230,6 +282,9 @@ func (m *Module) onInteractionCreate(s *discordgo.Session, i *discordgo.Interact
 	switch data.Name {
 	case "brew":
 		m.handleBrewInteraction(s, i)
+		return
+	case "coffeemachine":
+		m.handleMachineInteraction(s, i)
 		return
 	case "setbeverage":
 	default:
@@ -284,162 +339,29 @@ func (m *Module) onInteractionCreate(s *discordgo.Session, i *discordgo.Interact
 	}
 }
 
-// handleComponent dispatches coffee:* message component interactions.
-func (m *Module) handleComponent(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	switch i.MessageComponentData().CustomID {
-	case "coffee:grab_coffee":
-		m.handleGrabCoffeeButton(s, i)
-	case "coffee:grab_milk":
-		m.handleModifyLastCupButton(s, i, true, false)
-	case "coffee:grab_sugar":
-		m.handleModifyLastCupButton(s, i, false, true)
+// interactionUserID extracts the invoking user's ID from an interaction,
+// whether it arrived from a guild member or a DM user.
+func interactionUserID(i *discordgo.InteractionCreate) string {
+	if i.Member != nil && i.Member.User != nil {
+		return i.Member.User.ID
 	}
+	if i.User != nil {
+		return i.User.ID
+	}
+	return ""
 }
 
-func (m *Module) handleBrewInteraction(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	alreadyBrewing, readyAt := m.startBrew(s, i.GuildID, i.ChannelID)
-	ts := fmt.Sprintf("<t:%d:R>", readyAt.Unix())
-	if alreadyBrewing {
-		if err := m.deferInteraction(s, i, true); err != nil {
-			slog.Error("coffee: failed to defer interaction", "error", err)
-			return
-		}
-		msg := m.generateInteractionMessage(s, i.ChannelID,
-			"Coffee is already brewing. Tell the user in one short sentence.",
-			"☕ Coffee is already brewing!") + " " + ts
-		m.editDeferredResponse(s, i, msg)
-		return
+// respond sends a single immediate message response to an interaction.
+func (m *Module) respond(s *discordgo.Session, i *discordgo.InteractionCreate, content string, ephemeral bool) {
+	var flags discordgo.MessageFlags
+	if ephemeral {
+		flags = discordgo.MessageFlagsEphemeral
 	}
-	if err := m.deferInteraction(s, i, false); err != nil {
-		slog.Error("coffee: failed to defer interaction", "error", err)
-		return
-	}
-	msg := m.generateInteractionMessage(s, i.ChannelID,
-		"A user just started brewing coffee. It will be ready in about 3 minutes. Announce this in one short sentence.",
-		"☕ Brewing coffee... Ready") + " " + ts
-	m.editDeferredResponse(s, i, msg)
-}
-
-func (m *Module) handleGrabCoffeeButton(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	var userID string
-	if i.Member != nil {
-		userID = i.Member.User.ID
-	} else if i.User != nil {
-		userID = i.User.ID
-	}
-
-	result := m.grabCoffee(i.GuildID, i.ChannelID, userID)
-
-	if result.notReady {
-		if err := m.deferInteraction(s, i, true); err != nil {
-			slog.Error("coffee: failed to defer interaction", "error", err)
-			return
-		}
-		msg := m.generateInteractionMessage(s, i.ChannelID,
-			"A user tried to grab coffee but the pot is empty or not ready. Tell them in one short sentence.",
-			"Too late — the coffee pot is empty! ☕")
-		m.editDeferredResponse(s, i, msg)
-		return
-	}
-
-	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseUpdateMessage,
-		Data: &discordgo.InteractionResponseData{
-			Content:    result.updatedMsg,
-			Components: m.brewComponents(result.buttonLabels, result.isEmpty),
-		},
-	})
-}
-
-func (m *Module) handleModifyLastCupButton(s *discordgo.Session, i *discordgo.InteractionCreate, milk, sugar bool) {
-	var userID string
-	if i.Member != nil {
-		userID = i.Member.User.ID
-	} else if i.User != nil {
-		userID = i.User.ID
-	}
-
-	result := m.addToLastCup(i.GuildID, i.ChannelID, userID, milk, sugar)
-
-	if result.notReady {
-		if err := m.deferInteraction(s, i, true); err != nil {
-			slog.Error("coffee: failed to defer interaction", "error", err)
-			return
-		}
-		msg := m.generateInteractionMessage(s, i.ChannelID,
-			"A user tried to add milk or sugar but the coffee pot is no longer available. Tell them in one short sentence.",
-			"No coffee available! ☕")
-		m.editDeferredResponse(s, i, msg)
-		return
-	}
-	if result.noCup {
-		if err := m.deferInteraction(s, i, true); err != nil {
-			slog.Error("coffee: failed to defer interaction", "error", err)
-			return
-		}
-		msg := m.generateInteractionMessage(s, i.ChannelID,
-			"A user tried to add milk or sugar but hasn't grabbed a cup yet. Tell them to grab a cup first, in one short sentence.",
-			"Grab a cup first! ☕")
-		m.editDeferredResponse(s, i, msg)
-		return
-	}
-
-	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseUpdateMessage,
-		Data: &discordgo.InteractionResponseData{
-			Content:    result.updatedMsg,
-			Components: m.brewComponents(result.buttonLabels, false),
-		},
-	})
-}
-
-func (m *Module) brewComponents(labels [3]string, empty bool) []discordgo.MessageComponent {
-	if empty {
-		return nil
-	}
-	return []discordgo.MessageComponent{
-		discordgo.ActionsRow{
-			Components: []discordgo.MessageComponent{
-				discordgo.Button{
-					Label:    labels[0],
-					Style:    discordgo.PrimaryButton,
-					CustomID: "coffee:grab_coffee",
-				},
-				discordgo.Button{
-					Label:    labels[1],
-					Style:    discordgo.SecondaryButton,
-					CustomID: "coffee:grab_milk",
-				},
-				discordgo.Button{
-					Label:    labels[2],
-					Style:    discordgo.SecondaryButton,
-					CustomID: "coffee:grab_sugar",
-				},
-			},
-		},
-	}
-}
-
-func (m *Module) buildBrewButtonLabels(s *discordgo.Session, channelID string) [3]string {
-	fallback := [3]string{"☕ Grab a cup", "🥛 With milk", "🍬 With sugar"}
-	lang, _ := m.detectLanguage(s, channelID)
-	if lang == "" {
-		lang = "English"
-	}
-	systemPrompt := "Translate button labels for a coffee bot. " + llm.Personality() +
-		" Respond in " + lang + ". Format: exactly 3 labels separated by | with no other text. Each label must be 2-4 words."
-	msg, err := m.generateLLMMessage(context.Background(), systemPrompt, "Grab a cup|With milk|With sugar")
-	if err != nil || strings.TrimSpace(msg) == "" {
-		return fallback
-	}
-	parts := strings.SplitN(strings.TrimSpace(msg), "|", 3)
-	if len(parts) != 3 {
-		return fallback
-	}
-	return [3]string{
-		strings.TrimSpace(parts[0]),
-		strings.TrimSpace(parts[1]),
-		strings.TrimSpace(parts[2]),
+	if err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{Content: content, Flags: flags},
+	}); err != nil {
+		slog.Error("coffee: respond failed", "error", err)
 	}
 }
 

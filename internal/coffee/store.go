@@ -17,6 +17,7 @@ type UserBeveragePreference struct {
 	HasSeenIntro  bool   `gorm:"not null;default:false"`
 }
 
+// TableName returns the database table name.
 func (UserBeveragePreference) TableName() string { return "coffee_user_beverage_preferences" }
 
 // UserGreeting records when a Discord user received their daily greeting reaction.
@@ -26,7 +27,51 @@ type UserGreeting struct {
 	GreetedAt time.Time `gorm:"not null;index"`
 }
 
+// TableName returns the database table name.
 func (UserGreeting) TableName() string { return "coffee_user_greetings" }
+
+// MachineInventory holds the current consumable levels of a single guild's
+// coffee machine. Levels are metric: beans and grounds in grams, water and
+// milk in milliliters. Exactly one row exists per guild.
+type MachineInventory struct {
+	gorm.Model
+	GuildID            string `gorm:"not null;uniqueIndex"`
+	BeansMildGrams     int    `gorm:"not null"`
+	BeansEspressoGrams int    `gorm:"not null"`
+	WaterMl            int    `gorm:"not null"`
+	MilkMl             int    `gorm:"not null"`
+	GroundsGrams       int    `gorm:"not null"`
+}
+
+// TableName returns the database table name.
+func (MachineInventory) TableName() string { return "coffee_machine_inventory" }
+
+// RefillEvent records a single refill or grounds-empty action, attributing the
+// amount (always a positive magnitude, in g or ml) to the user who performed it.
+// Part "grounds" denotes a grounds-container empty; all other parts are refills.
+type RefillEvent struct {
+	gorm.Model
+	GuildID string `gorm:"not null;index"`
+	UserID  string `gorm:"not null;index"`
+	Part    string `gorm:"not null"`
+	Amount  int    `gorm:"not null"`
+}
+
+// TableName returns the database table name.
+func (RefillEvent) TableName() string { return "coffee_refill_events" }
+
+// DrinkEvent records a single drink dispensed, for consumption stats.
+type DrinkEvent struct {
+	gorm.Model
+	GuildID   string `gorm:"not null;index"`
+	UserID    string `gorm:"not null;index"`
+	Drink     string `gorm:"not null"`
+	WithMilk  bool   `gorm:"not null"`
+	WithSugar bool   `gorm:"not null"`
+}
+
+// TableName returns the database table name.
+func (DrinkEvent) TableName() string { return "coffee_drink_events" }
 
 func (m *Module) getDB() *gorm.DB {
 	m.dbMu.RLock()
@@ -42,7 +87,8 @@ func (m *Module) openStore(path string) error {
 	if err != nil {
 		return err
 	}
-	return m.db.AutoMigrate(&UserBeveragePreference{}, &UserGreeting{})
+	return m.db.AutoMigrate(&UserBeveragePreference{}, &UserGreeting{},
+		&MachineInventory{}, &RefillEvent{}, &DrinkEvent{})
 }
 
 func (m *Module) closeStore() error {
@@ -167,4 +213,60 @@ func (m *Module) recordGreeting(userID string) error {
 			GreetedAt: now,
 		}).Error
 	})
+}
+
+// userCount is a per-user aggregate row used by the machine stats leaderboards.
+type userCount struct {
+	UserID string
+	Count  int
+}
+
+// topDrinkers returns the users who dispensed the most drinks in the guild,
+// most first, capped at limit.
+func (m *Module) topDrinkers(guildID string, limit int) ([]userCount, error) {
+	d := m.getDB()
+	if d == nil {
+		return nil, errors.New("store not initialized")
+	}
+	var rows []userCount
+	err := d.Model(&DrinkEvent{}).
+		Select("user_id, count(*) as count").
+		Where("guild_id = ?", guildID).
+		Group("user_id").
+		Order("count DESC, user_id ASC").
+		Limit(limit).
+		Scan(&rows).Error
+	return rows, err
+}
+
+// topRefillers returns the users with the most refill actions (grounds-empties
+// excluded) in the guild, most first, capped at limit.
+func (m *Module) topRefillers(guildID string, limit int) ([]userCount, error) {
+	d := m.getDB()
+	if d == nil {
+		return nil, errors.New("store not initialized")
+	}
+	var rows []userCount
+	err := d.Model(&RefillEvent{}).
+		Select("user_id, count(*) as count").
+		Where("guild_id = ? AND part <> ?", guildID, partGrounds).
+		Group("user_id").
+		Order("count DESC, user_id ASC").
+		Limit(limit).
+		Scan(&rows).Error
+	return rows, err
+}
+
+// groundsEmptiedCount returns how many times the grounds container was emptied
+// in the guild.
+func (m *Module) groundsEmptiedCount(guildID string) (int64, error) {
+	d := m.getDB()
+	if d == nil {
+		return 0, errors.New("store not initialized")
+	}
+	var c int64
+	err := d.Model(&RefillEvent{}).
+		Where("guild_id = ? AND part = ?", guildID, partGrounds).
+		Count(&c).Error
+	return c, err
 }
