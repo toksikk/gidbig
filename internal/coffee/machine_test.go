@@ -455,6 +455,9 @@ func captureBrewIO(m *Module) (*[]respCall, *[]string, *[]time.Duration) {
 	m.editDeferredResponse = func(_ *discordgo.Session, _ *discordgo.InteractionCreate, content string) {
 		*edits = append(*edits, content)
 	}
+	m.editWithComponents = func(_ *discordgo.Session, _ *discordgo.InteractionCreate, content string, _ []discordgo.MessageComponent) {
+		*edits = append(*edits, content)
+	}
 	m.sleep = func(d time.Duration) { *sleeps = append(*sleeps, d) }
 	return resp, edits, sleeps
 }
@@ -500,7 +503,7 @@ func makeBrewInteraction(guildID string, opts ...*discordgo.ApplicationCommandIn
 			Type:      discordgo.InteractionApplicationCommand,
 			Member:    &discordgo.Member{User: &discordgo.User{ID: "u1"}},
 			Data: discordgo.ApplicationCommandInteractionData{
-				Name:    "brew",
+				Name:    "coffee",
 				Options: opts,
 			},
 		},
@@ -529,7 +532,7 @@ func TestHandleBrew_BlockedShowsErrorNoBrewing(t *testing.T) {
 	resp, edits, sleeps := captureBrewIO(m)
 	setLevels(m, t, "g1", func(inv *MachineInventory) { inv.WaterMl = 10 })
 
-	m.handleBrewInteraction(nil, makeBrewInteraction("g1", strOpt("drink", "coffee")))
+	m.handleCoffeeInteraction(nil, makeBrewInteraction("g1", strOpt("drink", "coffee")))
 
 	if len(*resp) != 1 || !(*resp)[0].ephemeral {
 		t.Fatalf("expected 1 ephemeral error response, got %+v", *resp)
@@ -552,10 +555,10 @@ func TestHandleBrew_SuccessShowsBrewingThenFinalNoStats(t *testing.T) {
 	stubLLM(m, t, "", nil) // fallback messages
 	resp, edits, sleeps := captureBrewIO(m)
 
-	m.handleBrewInteraction(nil, makeBrewInteraction("g1", strOpt("drink", "coffee")))
+	m.handleCoffeeInteraction(nil, makeBrewInteraction("g1", strOpt("drink", "coffee")))
 
-	if len(*resp) != 1 || (*resp)[0].ephemeral {
-		t.Fatalf("expected 1 public brewing response, got %+v", *resp)
+	if len(*resp) != 1 || !(*resp)[0].ephemeral {
+		t.Fatalf("expected 1 ephemeral brewing response, got %+v", *resp)
 	}
 	if !strings.Contains((*resp)[0].content, "Brewing") {
 		t.Errorf("first response should be a brewing status: %q", (*resp)[0].content)
@@ -588,7 +591,7 @@ func TestHandleBrew_UsesLLMForVariation(t *testing.T) {
 	stubLLM(m, t, "Dein Kaffee ist fertig!", nil) // non-empty -> LLM text used
 	_, edits, _ := captureBrewIO(m)
 
-	m.handleBrewInteraction(nil, makeBrewInteraction("g1", strOpt("drink", "coffee")))
+	m.handleCoffeeInteraction(nil, makeBrewInteraction("g1", strOpt("drink", "coffee")))
 
 	if len(*edits) != 1 || (*edits)[0] != "Dein Kaffee ist fertig!" {
 		t.Errorf("final message should come from the LLM, got %v", *edits)
@@ -717,7 +720,7 @@ func TestHandleTea_WithMilk(t *testing.T) {
 	}
 }
 
-// --- Interactive /brew menu --------------------------------------------------
+// --- Interactive /coffee and /tea menus --------------------------------------
 
 // menuSelectedDrink returns the drink marked Default in the menu's select.
 func menuSelectedDrink(t *testing.T, comps []discordgo.MessageComponent) string {
@@ -739,7 +742,7 @@ func menuSelectedDrink(t *testing.T, comps []discordgo.MessageComponent) string 
 }
 
 // menuCfg parses the full order state out of the Brew button's custom ID.
-func menuCfg(t *testing.T, comps []discordgo.MessageComponent) brewCfg {
+func menuCfg(t *testing.T, prefix string, comps []discordgo.MessageComponent) brewCfg {
 	t.Helper()
 	row, ok := comps[1].(discordgo.ActionsRow)
 	if !ok {
@@ -749,7 +752,7 @@ func menuCfg(t *testing.T, comps []discordgo.MessageComponent) brewCfg {
 	if !ok {
 		t.Fatalf("third button is not a Button: %T", row.Components[2])
 	}
-	_, c, ok := parseBrewCfg(btn.CustomID)
+	_, c, ok := parseBrewCfg(prefix, btn.CustomID)
 	if !ok {
 		t.Fatalf("brew button has unparseable custom ID %q", btn.CustomID)
 	}
@@ -757,61 +760,93 @@ func menuCfg(t *testing.T, comps []discordgo.MessageComponent) brewCfg {
 }
 
 func TestBrewCfgRoundTrip(t *testing.T) {
-	in := brewCfg{drink: "latte_macchiato", milk: true, sugar: false}
-	action, out, ok := parseBrewCfg(encodeBrewCfg("go", in))
+	in := brewCfg{choice: "latte_macchiato", milk: true, sugar: false}
+	action, out, ok := parseBrewCfg(coffeeCfgPrefix, encodeBrewCfg(coffeeCfgPrefix, "go", in))
 	if !ok || action != "go" || out != in {
 		t.Fatalf("round trip failed: action=%q out=%+v ok=%v", action, out, ok)
 	}
-	if _, _, ok := parseBrewCfg("not_our_prefix:go:coffee:0:0"); ok {
-		t.Error("foreign custom ID should not parse")
+	// The tea menu uses a different prefix, so a coffee custom ID must not parse
+	// as tea (prevents the two menus' components from cross-firing).
+	if _, _, ok := parseBrewCfg(teaCfgPrefix, encodeBrewCfg(coffeeCfgPrefix, "go", in)); ok {
+		t.Error("coffee custom ID should not parse under the tea prefix")
 	}
-	if _, _, ok := parseBrewCfg("coffee_brew_cfg:go:coffee"); ok {
+	if _, _, ok := parseBrewCfg(coffeeCfgPrefix, "coffee_brew_cfg:go:coffee"); ok {
 		t.Error("truncated custom ID should not parse")
 	}
 }
 
-func TestBrewMenuComponents_ReflectState(t *testing.T) {
-	comps := brewMenuComponents(brewCfg{drink: "espresso", milk: true, sugar: false})
+func TestCoffeeMenuExcludesHotWater(t *testing.T) {
+	for _, r := range coffeeMenu() {
+		if r.key == "hot_water" {
+			t.Fatal("coffee menu must not offer hot water (that's /tea now)")
+		}
+	}
+	for _, ch := range drinkChoices() {
+		if ch.Value == "hot_water" {
+			t.Fatal("/coffee drink choices must not include hot water")
+		}
+	}
+}
+
+func TestCoffeeMenuComponents_ReflectState(t *testing.T) {
+	comps := coffeeMenuComponents(brewCfg{choice: "espresso", milk: true, sugar: false})
 	if d := menuSelectedDrink(t, comps); d != "espresso" {
 		t.Errorf("selected drink = %q, want espresso", d)
 	}
-	if c := menuCfg(t, comps); !c.milk || c.sugar {
+	if c := menuCfg(t, coffeeCfgPrefix, comps); !c.milk || c.sugar {
 		t.Errorf("button state cfg = %+v, want milk on/sugar off", c)
 	}
 }
 
-func TestBrew_NoOptionsOpensMenu(t *testing.T) {
+func TestCoffee_NoOptionsOpensMenu(t *testing.T) {
 	m := newTestModule(t)
 	opens, _ := captureMenuIO(m)
 	resp, _, _ := captureBrewIO(m)
 
-	m.handleBrewInteraction(nil, makeBrewInteraction("g1")) // no options
+	m.handleCoffeeInteraction(nil, makeBrewInteraction("g1")) // no options
 
 	if len(*opens) != 1 {
 		t.Fatalf("expected the menu to open once, got %d", len(*opens))
 	}
 	if len(*resp) != 0 {
-		t.Errorf("no-options /brew should not brew directly, got responses %+v", *resp)
+		t.Errorf("no-options /coffee should not brew directly, got responses %+v", *resp)
 	}
 	if d := menuSelectedDrink(t, (*opens)[0].comps); d != "coffee" {
 		t.Errorf("menu should default to coffee, got %q", d)
 	}
-	// nothing brewed yet
 	if c := countDrinks(m, t, "g1"); c != 0 {
 		t.Errorf("opening the menu should brew nothing, got %d drinks", c)
 	}
 }
 
-func TestBrewComponent_TogglesAndSelect(t *testing.T) {
+func TestTea_NoOptionsOpensMenu(t *testing.T) {
+	m := newTestModule(t)
+	opens, _ := captureMenuIO(m)
+	resp, _, _ := captureBrewIO(m)
+
+	m.handleTeaInteraction(nil, makeTeaInteraction("g1")) // no options
+
+	if len(*opens) != 1 {
+		t.Fatalf("expected the tea menu to open once, got %d", len(*opens))
+	}
+	if len(*resp) != 0 {
+		t.Errorf("no-options /tea should not brew directly, got %+v", *resp)
+	}
+	if d := menuSelectedDrink(t, (*opens)[0].comps); d != teaFlavors[0].key {
+		t.Errorf("tea menu should default to %q, got %q", teaFlavors[0].key, d)
+	}
+}
+
+func TestCoffeeComponent_TogglesAndSelect(t *testing.T) {
 	m := newTestModule(t)
 	_, updates := captureMenuIO(m)
 
 	// select espresso
-	m.handleBrewComponent(nil, makeBrewComponent("g1", encodeBrewCfg("drink", brewCfg{drink: "coffee"}), "espresso"))
+	m.handleCoffeeComponent(nil, makeBrewComponent("g1", encodeBrewCfg(coffeeCfgPrefix, "pick", brewCfg{choice: "coffee"}), "espresso"))
 	// toggle milk on (state still carries espresso)
-	m.handleBrewComponent(nil, makeBrewComponent("g1", encodeBrewCfg("milk", brewCfg{drink: "espresso"})))
+	m.handleCoffeeComponent(nil, makeBrewComponent("g1", encodeBrewCfg(coffeeCfgPrefix, "milk", brewCfg{choice: "espresso"})))
 	// toggle sugar on
-	m.handleBrewComponent(nil, makeBrewComponent("g1", encodeBrewCfg("sugar", brewCfg{drink: "espresso", milk: true})))
+	m.handleCoffeeComponent(nil, makeBrewComponent("g1", encodeBrewCfg(coffeeCfgPrefix, "sugar", brewCfg{choice: "espresso", milk: true})))
 
 	if len(*updates) != 3 {
 		t.Fatalf("expected 3 in-place menu updates, got %d", len(*updates))
@@ -819,21 +854,21 @@ func TestBrewComponent_TogglesAndSelect(t *testing.T) {
 	if d := menuSelectedDrink(t, (*updates)[0].comps); d != "espresso" {
 		t.Errorf("after select, drink = %q, want espresso", d)
 	}
-	if c := menuCfg(t, (*updates)[1].comps); !c.milk {
+	if c := menuCfg(t, coffeeCfgPrefix, (*updates)[1].comps); !c.milk {
 		t.Errorf("after milk toggle, cfg = %+v, want milk on", c)
 	}
-	if c := menuCfg(t, (*updates)[2].comps); !c.sugar || !c.milk {
+	if c := menuCfg(t, coffeeCfgPrefix, (*updates)[2].comps); !c.sugar || !c.milk {
 		t.Errorf("after sugar toggle, cfg = %+v, want milk+sugar on", c)
 	}
 }
 
-func TestBrewComponent_GoBrews(t *testing.T) {
+func TestCoffeeComponent_GoBrews(t *testing.T) {
 	m := newTestModule(t)
 	stubLLM(m, t, "", nil)
 	resp, edits, sleeps := captureBrewIO(m)
 	_, _ = captureMenuIO(m)
 
-	m.handleBrewComponent(nil, makeBrewComponent("g1", encodeBrewCfg("go", brewCfg{drink: "espresso", milk: true, sugar: true})))
+	m.handleCoffeeComponent(nil, makeBrewComponent("g1", encodeBrewCfg(coffeeCfgPrefix, "go", brewCfg{choice: "espresso", milk: true, sugar: true})))
 
 	if len(*resp) != 1 || !strings.Contains((*resp)[0].content, "Brewing") {
 		t.Fatalf("expected an in-place brewing update, got %+v", *resp)
@@ -848,6 +883,70 @@ func TestBrewComponent_GoBrews(t *testing.T) {
 	m.getDB().Where("guild_id = ?", "g1").First(&de)
 	if de.Drink != "espresso" || !de.WithMilk || !de.WithSugar {
 		t.Errorf("brewed DrinkEvent = %+v, want espresso milk+sugar", de)
+	}
+}
+
+func TestTeaComponent_GoBrews(t *testing.T) {
+	m := newTestModule(t)
+	stubLLM(m, t, "", nil)
+	resp, edits, sleeps := captureBrewIO(m)
+	_, _ = captureMenuIO(m)
+
+	m.handleTeaComponent(nil, makeBrewComponent("g1", encodeBrewCfg(teaCfgPrefix, "go", brewCfg{choice: "rooibos", milk: true})))
+
+	if len(*resp) != 1 || !strings.Contains((*resp)[0].content, "Brewing") {
+		t.Fatalf("expected an in-place brewing update, got %+v", *resp)
+	}
+	if len(*sleeps) != 1 {
+		t.Errorf("expected one brew delay, got %d", len(*sleeps))
+	}
+	if len(*edits) != 1 || !strings.Contains((*edits)[0], "Rooibos tea with milk") {
+		t.Fatalf("expected final Rooibos tea with milk, got %v", *edits)
+	}
+	var de DrinkEvent
+	m.getDB().Where("guild_id = ?", "g1").First(&de)
+	if de.Drink != "hot_water" || !de.WithMilk {
+		t.Errorf("tea brew DrinkEvent = %+v, want hot_water with milk", de)
+	}
+}
+
+func TestTakeCup_Confirms(t *testing.T) {
+	m := newTestModule(t)
+	resp, _, _ := captureBrewIO(m)
+
+	id := strings.Join([]string{takeCupPrefix, "espresso", ""}, ":")
+	m.handleTakeCupComponent(nil, makeBrewComponent("g1", id))
+
+	if len(*resp) != 1 {
+		t.Fatalf("expected 1 confirmation update, got %d", len(*resp))
+	}
+	if !strings.Contains((*resp)[0].content, "grabbed your Espresso") {
+		t.Errorf("take-cup confirmation should name the drink: %q", (*resp)[0].content)
+	}
+}
+
+func TestExecuteBrew_AttachesTakeCupButton(t *testing.T) {
+	m := newTestModule(t)
+	stubLLM(m, t, "", nil)
+	var finalComps []discordgo.MessageComponent
+	m.respond = func(_ *discordgo.Session, _ *discordgo.InteractionCreate, _ string, _ bool) {}
+	m.editWithComponents = func(_ *discordgo.Session, _ *discordgo.InteractionCreate, _ string, comps []discordgo.MessageComponent) {
+		finalComps = comps
+	}
+	m.sleep = func(time.Duration) {}
+
+	m.handleCoffeeInteraction(nil, makeBrewInteraction("g1", strOpt("drink", "coffee")))
+
+	if len(finalComps) != 1 {
+		t.Fatalf("expected the finished drink to carry a Take cup row, got %d rows", len(finalComps))
+	}
+	row, ok := finalComps[0].(discordgo.ActionsRow)
+	if !ok || len(row.Components) != 1 {
+		t.Fatalf("take cup row malformed: %+v", finalComps[0])
+	}
+	btn, ok := row.Components[0].(discordgo.Button)
+	if !ok || !strings.HasPrefix(btn.CustomID, takeCupPrefix) {
+		t.Errorf("expected a Take cup button, got %+v", row.Components[0])
 	}
 }
 
@@ -1056,7 +1155,7 @@ func TestExecuteBrewAppendsServiceHint(t *testing.T) {
 	_, edits, _ := captureBrewIO(m)
 	setLevels(m, t, "g1", func(inv *MachineInventory) { inv.WaterMl = 120 })
 
-	m.handleBrewInteraction(nil, makeBrewInteraction("g1", strOpt("drink", "coffee")))
+	m.handleCoffeeInteraction(nil, makeBrewInteraction("g1", strOpt("drink", "coffee")))
 
 	if len(*edits) != 1 || !strings.Contains((*edits)[0], "Heads up") {
 		t.Fatalf("final brew message should carry the service nudge, got %v", *edits)
@@ -1074,7 +1173,7 @@ func TestBlockedBrewMentionsSlacker(t *testing.T) {
 	resp, _, _ := captureBrewIO(m)
 	bob := makeBrewInteraction("g1", strOpt("drink", "coffee"))
 	bob.Member.User.ID = "bob"
-	m.handleBrewInteraction(nil, bob)
+	m.handleCoffeeInteraction(nil, bob)
 
 	if len(*resp) != 1 || !(*resp)[0].ephemeral {
 		t.Fatalf("expected 1 ephemeral blocked response, got %+v", *resp)

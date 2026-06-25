@@ -56,6 +56,7 @@ type Module struct {
 	generateLLMMessage   func(context.Context, string, string) (string, error)
 	deferInteraction     func(*discordgo.Session, *discordgo.InteractionCreate, bool) error
 	editDeferredResponse func(*discordgo.Session, *discordgo.InteractionCreate, string)
+	editWithComponents   func(*discordgo.Session, *discordgo.InteractionCreate, string, []discordgo.MessageComponent)
 	respond              func(*discordgo.Session, *discordgo.InteractionCreate, string, bool)
 	respondUpdate        func(*discordgo.Session, *discordgo.InteractionCreate, string)
 	openMenu             func(*discordgo.Session, *discordgo.InteractionCreate, string, []discordgo.MessageComponent)
@@ -75,6 +76,7 @@ func New() *Module {
 	m.generateLLMMessage = llm.GenerateMessage
 	m.deferInteraction = m.deferInteractionImpl
 	m.editDeferredResponse = m.editDeferredResponseImpl
+	m.editWithComponents = m.editWithComponentsImpl
 	m.respond = m.respondImpl
 	m.respondUpdate = m.respondUpdateImpl
 	m.openMenu = m.openMenuImpl
@@ -115,13 +117,13 @@ func (m *Module) Commands() []*discordgo.ApplicationCommand {
 			},
 		},
 		{
-			Name:        "brew",
-			Description: "Get a fresh drink from the coffee machine (no options opens a menu)",
+			Name:        "coffee",
+			Description: "Pull a fresh coffee from the machine (no options opens a menu)",
 			Options: []*discordgo.ApplicationCommandOption{
 				{
 					Type:        discordgo.ApplicationCommandOptionString,
 					Name:        "drink",
-					Description: "What to brew (default: coffee)",
+					Description: "Which coffee (default: coffee)",
 					Required:    false,
 					Choices:     drinkChoices(),
 				},
@@ -141,13 +143,13 @@ func (m *Module) Commands() []*discordgo.ApplicationCommand {
 		},
 		{
 			Name:        "tea",
-			Description: "Steep a tea bag in fresh hot water",
+			Description: "Steep a tea bag in fresh hot water (no options opens a menu)",
 			Options: []*discordgo.ApplicationCommandOption{
 				{
 					Type:        discordgo.ApplicationCommandOptionString,
 					Name:        "flavor",
 					Description: "Which tea bag to steep",
-					Required:    true,
+					Required:    false,
 					Choices:     teaChoices(),
 				},
 				{
@@ -210,10 +212,12 @@ func (m *Module) Commands() []*discordgo.ApplicationCommand {
 	}
 }
 
-// drinkChoices builds the /brew drink option choices from the menu.
+// drinkChoices builds the /coffee drink option choices from the coffee menu
+// (hot water is excluded — it lives behind /tea).
 func drinkChoices() []*discordgo.ApplicationCommandOptionChoice {
-	choices := make([]*discordgo.ApplicationCommandOptionChoice, 0, len(menu))
-	for _, r := range menu {
+	coffees := coffeeMenu()
+	choices := make([]*discordgo.ApplicationCommandOptionChoice, 0, len(coffees))
+	for _, r := range coffees {
 		choices = append(choices, &discordgo.ApplicationCommandOptionChoice{Name: r.label, Value: r.key})
 	}
 	return choices
@@ -228,7 +232,7 @@ func refillChoices() []*discordgo.ApplicationCommandOptionChoice {
 	return choices
 }
 
-// teaChoices builds the /brew tea option choices.
+// teaChoices builds the /tea flavor option choices.
 func teaChoices() []*discordgo.ApplicationCommandOptionChoice {
 	choices := make([]*discordgo.ApplicationCommandOptionChoice, 0, len(teaFlavors))
 	for _, t := range teaFlavors {
@@ -267,6 +271,14 @@ func (m *Module) deferInteractionImpl(s *discordgo.Session, i *discordgo.Interac
 func (m *Module) editDeferredResponseImpl(s *discordgo.Session, i *discordgo.InteractionCreate, content string) {
 	if _, err := s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: &content}); err != nil {
 		slog.Error("coffee: failed to edit deferred response", "error", err)
+	}
+}
+
+// editWithComponentsImpl edits the interaction's response, replacing both its
+// content and its components (used to attach the "Take cup" button).
+func (m *Module) editWithComponentsImpl(s *discordgo.Session, i *discordgo.InteractionCreate, content string, comps []discordgo.MessageComponent) {
+	if _, err := s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: &content, Components: &comps}); err != nil {
+		slog.Error("coffee: failed to edit response with components", "error", err)
 	}
 }
 
@@ -332,8 +344,14 @@ func (m *Module) onMessageCreate(s *discordgo.Session, mc *discordgo.MessageCrea
 
 func (m *Module) onInteractionCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	if i.Type == discordgo.InteractionMessageComponent {
-		if strings.HasPrefix(i.MessageComponentData().CustomID, brewCfgPrefix) {
-			m.handleBrewComponent(s, i)
+		id := i.MessageComponentData().CustomID
+		switch {
+		case strings.HasPrefix(id, teaCfgPrefix):
+			m.handleTeaComponent(s, i)
+		case strings.HasPrefix(id, coffeeCfgPrefix):
+			m.handleCoffeeComponent(s, i)
+		case strings.HasPrefix(id, takeCupPrefix):
+			m.handleTakeCupComponent(s, i)
 		}
 		return
 	}
@@ -343,8 +361,8 @@ func (m *Module) onInteractionCreate(s *discordgo.Session, i *discordgo.Interact
 
 	data := i.ApplicationCommandData()
 	switch data.Name {
-	case "brew":
-		m.handleBrewInteraction(s, i)
+	case "coffee":
+		m.handleCoffeeInteraction(s, i)
 		return
 	case "tea":
 		m.handleTeaInteraction(s, i)
