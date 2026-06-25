@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"math"
 	"strings"
+	"time"
 
 	"github.com/bwmarrin/discordgo"
 	"gorm.io/gorm"
@@ -45,16 +46,22 @@ type recipe struct {
 	milkMl     int  // milk built into the drink (latte, flat white, ...)
 	groundsG   int  // spent grounds produced
 	allowsMilk bool // may take an optional milk splash
+	brewSecs   int  // simulated brew time, varies by drink
 }
 
 // menu is the ordered drink list. The first entry is the default for /brew.
 var menu = []recipe{
-	{key: "coffee", label: "Coffee", bean: beanMild, beanGrams: 11, waterMl: 120, groundsG: 20, allowsMilk: true},
-	{key: "espresso", label: "Espresso", bean: beanEspresso, beanGrams: 9, waterMl: 40, groundsG: 18, allowsMilk: true},
-	{key: "milk_coffee", label: "Milk coffee", bean: beanMild, beanGrams: 11, waterMl: 80, milkMl: 120, groundsG: 20},
-	{key: "latte_macchiato", label: "Latte macchiato", bean: beanEspresso, beanGrams: 9, waterMl: 40, milkMl: 180, groundsG: 18},
-	{key: "flat_white", label: "Flat white", bean: beanEspresso, beanGrams: 18, waterMl: 60, milkMl: 120, groundsG: 36},
-	{key: "hot_water", label: "Hot water", bean: beanNone, waterMl: 200, allowsMilk: true},
+	{key: "coffee", label: "Coffee", bean: beanMild, beanGrams: 11, waterMl: 120, groundsG: 20, allowsMilk: true, brewSecs: 4},
+	{key: "espresso", label: "Espresso", bean: beanEspresso, beanGrams: 9, waterMl: 40, groundsG: 18, allowsMilk: true, brewSecs: 3},
+	{key: "milk_coffee", label: "Milk coffee", bean: beanMild, beanGrams: 11, waterMl: 80, milkMl: 120, groundsG: 20, brewSecs: 5},
+	{key: "latte_macchiato", label: "Latte macchiato", bean: beanEspresso, beanGrams: 9, waterMl: 40, milkMl: 180, groundsG: 18, brewSecs: 6},
+	{key: "flat_white", label: "Flat white", bean: beanEspresso, beanGrams: 18, waterMl: 60, milkMl: 120, groundsG: 36, brewSecs: 7},
+	{key: "hot_water", label: "Hot water", bean: beanNone, waterMl: 200, allowsMilk: true, brewSecs: 2},
+}
+
+// brewTime is how long the machine pretends to take dispensing a drink.
+func brewTime(r recipe) time.Duration {
+	return time.Duration(r.brewSecs) * time.Second
 }
 
 func recipeByKey(key string) (recipe, bool) {
@@ -360,25 +367,28 @@ func percent(cur, max int) int {
 	return int(math.Round(float64(cur) / float64(max) * 100))
 }
 
-// levelsLine renders all consumable levels on a single line.
-func (inv MachineInventory) levelsLine() string {
-	return fmt.Sprintf("Mild beans %d/%dg · Espresso beans %d/%dg · Water %d/%dml · Milk %d/%dml · Grounds %d/%dg",
-		inv.BeansMildGrams, maxBeansMildG, inv.BeansEspressoGrams, maxBeansEspressoG,
-		inv.WaterMl, maxWaterMl, inv.MilkMl, maxMilkMl, inv.GroundsGrams, maxGroundsG)
+// drinkLabel is the display name for a served drink. A non-empty tea flavor
+// turns hot water into the named tea (ignored for any other drink).
+func drinkLabel(r recipe, tea string) string {
+	if r.key == "hot_water" && tea != "" {
+		if tl, ok := teaLabel(tea); ok {
+			return tl + " tea"
+		}
+		return "tea"
+	}
+	return r.label
 }
 
-// formatDispenseSuccess builds the public confirmation for a served drink. A
-// non-empty tea flavor turns hot water into the named tea (ignored otherwise).
-func formatDispenseSuccess(r recipe, splashMilk, withSugar bool, tea string, inv MachineInventory) string {
-	label, emoji := r.label, "☕"
+// drinkEmoji picks the cup emoji for a served drink.
+func drinkEmoji(r recipe, tea string) string {
 	if r.key == "hot_water" && tea != "" {
-		emoji = "🍵"
-		if tl, ok := teaLabel(tea); ok {
-			label = tl + " tea"
-		} else {
-			label = "tea"
-		}
+		return "🍵"
 	}
+	return "☕"
+}
+
+// extrasSuffix renders the " with milk and sugar" trailer, empty when neither.
+func extrasSuffix(splashMilk, withSugar bool) string {
 	extras := []string{}
 	if splashMilk {
 		extras = append(extras, "milk")
@@ -386,11 +396,16 @@ func formatDispenseSuccess(r recipe, splashMilk, withSugar bool, tea string, inv
 	if withSugar {
 		extras = append(extras, "sugar")
 	}
-	suffix := ""
-	if len(extras) > 0 {
-		suffix = " with " + strings.Join(extras, " and ")
+	if len(extras) == 0 {
+		return ""
 	}
-	return fmt.Sprintf("%s Here's your %s%s!\n%s", emoji, label, suffix, inv.levelsLine())
+	return " with " + strings.Join(extras, " and ")
+}
+
+// formatDispenseSuccess builds the deterministic fallback confirmation for a
+// served drink (no machine stats — those live in /coffeemachine status).
+func formatDispenseSuccess(r recipe, splashMilk, withSugar bool, tea string) string {
+	return fmt.Sprintf("%s Here's your %s%s!", drinkEmoji(r, tea), drinkLabel(r, tea), extrasSuffix(splashMilk, withSugar))
 }
 
 // formatStatus renders the machine status, levels, and stat leaderboards.
@@ -449,10 +464,32 @@ func (m *Module) handleBrewInteraction(s *discordgo.Session, i *discordgo.Intera
 		return
 	}
 	if !out.ok {
-		m.respond(s, i, out.failMsg, true)
+		// Blocked on a missing/low ingredient (or full grounds). Keep the exact
+		// fail message as the fallback so the slash-command hint stays correct.
+		msg := m.generateInteractionMessage(s, i.ChannelID,
+			"The coffee machine cannot make the drink right now: "+out.failMsg+
+				" Tell the user in one short sentence and keep the slash command hint intact.",
+			out.failMsg)
+		m.respond(s, i, msg, true)
 		return
 	}
-	m.respond(s, i, formatDispenseSuccess(out.recipe, out.splashMilk, out.withSugar, tea, out.inventory), false)
+
+	label := drinkLabel(out.recipe, tea)
+	extras := extrasSuffix(out.splashMilk, out.withSugar)
+
+	// Real machines take a few seconds; show a brewing status, then reveal the
+	// finished drink. The wait varies by drink.
+	brewing := m.generateInteractionMessage(s, i.ChannelID,
+		fmt.Sprintf("A user ordered a %s%s. Tell them it is brewing now, in one short sentence.", label, extras),
+		fmt.Sprintf("%s Brewing your %s%s…", drinkEmoji(out.recipe, tea), label, extras))
+	m.respond(s, i, brewing, false)
+
+	m.sleep(brewTime(out.recipe))
+
+	final := m.generateInteractionMessage(s, i.ChannelID,
+		fmt.Sprintf("A freshly made %s%s is ready at the coffee machine. Announce it to the user in one short, inviting sentence.", label, extras),
+		formatDispenseSuccess(out.recipe, out.splashMilk, out.withSugar, tea))
+	m.editDeferredResponse(s, i, final)
 }
 
 // handleMachineInteraction handles /coffeemachine refill|empty|status.
@@ -479,11 +516,16 @@ func (m *Module) handleMachineInteraction(s *discordgo.Session, i *discordgo.Int
 			return
 		}
 		if out.alreadyFull {
-			m.respond(s, i, fmt.Sprintf("%s is already full.", out.part.label), true)
+			msg := m.generateInteractionMessage(s, i.ChannelID,
+				fmt.Sprintf("The %s tank is already full. Tell the user in one short sentence.", out.part.label),
+				fmt.Sprintf("%s is already full.", out.part.label))
+			m.respond(s, i, msg, true)
 			return
 		}
-		m.respond(s, i, fmt.Sprintf("🛒 <@%s> refilled %s (+%d%s).\n%s",
-			userID, out.part.label, out.added, out.part.unit, out.inventory.levelsLine()), false)
+		msg := m.generateInteractionMessage(s, i.ChannelID,
+			fmt.Sprintf("A user just refilled the %s to the top (added %d%s). Thank them in one short sentence.", out.part.label, out.added, out.part.unit),
+			fmt.Sprintf("🛒 <@%s> refilled %s (+%d%s).", userID, out.part.label, out.added, out.part.unit))
+		m.respond(s, i, msg, false)
 
 	case "empty":
 		out, err := m.emptyGrounds(i.GuildID, userID)
@@ -493,10 +535,16 @@ func (m *Module) handleMachineInteraction(s *discordgo.Session, i *discordgo.Int
 			return
 		}
 		if out.alreadyEmpty {
-			m.respond(s, i, "The grounds container is already empty.", true)
+			msg := m.generateInteractionMessage(s, i.ChannelID,
+				"The coffee grounds container is already empty. Tell the user in one short sentence.",
+				"The grounds container is already empty.")
+			m.respond(s, i, msg, true)
 			return
 		}
-		m.respond(s, i, fmt.Sprintf("🗑️ <@%s> emptied the grounds container (%dg removed).", userID, out.removed), false)
+		msg := m.generateInteractionMessage(s, i.ChannelID,
+			fmt.Sprintf("A user just emptied the coffee grounds container (%dg removed). Thank them in one short sentence.", out.removed),
+			fmt.Sprintf("🗑️ <@%s> emptied the grounds container (%dg removed).", userID, out.removed))
+		m.respond(s, i, msg, false)
 
 	case "status":
 		inv, err := m.getOrSeedInventory(i.GuildID)
