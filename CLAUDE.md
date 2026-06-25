@@ -22,13 +22,15 @@ Each PR should represent one logical, independently reversible change — don't 
 
 ### Versioning
 
-`version-tag.yaml` auto-tags a new semver version on every push to `master`. It derives the bump level from the **labels of the PR associated with the pushed commit**: a `breaking` or `major` label → major bump, `minor` → minor bump, otherwise → **patch** bump. The repo defines four version labels: `major`, `minor`, `breaking`, `patch`.
+`version-tag.yaml` auto-tags a new semver version **when a PR is merged into `master`**. It derives the bump level from the merged PR's labels, read straight from the `pull_request` event payload: a `breaking` or `major` label → major bump, `minor` → minor bump, otherwise → **patch** bump. The repo defines four version labels: `major`, `minor`, `breaking`, `patch`.
+
+The workflow triggers on the PR-merge event (not on raw pushes) on purpose: this repo is **rebase-only**, so GitHub rewrites commit hashes on merge and links the new SHA to the PR only after an indexing delay. A push-triggered `commits/<sha>/pulls` lookup races that delay and silently defaults every PR to a patch bump. Reading labels from the event payload avoids the lookup entirely.
 
 Because the bump comes from PR labels, **every PR must carry exactly one version label** — this is enforced by the `require-version-label.yaml` workflow, which fails the PR until a version label is present. Choose the label by semver intent: new feature → `minor`, bug fix / docs / chore → `patch`, backwards-incompatible change → `breaking`/`major`.
 
-**A direct push to `master` has no associated PR, so it always bumps as `patch`** — a feature or breaking change pushed directly will be mis-versioned. Features and breaking changes must therefore go through a labeled PR, never a direct push.
+**A direct push to `master` does not auto-tag at all** (no PR-merge event fires), so it produces no version bump or release. Every version bump must go through a labeled PR.
 
-IMPORTANT: If the user asks you to push directly to `master`, you MUST first inform them that a direct push yields only a `patch` bump (no PR labels are read), and confirm that is the intended version bump before pushing. If the change is actually a feature or breaking change, recommend a labeled PR instead.
+IMPORTANT: If the user asks you to push directly to `master`, you MUST first inform them that a direct push produces no version tag or release (the bump only happens on a labeled PR merge), and confirm that is intended before pushing. For anything that should ship as a release, recommend a labeled PR instead.
 
 ### Bot commands
 
