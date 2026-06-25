@@ -56,6 +56,8 @@ type Module struct {
 	generateLLMMessage   func(context.Context, string, string) (string, error)
 	deferInteraction     func(*discordgo.Session, *discordgo.InteractionCreate, bool) error
 	editDeferredResponse func(*discordgo.Session, *discordgo.InteractionCreate, string)
+	respond              func(*discordgo.Session, *discordgo.InteractionCreate, string, bool)
+	sleep                func(time.Duration)
 }
 
 // New returns a Module with production-default hook implementations.
@@ -70,6 +72,8 @@ func New() *Module {
 	m.generateLLMMessage = llm.GenerateMessage
 	m.deferInteraction = m.deferInteractionImpl
 	m.editDeferredResponse = m.editDeferredResponseImpl
+	m.respond = m.respondImpl
+	m.sleep = time.Sleep
 	return m
 }
 
@@ -367,8 +371,8 @@ func interactionUserID(i *discordgo.InteractionCreate) string {
 	return ""
 }
 
-// respond sends a single immediate message response to an interaction.
-func (m *Module) respond(s *discordgo.Session, i *discordgo.InteractionCreate, content string, ephemeral bool) {
+// respondImpl sends a single immediate message response to an interaction.
+func (m *Module) respondImpl(s *discordgo.Session, i *discordgo.InteractionCreate, content string, ephemeral bool) {
 	var flags discordgo.MessageFlags
 	if ephemeral {
 		flags = discordgo.MessageFlagsEphemeral

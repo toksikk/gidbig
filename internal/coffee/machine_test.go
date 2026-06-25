@@ -3,6 +3,9 @@ package coffee
 import (
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/bwmarrin/discordgo"
 )
 
 // setLevels mutates the guild's inventory directly, for arranging test states.
@@ -377,16 +380,16 @@ func TestLeaderboards(t *testing.T) {
 
 func TestFormatDispenseSuccess(t *testing.T) {
 	r, _ := recipeByKey("coffee")
-	inv := MachineInventory{BeansMildGrams: 989, BeansEspressoGrams: 1000, WaterMl: 1880, MilkMl: 960, GroundsGrams: 20}
-	got := formatDispenseSuccess(r, true, true, "", inv)
+	got := formatDispenseSuccess(r, true, true, "")
 	if !strings.Contains(got, "Coffee with milk and sugar") {
 		t.Errorf("missing extras phrasing: %q", got)
 	}
-	if !strings.Contains(got, "Grounds 20/500g") {
-		t.Errorf("missing grounds level: %q", got)
+	// the per-brew message must NOT carry machine stats (those live in status)
+	if strings.Contains(got, "Grounds") || strings.Contains(got, "/500g") || strings.Contains(got, "·") {
+		t.Errorf("brew message should not include machine stats: %q", got)
 	}
 
-	plain := formatDispenseSuccess(r, false, false, "", inv)
+	plain := formatDispenseSuccess(r, false, false, "")
 	if strings.Contains(plain, "with") {
 		t.Errorf("plain drink should have no extras phrasing: %q", plain)
 	}
@@ -394,28 +397,140 @@ func TestFormatDispenseSuccess(t *testing.T) {
 
 func TestFormatDispenseSuccess_Tea(t *testing.T) {
 	hot, _ := recipeByKey("hot_water")
-	inv := MachineInventory{BeansMildGrams: 1000, BeansEspressoGrams: 1000, WaterMl: 1800, MilkMl: 1000}
 
-	tea := formatDispenseSuccess(hot, false, false, "peppermint", inv)
+	tea := formatDispenseSuccess(hot, false, false, "peppermint")
 	if !strings.Contains(tea, "🍵 Here's your Peppermint tea!") {
 		t.Errorf("tea phrasing wrong: %q", tea)
 	}
 
-	teaMilk := formatDispenseSuccess(hot, true, false, "earl_grey", inv)
+	teaMilk := formatDispenseSuccess(hot, true, false, "earl_grey")
 	if !strings.Contains(teaMilk, "Earl Grey tea with milk") {
 		t.Errorf("tea+milk phrasing wrong: %q", teaMilk)
 	}
 
-	plainWater := formatDispenseSuccess(hot, false, false, "", inv)
+	plainWater := formatDispenseSuccess(hot, false, false, "")
 	if !strings.Contains(plainWater, "☕ Here's your Hot water!") {
 		t.Errorf("plain hot water phrasing wrong: %q", plainWater)
 	}
 
 	// tea is ignored for non-hot-water drinks
 	coffee, _ := recipeByKey("coffee")
-	c := formatDispenseSuccess(coffee, false, false, "green", inv)
+	c := formatDispenseSuccess(coffee, false, false, "green")
 	if strings.Contains(c, "tea") || strings.Contains(c, "🍵") {
 		t.Errorf("tea should be ignored for coffee: %q", c)
+	}
+}
+
+func TestBrewTimeVariesByDrink(t *testing.T) {
+	hot, _ := recipeByKey("hot_water")
+	flat, _ := recipeByKey("flat_white")
+	if brewTime(hot) >= brewTime(flat) {
+		t.Errorf("hot water (%v) should brew faster than flat white (%v)", brewTime(hot), brewTime(flat))
+	}
+	if brewTime(hot) <= 0 {
+		t.Errorf("brew time must be positive, got %v", brewTime(hot))
+	}
+}
+
+type respCall struct {
+	content   string
+	ephemeral bool
+}
+
+// captureBrewIO stubs the interaction response, edit, and sleep hooks so brew
+// handler behavior can be asserted without a live Discord session.
+func captureBrewIO(m *Module) (*[]respCall, *[]string, *[]time.Duration) {
+	resp := &[]respCall{}
+	edits := &[]string{}
+	sleeps := &[]time.Duration{}
+	m.respond = func(_ *discordgo.Session, _ *discordgo.InteractionCreate, content string, ephemeral bool) {
+		*resp = append(*resp, respCall{content, ephemeral})
+	}
+	m.editDeferredResponse = func(_ *discordgo.Session, _ *discordgo.InteractionCreate, content string) {
+		*edits = append(*edits, content)
+	}
+	m.sleep = func(d time.Duration) { *sleeps = append(*sleeps, d) }
+	return resp, edits, sleeps
+}
+
+func makeBrewInteraction(guildID string, opts ...*discordgo.ApplicationCommandInteractionDataOption) *discordgo.InteractionCreate {
+	return &discordgo.InteractionCreate{
+		Interaction: &discordgo.Interaction{
+			GuildID:   guildID,
+			ChannelID: "ch1",
+			Type:      discordgo.InteractionApplicationCommand,
+			Member:    &discordgo.Member{User: &discordgo.User{ID: "u1"}},
+			Data: discordgo.ApplicationCommandInteractionData{
+				Name:    "brew",
+				Options: opts,
+			},
+		},
+	}
+}
+
+func TestHandleBrew_BlockedShowsErrorNoBrewing(t *testing.T) {
+	m := newTestModule(t)
+	stubLLM(m, t, "", nil) // empty reply -> deterministic fallback
+	resp, edits, sleeps := captureBrewIO(m)
+	setLevels(m, t, "g1", func(inv *MachineInventory) { inv.WaterMl = 10 })
+
+	m.handleBrewInteraction(nil, makeBrewInteraction("g1"))
+
+	if len(*resp) != 1 || !(*resp)[0].ephemeral {
+		t.Fatalf("expected 1 ephemeral error response, got %+v", *resp)
+	}
+	if !strings.Contains((*resp)[0].content, "water") {
+		t.Errorf("error should name the missing ingredient: %q", (*resp)[0].content)
+	}
+	if len(*edits) != 0 || len(*sleeps) != 0 {
+		t.Errorf("blocked brew must not brew/edit: edits=%d sleeps=%d", len(*edits), len(*sleeps))
+	}
+	if c := countDrinks(m, t, "g1"); c != 0 {
+		t.Errorf("blocked brew should record no drink, got %d", c)
+	}
+}
+
+func TestHandleBrew_SuccessShowsBrewingThenFinalNoStats(t *testing.T) {
+	m := newTestModule(t)
+	stubLLM(m, t, "", nil) // fallback messages
+	resp, edits, sleeps := captureBrewIO(m)
+
+	m.handleBrewInteraction(nil, makeBrewInteraction("g1")) // default coffee
+
+	if len(*resp) != 1 || (*resp)[0].ephemeral {
+		t.Fatalf("expected 1 public brewing response, got %+v", *resp)
+	}
+	if !strings.Contains((*resp)[0].content, "Brewing") {
+		t.Errorf("first response should be a brewing status: %q", (*resp)[0].content)
+	}
+	coffee, _ := recipeByKey("coffee")
+	if len(*sleeps) != 1 || (*sleeps)[0] != brewTime(coffee) {
+		t.Errorf("expected one sleep of %v, got %v", brewTime(coffee), *sleeps)
+	}
+	if len(*edits) != 1 {
+		t.Fatalf("expected 1 final edit, got %d", len(*edits))
+	}
+	final := (*edits)[0]
+	if !strings.Contains(final, "Here's your Coffee") {
+		t.Errorf("final message wrong: %q", final)
+	}
+	if strings.Contains(final, "Grounds") || strings.Contains(final, "·") {
+		t.Errorf("final brew message must not include machine stats: %q", final)
+	}
+	if c := countDrinks(m, t, "g1"); c != 1 {
+		t.Errorf("successful brew should record 1 drink, got %d", c)
+	}
+}
+
+func TestHandleBrew_UsesLLMForVariation(t *testing.T) {
+	m := newTestModule(t)
+	stubLLM(m, t, "Dein Kaffee ist fertig!", nil) // non-empty -> LLM text used
+	_, edits, _ := captureBrewIO(m)
+
+	m.handleBrewInteraction(nil, makeBrewInteraction("g1"))
+
+	if len(*edits) != 1 || (*edits)[0] != "Dein Kaffee ist fertig!" {
+		t.Errorf("final message should come from the LLM, got %v", *edits)
 	}
 }
 
