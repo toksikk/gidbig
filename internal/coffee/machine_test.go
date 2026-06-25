@@ -534,8 +534,8 @@ func TestHandleBrew_BlockedShowsErrorNoBrewing(t *testing.T) {
 
 	m.handleCoffeeInteraction(nil, makeBrewInteraction("g1", strOpt("drink", "coffee")))
 
-	if len(*resp) != 1 || !(*resp)[0].ephemeral {
-		t.Fatalf("expected 1 ephemeral error response, got %+v", *resp)
+	if len(*resp) != 1 || (*resp)[0].ephemeral {
+		t.Fatalf("expected 1 public error response, got %+v", *resp)
 	}
 	if !strings.Contains((*resp)[0].content, "water") {
 		t.Errorf("error should name the missing ingredient: %q", (*resp)[0].content)
@@ -557,8 +557,8 @@ func TestHandleBrew_SuccessShowsBrewingThenFinalNoStats(t *testing.T) {
 
 	m.handleCoffeeInteraction(nil, makeBrewInteraction("g1", strOpt("drink", "coffee")))
 
-	if len(*resp) != 1 || !(*resp)[0].ephemeral {
-		t.Fatalf("expected 1 ephemeral brewing response, got %+v", *resp)
+	if len(*resp) != 1 || (*resp)[0].ephemeral {
+		t.Fatalf("expected 1 public brewing response, got %+v", *resp)
 	}
 	if !strings.Contains((*resp)[0].content, "Brewing") {
 		t.Errorf("first response should be a brewing status: %q", (*resp)[0].content)
@@ -575,7 +575,7 @@ func TestHandleBrew_SuccessShowsBrewingThenFinalNoStats(t *testing.T) {
 		t.Fatalf("expected 1 final edit, got %d", len(*edits))
 	}
 	final := (*edits)[0]
-	if !strings.Contains(final, "Here's your Coffee") {
+	if !strings.Contains(final, "Coffee is ready") {
 		t.Errorf("final message wrong: %q", final)
 	}
 	if strings.Contains(final, "Grounds") || strings.Contains(final, "·") {
@@ -842,11 +842,11 @@ func TestCoffeeComponent_TogglesAndSelect(t *testing.T) {
 	_, updates := captureMenuIO(m)
 
 	// select espresso
-	m.handleCoffeeComponent(nil, makeBrewComponent("g1", encodeBrewCfg(coffeeCfgPrefix, "pick", brewCfg{choice: "coffee"}), "espresso"))
+	m.handleCoffeeComponent(nil, makeBrewComponent("g1", encodeBrewCfg(coffeeCfgPrefix, "pick", brewCfg{opener: "u1", choice: "coffee"}), "espresso"))
 	// toggle milk on (state still carries espresso)
-	m.handleCoffeeComponent(nil, makeBrewComponent("g1", encodeBrewCfg(coffeeCfgPrefix, "milk", brewCfg{choice: "espresso"})))
+	m.handleCoffeeComponent(nil, makeBrewComponent("g1", encodeBrewCfg(coffeeCfgPrefix, "milk", brewCfg{opener: "u1", choice: "espresso"})))
 	// toggle sugar on
-	m.handleCoffeeComponent(nil, makeBrewComponent("g1", encodeBrewCfg(coffeeCfgPrefix, "sugar", brewCfg{choice: "espresso", milk: true})))
+	m.handleCoffeeComponent(nil, makeBrewComponent("g1", encodeBrewCfg(coffeeCfgPrefix, "sugar", brewCfg{opener: "u1", choice: "espresso", milk: true})))
 
 	if len(*updates) != 3 {
 		t.Fatalf("expected 3 in-place menu updates, got %d", len(*updates))
@@ -868,7 +868,7 @@ func TestCoffeeComponent_GoBrews(t *testing.T) {
 	resp, edits, sleeps := captureBrewIO(m)
 	_, _ = captureMenuIO(m)
 
-	m.handleCoffeeComponent(nil, makeBrewComponent("g1", encodeBrewCfg(coffeeCfgPrefix, "go", brewCfg{choice: "espresso", milk: true, sugar: true})))
+	m.handleCoffeeComponent(nil, makeBrewComponent("g1", encodeBrewCfg(coffeeCfgPrefix, "go", brewCfg{opener: "u1", choice: "espresso", milk: true, sugar: true})))
 
 	if len(*resp) != 1 || !strings.Contains((*resp)[0].content, "Brewing") {
 		t.Fatalf("expected an in-place brewing update, got %+v", *resp)
@@ -892,7 +892,7 @@ func TestTeaComponent_GoBrews(t *testing.T) {
 	resp, edits, sleeps := captureBrewIO(m)
 	_, _ = captureMenuIO(m)
 
-	m.handleTeaComponent(nil, makeBrewComponent("g1", encodeBrewCfg(teaCfgPrefix, "go", brewCfg{choice: "rooibos", milk: true})))
+	m.handleTeaComponent(nil, makeBrewComponent("g1", encodeBrewCfg(teaCfgPrefix, "go", brewCfg{opener: "u1", choice: "rooibos", milk: true})))
 
 	if len(*resp) != 1 || !strings.Contains((*resp)[0].content, "Brewing") {
 		t.Fatalf("expected an in-place brewing update, got %+v", *resp)
@@ -914,14 +914,32 @@ func TestTakeCup_Confirms(t *testing.T) {
 	m := newTestModule(t)
 	resp, _, _ := captureBrewIO(m)
 
-	id := strings.Join([]string{takeCupPrefix, "espresso", ""}, ":")
+	id := strings.Join([]string{takeCupPrefix, "u1", "espresso", ""}, ":")
 	m.handleTakeCupComponent(nil, makeBrewComponent("g1", id))
 
 	if len(*resp) != 1 {
 		t.Fatalf("expected 1 confirmation update, got %d", len(*resp))
 	}
-	if !strings.Contains((*resp)[0].content, "grabbed your Espresso") {
+	if !strings.Contains((*resp)[0].content, "grabbed their Espresso") {
 		t.Errorf("take-cup confirmation should name the drink: %q", (*resp)[0].content)
+	}
+}
+
+func TestTakeCup_RejectsNonOwner(t *testing.T) {
+	m := newTestModule(t)
+	resp, _, _ := captureBrewIO(m)
+	var updates int
+	m.respondUpdate = func(_ *discordgo.Session, _ *discordgo.InteractionCreate, _ string) { updates++ }
+
+	// orderer is "alice", but the interaction comes from "u1"
+	id := strings.Join([]string{takeCupPrefix, "alice", "espresso", ""}, ":")
+	m.handleTakeCupComponent(nil, makeBrewComponent("g1", id))
+
+	if updates != 0 {
+		t.Errorf("a non-owner must not alter the drink message")
+	}
+	if len(*resp) != 1 || !(*resp)[0].ephemeral {
+		t.Fatalf("non-owner should get an ephemeral nudge, got %+v", *resp)
 	}
 }
 
@@ -1175,8 +1193,8 @@ func TestBlockedBrewMentionsSlacker(t *testing.T) {
 	bob.Member.User.ID = "bob"
 	m.handleCoffeeInteraction(nil, bob)
 
-	if len(*resp) != 1 || !(*resp)[0].ephemeral {
-		t.Fatalf("expected 1 ephemeral blocked response, got %+v", *resp)
+	if len(*resp) != 1 || (*resp)[0].ephemeral {
+		t.Fatalf("expected 1 public blocked response, got %+v", *resp)
 	}
 	if !strings.Contains((*resp)[0].content, "<@alice>") {
 		t.Errorf("blocked message should name the slacker: %q", (*resp)[0].content)

@@ -461,11 +461,13 @@ func (m *Module) respondUpdateImpl(s *discordgo.Session, i *discordgo.Interactio
 	}
 }
 
-// openMenuImpl sends an ephemeral message carrying interactive components.
+// openMenuImpl sends a public message carrying interactive components. The menu
+// is public (so brewing/readiness stay visible to the channel) but gated to its
+// opener, who is encoded in every component custom ID.
 func (m *Module) openMenuImpl(s *discordgo.Session, i *discordgo.InteractionCreate, content string, comps []discordgo.MessageComponent) {
 	if err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseChannelMessageWithSource,
-		Data: &discordgo.InteractionResponseData{Content: content, Components: comps, Flags: discordgo.MessageFlagsEphemeral},
+		Data: &discordgo.InteractionResponseData{Content: content, Components: comps},
 	}); err != nil {
 		slog.Error("coffee: open menu failed", "error", err)
 	}
