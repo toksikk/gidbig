@@ -57,6 +57,9 @@ type Module struct {
 	deferInteraction     func(*discordgo.Session, *discordgo.InteractionCreate, bool) error
 	editDeferredResponse func(*discordgo.Session, *discordgo.InteractionCreate, string)
 	respond              func(*discordgo.Session, *discordgo.InteractionCreate, string, bool)
+	respondUpdate        func(*discordgo.Session, *discordgo.InteractionCreate, string)
+	openMenu             func(*discordgo.Session, *discordgo.InteractionCreate, string, []discordgo.MessageComponent)
+	updateMenu           func(*discordgo.Session, *discordgo.InteractionCreate, string, []discordgo.MessageComponent)
 	sleep                func(time.Duration)
 }
 
@@ -73,6 +76,9 @@ func New() *Module {
 	m.deferInteraction = m.deferInteractionImpl
 	m.editDeferredResponse = m.editDeferredResponseImpl
 	m.respond = m.respondImpl
+	m.respondUpdate = m.respondUpdateImpl
+	m.openMenu = m.openMenuImpl
+	m.updateMenu = m.updateMenuImpl
 	m.sleep = time.Sleep
 	return m
 }
@@ -110,7 +116,7 @@ func (m *Module) Commands() []*discordgo.ApplicationCommand {
 		},
 		{
 			Name:        "brew",
-			Description: "Get a fresh drink from the coffee machine",
+			Description: "Get a fresh drink from the coffee machine (no options opens a menu)",
 			Options: []*discordgo.ApplicationCommandOption{
 				{
 					Type:        discordgo.ApplicationCommandOptionString,
@@ -131,12 +137,30 @@ func (m *Module) Commands() []*discordgo.ApplicationCommand {
 					Description: "Add sugar",
 					Required:    false,
 				},
+			},
+		},
+		{
+			Name:        "tea",
+			Description: "Steep a tea bag in fresh hot water",
+			Options: []*discordgo.ApplicationCommandOption{
 				{
 					Type:        discordgo.ApplicationCommandOptionString,
-					Name:        "tea",
-					Description: "Drop in a tea bag (hot water only)",
-					Required:    false,
+					Name:        "flavor",
+					Description: "Which tea bag to steep",
+					Required:    true,
 					Choices:     teaChoices(),
+				},
+				{
+					Type:        discordgo.ApplicationCommandOptionBoolean,
+					Name:        "milk",
+					Description: "Add a splash of milk",
+					Required:    false,
+				},
+				{
+					Type:        discordgo.ApplicationCommandOptionBoolean,
+					Name:        "sugar",
+					Description: "Add sugar",
+					Required:    false,
 				},
 			},
 		},
@@ -166,7 +190,20 @@ func (m *Module) Commands() []*discordgo.ApplicationCommand {
 				{
 					Type:        discordgo.ApplicationCommandOptionSubCommand,
 					Name:        "status",
-					Description: "Show machine levels and stats",
+					Description: "Show machine levels and leaderboards",
+				},
+				{
+					Type:        discordgo.ApplicationCommandOptionSubCommand,
+					Name:        "stats",
+					Description: "Detailed coffee stats for a user (default: you)",
+					Options: []*discordgo.ApplicationCommandOption{
+						{
+							Type:        discordgo.ApplicationCommandOptionUser,
+							Name:        "user",
+							Description: "Whose stats to show (omit for your own)",
+							Required:    false,
+						},
+					},
 				},
 			},
 		},
@@ -294,6 +331,12 @@ func (m *Module) onMessageCreate(s *discordgo.Session, mc *discordgo.MessageCrea
 }
 
 func (m *Module) onInteractionCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	if i.Type == discordgo.InteractionMessageComponent {
+		if strings.HasPrefix(i.MessageComponentData().CustomID, brewCfgPrefix) {
+			m.handleBrewComponent(s, i)
+		}
+		return
+	}
 	if i.Type != discordgo.InteractionApplicationCommand {
 		return
 	}
@@ -302,6 +345,9 @@ func (m *Module) onInteractionCreate(s *discordgo.Session, i *discordgo.Interact
 	switch data.Name {
 	case "brew":
 		m.handleBrewInteraction(s, i)
+		return
+	case "tea":
+		m.handleTeaInteraction(s, i)
 		return
 	case "coffeemachine":
 		m.handleMachineInteraction(s, i)
@@ -382,6 +428,38 @@ func (m *Module) respondImpl(s *discordgo.Session, i *discordgo.InteractionCreat
 		Data: &discordgo.InteractionResponseData{Content: content, Flags: flags},
 	}); err != nil {
 		slog.Error("coffee: respond failed", "error", err)
+	}
+}
+
+// respondUpdateImpl replaces a component message's content in place and clears
+// its components (used when the interactive menu transitions to brewing/result).
+func (m *Module) respondUpdateImpl(s *discordgo.Session, i *discordgo.InteractionCreate, content string) {
+	empty := []discordgo.MessageComponent{}
+	if err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseUpdateMessage,
+		Data: &discordgo.InteractionResponseData{Content: content, Components: empty},
+	}); err != nil {
+		slog.Error("coffee: respond update failed", "error", err)
+	}
+}
+
+// openMenuImpl sends an ephemeral message carrying interactive components.
+func (m *Module) openMenuImpl(s *discordgo.Session, i *discordgo.InteractionCreate, content string, comps []discordgo.MessageComponent) {
+	if err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{Content: content, Components: comps, Flags: discordgo.MessageFlagsEphemeral},
+	}); err != nil {
+		slog.Error("coffee: open menu failed", "error", err)
+	}
+}
+
+// updateMenuImpl re-renders a component message's content and components in place.
+func (m *Module) updateMenuImpl(s *discordgo.Session, i *discordgo.InteractionCreate, content string, comps []discordgo.MessageComponent) {
+	if err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseUpdateMessage,
+		Data: &discordgo.InteractionResponseData{Content: content, Components: comps},
+	}); err != nil {
+		slog.Error("coffee: update menu failed", "error", err)
 	}
 }
 

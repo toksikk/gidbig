@@ -20,7 +20,8 @@ func newTestModule(t *testing.T) *Module {
 		t.Fatalf("failed to open in-memory store: %v", err)
 	}
 	if err := gormDB.AutoMigrate(&UserBeveragePreference{}, &UserGreeting{},
-		&MachineInventory{}, &RefillEvent{}, &DrinkEvent{}); err != nil {
+		&MachineInventory{}, &RefillEvent{}, &DrinkEvent{},
+		&PendingService{}, &SlackerEvent{}); err != nil {
 		t.Fatalf("failed to migrate: %v", err)
 	}
 	m.dbMu.Lock()
