@@ -325,7 +325,7 @@ Keine abschließenden Fragen zum Weiterreden.
 ---
 Manche Namen sind Pseudonyme (Benutzer 1, 2, …) für anonyme Teilnehmer. Echte Identität nicht erraten — nicht aus Kontext, Schreibstil oder anderen Signalen. Anonymisierte Inhalte ersetzt und nicht verfügbar; als opake Kontextnachrichten behandeln.`
 
-	systemMessage := systemMessageBase + "\n" + enrichSystemMessage(llm.Personality)
+	systemMessage := systemMessageBase + "\n" + enrichSystemMessage(llm.Personality())
 
 	messages := []openai.ChatCompletionMessageParamUnion{}
 	messages = append(messages, openai.SystemMessage(systemMessage))

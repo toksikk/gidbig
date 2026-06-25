@@ -32,6 +32,44 @@ dev_mode: true
 	}
 }
 
+func TestDecodeConfig_llmFields(t *testing.T) {
+	yaml := `
+discord:
+  token: "tok"
+gippity:
+  allowed_guilds: ["456"]
+llm:
+  personality: "be a pirate"
+  personality_preset: "hal"
+`
+	cfg, err := decodeConfig(strings.NewReader(yaml))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.LLM.Personality != "be a pirate" {
+		t.Errorf("llm.personality = %q, want %q", cfg.LLM.Personality, "be a pirate")
+	}
+	if cfg.LLM.Preset != "hal" {
+		t.Errorf("llm.personality_preset = %q, want %q", cfg.LLM.Preset, "hal")
+	}
+}
+
+func TestDecodeConfig_llmOmitted(t *testing.T) {
+	yaml := `
+discord:
+  token: "tok"
+gippity:
+  allowed_guilds: ["456"]
+`
+	cfg, err := decodeConfig(strings.NewReader(yaml))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.LLM.Personality != "" || cfg.LLM.Preset != "" {
+		t.Errorf("llm fields should be empty when omitted, got %q / %q", cfg.LLM.Personality, cfg.LLM.Preset)
+	}
+}
+
 func TestDecodeConfig_missingToken(t *testing.T) {
 	yaml := `
 discord:
