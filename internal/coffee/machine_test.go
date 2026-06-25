@@ -378,7 +378,7 @@ func TestLeaderboards(t *testing.T) {
 func TestFormatDispenseSuccess(t *testing.T) {
 	r, _ := recipeByKey("coffee")
 	inv := MachineInventory{BeansMildGrams: 989, BeansEspressoGrams: 1000, WaterMl: 1880, MilkMl: 960, GroundsGrams: 20}
-	got := formatDispenseSuccess(r, true, true, inv)
+	got := formatDispenseSuccess(r, true, true, "", inv)
 	if !strings.Contains(got, "Coffee with milk and sugar") {
 		t.Errorf("missing extras phrasing: %q", got)
 	}
@@ -386,9 +386,45 @@ func TestFormatDispenseSuccess(t *testing.T) {
 		t.Errorf("missing grounds level: %q", got)
 	}
 
-	plain := formatDispenseSuccess(r, false, false, inv)
+	plain := formatDispenseSuccess(r, false, false, "", inv)
 	if strings.Contains(plain, "with") {
 		t.Errorf("plain drink should have no extras phrasing: %q", plain)
+	}
+}
+
+func TestFormatDispenseSuccess_Tea(t *testing.T) {
+	hot, _ := recipeByKey("hot_water")
+	inv := MachineInventory{BeansMildGrams: 1000, BeansEspressoGrams: 1000, WaterMl: 1800, MilkMl: 1000}
+
+	tea := formatDispenseSuccess(hot, false, false, "peppermint", inv)
+	if !strings.Contains(tea, "🍵 Here's your Peppermint tea!") {
+		t.Errorf("tea phrasing wrong: %q", tea)
+	}
+
+	teaMilk := formatDispenseSuccess(hot, true, false, "earl_grey", inv)
+	if !strings.Contains(teaMilk, "Earl Grey tea with milk") {
+		t.Errorf("tea+milk phrasing wrong: %q", teaMilk)
+	}
+
+	plainWater := formatDispenseSuccess(hot, false, false, "", inv)
+	if !strings.Contains(plainWater, "☕ Here's your Hot water!") {
+		t.Errorf("plain hot water phrasing wrong: %q", plainWater)
+	}
+
+	// tea is ignored for non-hot-water drinks
+	coffee, _ := recipeByKey("coffee")
+	c := formatDispenseSuccess(coffee, false, false, "green", inv)
+	if strings.Contains(c, "tea") || strings.Contains(c, "🍵") {
+		t.Errorf("tea should be ignored for coffee: %q", c)
+	}
+}
+
+func TestTeaLabel(t *testing.T) {
+	if l, ok := teaLabel("earl_grey"); !ok || l != "Earl Grey" {
+		t.Errorf("teaLabel(earl_grey) = %q,%v", l, ok)
+	}
+	if _, ok := teaLabel("bubble"); ok {
+		t.Error("teaLabel(bubble) should be unknown")
 	}
 }
 
