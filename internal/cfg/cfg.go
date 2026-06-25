@@ -33,6 +33,14 @@ type Config struct {
 		AllowedGuilds []string `yaml:"allowed_guilds"`
 		IgnoredUsers  []string `yaml:"ignored_users"`
 	} `yaml:"gippity"`
+	LLM struct {
+		// Personality is a custom persona string. When set it takes precedence
+		// over Preset and the built-in default.
+		Personality string `yaml:"personality,omitempty"`
+		// Preset selects one of the predefined personas (see llm.PersonalityPresets).
+		// Used only when Personality is empty. Unknown values fall back to the default.
+		Preset string `yaml:"personality_preset,omitempty"`
+	} `yaml:"llm,omitempty"`
 	DevMode bool `yaml:"dev_mode,omitempty" default:"false"`
 }
 

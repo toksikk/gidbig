@@ -356,6 +356,7 @@ func StartGidbig() {
 	}
 
 	llm.Initialize()
+	llm.ResolvePersonality(conf.LLM.Personality, conf.LLM.Preset)
 	coffeeMod := coffee.New()
 	if err := coffeeMod.Init(bot.Deps{Session: discord, Config: conf}); err != nil {
 		slog.Error("coffee: init failed", "error", err)

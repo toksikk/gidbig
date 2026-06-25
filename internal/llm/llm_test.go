@@ -74,6 +74,35 @@ func TestDetectChannelLanguage_ReturnsDetectedLanguage(t *testing.T) {
 	}
 }
 
+func TestResolvePersonality(t *testing.T) {
+	t.Cleanup(func() { activePersonality = defaultPersonality })
+
+	tests := []struct {
+		name   string
+		custom string
+		preset string
+		want   string
+	}{
+		{"custom wins over preset", "be a pirate", "hal", "be a pirate"},
+		{"custom wins over default", "be a pirate", "", "be a pirate"},
+		{"whitespace custom is ignored", "   ", "dry", PersonalityPresets["dry"]},
+		{"known preset hal", "", "hal", PersonalityPresets["hal"]},
+		{"known preset schemer", "", "schemer", PersonalityPresets["schemer"]},
+		{"unknown preset falls back to default", "", "nope", defaultPersonality},
+		{"nothing set uses default", "", "", defaultPersonality},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			activePersonality = "sentinel"
+			ResolvePersonality(tt.custom, tt.preset)
+			if got := Personality(); got != tt.want {
+				t.Errorf("Personality() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestGenerateMessage_DelegatesToFn(t *testing.T) {
 	prev := generateMessageFn
 	t.Cleanup(func() { generateMessageFn = prev })
