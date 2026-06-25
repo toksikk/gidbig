@@ -50,7 +50,8 @@ type recipe struct {
 	brewSecs   int  // simulated brew time, varies by drink
 }
 
-// menu is the ordered drink list. The first entry is the default for /brew.
+// menu is the ordered drink list. The first entry is the default for /coffee;
+// hot_water is served only via /tea.
 var menu = []recipe{
 	{key: "coffee", label: "Coffee", bean: beanMild, beanGrams: 11, waterMl: 120, groundsG: 20, allowsMilk: true, brewSecs: 28},
 	{key: "espresso", label: "Espresso", bean: beanEspresso, beanGrams: 9, waterMl: 40, groundsG: 18, allowsMilk: true, brewSecs: 24},
@@ -701,44 +702,43 @@ func titleCase(s string) string {
 }
 
 // brewResponder abstracts how a brew flow talks back to Discord so the same
-// dispense+animation logic serves both the public slash commands (/brew, /tea)
-// and the ephemeral interactive menu (component "go" button).
+// dispense+animation logic serves both the slash commands (/coffee, /tea) and
+// the interactive menus (component "go" button). Every brew is private to the
+// invoker.
 type brewResponder struct {
-	brewing func(content string) // the initial "brewing…" status message
-	final   func(content string) // edit of that message to the finished drink
-	blocked func(content string) // a brew that could not be served
+	brewing func(content string)                                     // the initial "brewing…" status message
+	final   func(content string, comps []discordgo.MessageComponent) // edit to the finished drink (carries the Take cup button)
+	blocked func(content string)                                     // a brew that could not be served
 }
 
-// slashResponder responds publicly for /brew and /tea: a fresh public message
-// for brewing, edited to the final drink; blocks are ephemeral.
-func (m *Module) slashResponder(s *discordgo.Session, i *discordgo.InteractionCreate) brewResponder {
-	return brewResponder{
-		brewing: func(c string) { m.respond(s, i, c, false) },
-		final:   func(c string) { m.editDeferredResponse(s, i, c) },
-		blocked: func(c string) { m.respond(s, i, c, true) },
+// brewResponder builds the responder used by both the slash commands and the
+// interactive menu. Every brew is private to the invoker: the slash path replies
+// ephemerally and edits that reply; the menu path updates its ephemeral message
+// in place. The final reveal carries the supplied components (the Take cup
+// button); brewing/blocked drop components.
+func (m *Module) brewResponder(s *discordgo.Session, i *discordgo.InteractionCreate, fromMenu bool) brewResponder {
+	r := brewResponder{
+		final: func(c string, comps []discordgo.MessageComponent) { m.editWithComponents(s, i, c, comps) },
 	}
-}
-
-// menuResponder responds for the interactive menu: it updates the ephemeral
-// menu message in place (dropping its components) for every state, keeping the
-// whole order private to the invoker.
-func (m *Module) menuResponder(s *discordgo.Session, i *discordgo.InteractionCreate) brewResponder {
-	return brewResponder{
-		brewing: func(c string) { m.respondUpdate(s, i, c) },
-		final:   func(c string) { m.editDeferredResponse(s, i, c) },
-		blocked: func(c string) { m.respondUpdate(s, i, c) },
+	if fromMenu {
+		r.brewing = func(c string) { m.respondUpdate(s, i, c) }
+		r.blocked = func(c string) { m.respondUpdate(s, i, c) }
+	} else {
+		r.brewing = func(c string) { m.respond(s, i, c, true) }
+		r.blocked = func(c string) { m.respond(s, i, c, true) }
 	}
+	return r
 }
 
-// handleBrewInteraction serves /brew. With no options it opens the interactive
-// drink menu; otherwise it brews the chosen drink directly.
-func (m *Module) handleBrewInteraction(s *discordgo.Session, i *discordgo.InteractionCreate) {
+// handleCoffeeInteraction serves /coffee. With no options it opens the
+// interactive drink menu; otherwise it brews the chosen coffee directly.
+func (m *Module) handleCoffeeInteraction(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	data := i.ApplicationCommandData()
 	if len(data.Options) == 0 {
-		m.openBrewMenu(s, i)
+		m.openCoffeeMenu(s, i)
 		return
 	}
-	drinkKey := menu[0].key
+	drinkKey := coffeeMenu()[0].key
 	addMilk, addSugar := false, false
 	for _, o := range data.Options {
 		switch o.Name {
@@ -750,15 +750,18 @@ func (m *Module) handleBrewInteraction(s *discordgo.Session, i *discordgo.Intera
 			addSugar = o.BoolValue()
 		}
 	}
-	m.executeBrew(s, i, drinkKey, addMilk, addSugar, "", m.slashResponder(s, i))
+	m.executeBrew(s, i, drinkKey, addMilk, addSugar, "", m.brewResponder(s, i, false))
 }
 
 // handleTeaInteraction serves /tea: hot water with a chosen tea-bag flavor and
-// optional milk/sugar. Splitting tea out of /brew avoids tea options that only
-// make sense for one drink.
+// optional milk/sugar. With no options it opens the interactive tea menu.
 func (m *Module) handleTeaInteraction(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	data := i.ApplicationCommandData()
-	tea := ""
+	if len(data.Options) == 0 {
+		m.openTeaMenu(s, i)
+		return
+	}
+	tea := teaFlavors[0].key
 	addMilk, addSugar := false, false
 	for _, o := range data.Options {
 		switch o.Name {
@@ -770,7 +773,7 @@ func (m *Module) handleTeaInteraction(s *discordgo.Session, i *discordgo.Interac
 			addSugar = o.BoolValue()
 		}
 	}
-	m.executeBrew(s, i, "hot_water", addMilk, addSugar, tea, m.slashResponder(s, i))
+	m.executeBrew(s, i, "hot_water", addMilk, addSugar, tea, m.brewResponder(s, i, false))
 }
 
 // executeBrew dispenses one drink and drives the brewing animation through the
@@ -810,13 +813,15 @@ func (m *Module) executeBrew(s *discordgo.Session, i *discordgo.InteractionCreat
 
 	m.sleep(wait)
 
+	// The reply is private to the orderer, so the reveal is personal — their cup,
+	// for them to take — with a button to grab it out of the machine.
 	final := m.generateInteractionMessage(s, i.ChannelID,
-		fmt.Sprintf("A freshly made %s%s is ready at the coffee machine. Announce it to the user in one short, inviting sentence.", label, extras),
+		fmt.Sprintf("The user's own %s%s is ready in the machine. Tell them personally that their cup is ready to grab, in one short sentence.", label, extras),
 		formatDispenseSuccess(out.recipe, out.splashMilk, out.withSugar, tea))
 	// Append the service nudge verbatim (never paraphrased by the LLM) so the
 	// brewer who left the machine low is reminded to refill for the next person.
 	final += serviceHint(out.serviceNeeded)
-	r.final(final)
+	r.final(final, takeCupComponents(out.recipe.key, tea))
 }
 
 // handleMachineInteraction handles /coffeemachine refill|empty|status.
@@ -908,20 +913,42 @@ func (m *Module) buildUserStats(guildID, userID string) string {
 	return formatUserStats(userID, drinks, refills, groundsCount, groundsTotal, slackers)
 }
 
-// --- Interactive /brew menu (no-options path) --------------------------------
+// --- Interactive order menus (no-options /coffee and /tea) -------------------
 
-// brewCfgPrefix tags every interactive-menu component custom ID. The menu is
-// ephemeral, so only the invoker can see and operate its components.
-const brewCfgPrefix = "coffee_brew_cfg"
+// Component custom-ID prefixes. The menus are ephemeral, so only the invoker
+// can see and operate their components. coffeeCfgPrefix and teaCfgPrefix tag the
+// two order menus; takeCupPrefix tags the Take cup button on a finished drink.
+const (
+	coffeeCfgPrefix = "coffee_brew_cfg"
+	teaCfgPrefix    = "coffee_tea_cfg"
+	takeCupPrefix   = "coffee_take"
+)
 
-const brewMenuPrompt = "☕ What can I get you? Pick a drink, toggle the extras, then hit **Brew**."
+const (
+	coffeeMenuPrompt = "☕ What can I get you? Pick a coffee, toggle the extras, then hit **Brew**."
+	teaMenuPrompt    = "🍵 Fancy a tea? Pick a flavor, toggle the extras, then hit **Brew**."
+)
+
+// coffeeMenu returns the menu drinks offered by /coffee — everything but hot
+// water, which now lives behind /tea.
+func coffeeMenu() []recipe {
+	out := make([]recipe, 0, len(menu))
+	for _, r := range menu {
+		if r.key == "hot_water" {
+			continue
+		}
+		out = append(out, r)
+	}
+	return out
+}
 
 // brewCfg is the full state of an in-progress interactive order, carried inside
-// every component custom ID so no server-side session state is needed.
+// every component custom ID so no server-side session state is needed. choice
+// holds a coffee drink key (coffee menu) or a tea flavor key (tea menu).
 type brewCfg struct {
-	drink string
-	milk  bool
-	sugar bool
+	choice string
+	milk   bool
+	sugar  bool
 }
 
 func boolFlag(b bool) string {
@@ -933,31 +960,22 @@ func boolFlag(b bool) string {
 
 // encodeBrewCfg renders an action plus the current order state into a component
 // custom ID, e.g. "coffee_brew_cfg:milk:espresso:1:0".
-func encodeBrewCfg(action string, c brewCfg) string {
-	return strings.Join([]string{brewCfgPrefix, action, c.drink, boolFlag(c.milk), boolFlag(c.sugar)}, ":")
+func encodeBrewCfg(prefix, action string, c brewCfg) string {
+	return strings.Join([]string{prefix, action, c.choice, boolFlag(c.milk), boolFlag(c.sugar)}, ":")
 }
 
-// parseBrewCfg reverses encodeBrewCfg. Drink keys never contain a colon.
-func parseBrewCfg(customID string) (action string, c brewCfg, ok bool) {
+// parseBrewCfg reverses encodeBrewCfg for the given prefix. Choice keys never
+// contain a colon.
+func parseBrewCfg(prefix, customID string) (action string, c brewCfg, ok bool) {
 	parts := strings.Split(customID, ":")
-	if len(parts) != 5 || parts[0] != brewCfgPrefix {
+	if len(parts) != 5 || parts[0] != prefix {
 		return "", brewCfg{}, false
 	}
-	return parts[1], brewCfg{drink: parts[2], milk: parts[3] == "1", sugar: parts[4] == "1"}, true
+	return parts[1], brewCfg{choice: parts[2], milk: parts[3] == "1", sugar: parts[4] == "1"}, true
 }
 
-// brewMenuComponents builds the select menu and toggle/brew buttons reflecting
-// the given order state.
-func brewMenuComponents(c brewCfg) []discordgo.MessageComponent {
-	options := make([]discordgo.SelectMenuOption, 0, len(menu))
-	for _, r := range menu {
-		options = append(options, discordgo.SelectMenuOption{
-			Label:   r.label,
-			Value:   r.key,
-			Default: r.key == c.drink,
-		})
-	}
-
+// extrasRow builds the milk/sugar toggle buttons and the Brew button for a menu.
+func extrasRow(prefix string, c brewCfg) discordgo.ActionsRow {
 	milkLabel, milkStyle := "🥛 Milk: off", discordgo.SecondaryButton
 	if c.milk {
 		milkLabel, milkStyle = "🥛 Milk: on", discordgo.SuccessButton
@@ -966,50 +984,135 @@ func brewMenuComponents(c brewCfg) []discordgo.MessageComponent {
 	if c.sugar {
 		sugarLabel, sugarStyle = "🍬 Sugar: on", discordgo.SuccessButton
 	}
+	return discordgo.ActionsRow{Components: []discordgo.MessageComponent{
+		discordgo.Button{Label: milkLabel, Style: milkStyle, CustomID: encodeBrewCfg(prefix, "milk", c)},
+		discordgo.Button{Label: sugarLabel, Style: sugarStyle, CustomID: encodeBrewCfg(prefix, "sugar", c)},
+		discordgo.Button{Label: "Brew", Emoji: &discordgo.ComponentEmoji{Name: "☕"}, Style: discordgo.PrimaryButton, CustomID: encodeBrewCfg(prefix, "go", c)},
+	}}
+}
 
+// coffeeMenuComponents builds the /coffee drink select plus the extras row.
+func coffeeMenuComponents(c brewCfg) []discordgo.MessageComponent {
+	coffees := coffeeMenu()
+	options := make([]discordgo.SelectMenuOption, 0, len(coffees))
+	for _, r := range coffees {
+		options = append(options, discordgo.SelectMenuOption{Label: r.label, Value: r.key, Default: r.key == c.choice})
+	}
 	return []discordgo.MessageComponent{
 		discordgo.ActionsRow{Components: []discordgo.MessageComponent{
-			discordgo.SelectMenu{
-				CustomID:    encodeBrewCfg("drink", c),
-				Placeholder: "Choose your drink",
-				Options:     options,
-			},
+			discordgo.SelectMenu{CustomID: encodeBrewCfg(coffeeCfgPrefix, "pick", c), Placeholder: "Choose your coffee", Options: options},
 		}},
+		extrasRow(coffeeCfgPrefix, c),
+	}
+}
+
+// teaMenuComponents builds the /tea flavor select plus the extras row.
+func teaMenuComponents(c brewCfg) []discordgo.MessageComponent {
+	options := make([]discordgo.SelectMenuOption, 0, len(teaFlavors))
+	for _, t := range teaFlavors {
+		options = append(options, discordgo.SelectMenuOption{Label: t.label, Value: t.key, Default: t.key == c.choice})
+	}
+	return []discordgo.MessageComponent{
 		discordgo.ActionsRow{Components: []discordgo.MessageComponent{
-			discordgo.Button{Label: milkLabel, Style: milkStyle, CustomID: encodeBrewCfg("milk", c)},
-			discordgo.Button{Label: sugarLabel, Style: sugarStyle, CustomID: encodeBrewCfg("sugar", c)},
-			discordgo.Button{Label: "Brew", Emoji: &discordgo.ComponentEmoji{Name: "☕"}, Style: discordgo.PrimaryButton, CustomID: encodeBrewCfg("go", c)},
+			discordgo.SelectMenu{CustomID: encodeBrewCfg(teaCfgPrefix, "pick", c), Placeholder: "Choose your tea", Options: options},
+		}},
+		extrasRow(teaCfgPrefix, c),
+	}
+}
+
+// takeCupComponents builds the single-button row offering to grab a finished
+// drink out of the machine, encoding the drink so the confirmation can name it.
+func takeCupComponents(drinkKey, tea string) []discordgo.MessageComponent {
+	id := strings.Join([]string{takeCupPrefix, drinkKey, tea}, ":")
+	return []discordgo.MessageComponent{
+		discordgo.ActionsRow{Components: []discordgo.MessageComponent{
+			discordgo.Button{Label: "Take cup", Emoji: &discordgo.ComponentEmoji{Name: "🫴"}, Style: discordgo.SuccessButton, CustomID: id},
 		}},
 	}
 }
 
-// openBrewMenu shows the interactive drink menu as an ephemeral message.
-func (m *Module) openBrewMenu(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	c := brewCfg{drink: menu[0].key}
-	m.openMenu(s, i, brewMenuPrompt, brewMenuComponents(c))
+// openCoffeeMenu shows the interactive coffee menu as an ephemeral message.
+func (m *Module) openCoffeeMenu(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	c := brewCfg{choice: coffeeMenu()[0].key}
+	m.openMenu(s, i, coffeeMenuPrompt, coffeeMenuComponents(c))
 }
 
-// handleBrewComponent processes a click/selection on the interactive menu: drink
-// selection and milk/sugar toggles re-render the menu in place; Brew dispenses
-// the configured drink, updating the same ephemeral message.
-func (m *Module) handleBrewComponent(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	action, c, ok := parseBrewCfg(i.MessageComponentData().CustomID)
+// openTeaMenu shows the interactive tea menu as an ephemeral message.
+func (m *Module) openTeaMenu(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	c := brewCfg{choice: teaFlavors[0].key}
+	m.openMenu(s, i, teaMenuPrompt, teaMenuComponents(c))
+}
+
+// handleCoffeeComponent processes clicks on the interactive coffee menu: drink
+// selection and toggles re-render in place; Brew dispenses the configured drink.
+func (m *Module) handleCoffeeComponent(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	action, c, ok := parseBrewCfg(coffeeCfgPrefix, i.MessageComponentData().CustomID)
 	if !ok {
 		return
 	}
 	switch action {
-	case "drink":
+	case "pick":
 		if vals := i.MessageComponentData().Values; len(vals) > 0 {
-			c.drink = vals[0]
+			c.choice = vals[0]
 		}
-		m.updateMenu(s, i, brewMenuPrompt, brewMenuComponents(c))
+		m.updateMenu(s, i, coffeeMenuPrompt, coffeeMenuComponents(c))
 	case "milk":
 		c.milk = !c.milk
-		m.updateMenu(s, i, brewMenuPrompt, brewMenuComponents(c))
+		m.updateMenu(s, i, coffeeMenuPrompt, coffeeMenuComponents(c))
 	case "sugar":
 		c.sugar = !c.sugar
-		m.updateMenu(s, i, brewMenuPrompt, brewMenuComponents(c))
+		m.updateMenu(s, i, coffeeMenuPrompt, coffeeMenuComponents(c))
 	case "go":
-		m.executeBrew(s, i, c.drink, c.milk, c.sugar, "", m.menuResponder(s, i))
+		m.executeBrew(s, i, c.choice, c.milk, c.sugar, "", m.brewResponder(s, i, true))
 	}
+}
+
+// handleTeaComponent processes clicks on the interactive tea menu: flavor
+// selection and toggles re-render in place; Brew steeps the configured tea.
+func (m *Module) handleTeaComponent(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	action, c, ok := parseBrewCfg(teaCfgPrefix, i.MessageComponentData().CustomID)
+	if !ok {
+		return
+	}
+	switch action {
+	case "pick":
+		if vals := i.MessageComponentData().Values; len(vals) > 0 {
+			c.choice = vals[0]
+		}
+		m.updateMenu(s, i, teaMenuPrompt, teaMenuComponents(c))
+	case "milk":
+		c.milk = !c.milk
+		m.updateMenu(s, i, teaMenuPrompt, teaMenuComponents(c))
+	case "sugar":
+		c.sugar = !c.sugar
+		m.updateMenu(s, i, teaMenuPrompt, teaMenuComponents(c))
+	case "go":
+		m.executeBrew(s, i, "hot_water", c.milk, c.sugar, c.choice, m.brewResponder(s, i, true))
+	}
+}
+
+// handleTakeCupComponent acknowledges the Take cup button: it edits the private
+// drink message into a personal "grabbed it" confirmation and drops the button.
+func (m *Module) handleTakeCupComponent(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	parts := strings.SplitN(i.MessageComponentData().CustomID, ":", 3)
+	drinkKey, tea := "", ""
+	if len(parts) >= 2 {
+		drinkKey = parts[1]
+	}
+	if len(parts) >= 3 {
+		tea = parts[2]
+	}
+	label := "drink"
+	if r, ok := recipeByKey(drinkKey); ok {
+		label = drinkLabel(r, tea)
+	}
+	m.respondUpdate(s, i, fmt.Sprintf("%s You grabbed your %s out of the machine. Enjoy!", drinkEmojiForKey(drinkKey, tea), label))
+}
+
+// drinkEmojiForKey is drinkEmoji by key, falling back to a coffee cup.
+func drinkEmojiForKey(drinkKey, tea string) string {
+	if r, ok := recipeByKey(drinkKey); ok {
+		return drinkEmoji(r, tea)
+	}
+	return "☕"
 }
