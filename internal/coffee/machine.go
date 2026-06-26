@@ -782,7 +782,7 @@ func (m *Module) executeBrew(s *discordgo.Session, i *discordgo.InteractionCreat
 	out, err := m.dispense(i.GuildID, interactionUserID(i), drinkKey, addMilk, addSugar)
 	if err != nil {
 		slog.Error("coffee: dispense failed", "error", err)
-		r.blocked("The machine sputtered and failed. Try again later.")
+		r.blocked(m.localizeUI(s, i.ChannelID, "The machine sputtered and failed. Try again later."))
 		return
 	}
 	if !out.ok {
@@ -817,12 +817,17 @@ func (m *Module) executeBrew(s *discordgo.Session, i *discordgo.InteractionCreat
 
 	// The reveal is public but personal: it names the orderer's own cup and
 	// carries a Take cup button that only they may press to grab it.
-	final := m.generateInteractionMessage(s, i.ChannelID,
-		fmt.Sprintf("The %s%s ordered by user <@%s> is ready in the machine. Announce to the channel that it is waiting for them to grab, in one short sentence, keeping the <@%s> mention.", label, extras, userID, userID),
-		fmt.Sprintf("%s <@%s>, your %s%s is ready — grab it!", drinkEmoji(out.recipe, tea), userID, label, extras))
-	// Append the service nudge verbatim (never paraphrased by the LLM) so the
-	// brewer who left the machine low is reminded to refill for the next person.
-	final += serviceHint(out.serviceNeeded)
+	readyFallback := fmt.Sprintf("%s <@%s>, your %s%s is ready — grab it!", drinkEmoji(out.recipe, tea), userID, label, extras)
+	scenario := fmt.Sprintf("The %s%s ordered by user <@%s> is ready in the machine. Announce to the channel that it is waiting for them to grab, in one short sentence, keeping the <@%s> mention.", label, extras, userID, userID)
+	// Fold the low-on-supplies nudge into the same generated message so it is
+	// translated alongside the ready announcement (instead of being appended as
+	// untranslated English); instruct the model to keep the exact command hints
+	// so /coffeemachine stays clickable.
+	hint := serviceHint(out.serviceNeeded)
+	if hint != "" {
+		scenario += " Also add a brief heads-up that the machine is running low: " + strings.TrimSpace(hint) + " Keep any `/coffeemachine` command and emoji exactly as written."
+	}
+	final := m.generateInteractionMessage(s, i.ChannelID, scenario, readyFallback+hint)
 	r.final(final, takeCupComponents(userID, out.recipe.key, tea))
 }
 
@@ -846,7 +851,7 @@ func (m *Module) handleMachineInteraction(s *discordgo.Session, i *discordgo.Int
 		out, err := m.refill(i.GuildID, userID, partKey)
 		if err != nil {
 			slog.Error("coffee: refill failed", "error", err)
-			m.respond(s, i, "The machine sputtered and failed. Try again later.", true)
+			m.respond(s, i, m.localizeUI(s, i.ChannelID, "The machine sputtered and failed. Try again later."), true)
 			return
 		}
 		if out.alreadyFull {
@@ -865,7 +870,7 @@ func (m *Module) handleMachineInteraction(s *discordgo.Session, i *discordgo.Int
 		out, err := m.emptyGrounds(i.GuildID, userID)
 		if err != nil {
 			slog.Error("coffee: empty grounds failed", "error", err)
-			m.respond(s, i, "The machine sputtered and failed. Try again later.", true)
+			m.respond(s, i, m.localizeUI(s, i.ChannelID, "The machine sputtered and failed. Try again later."), true)
 			return
 		}
 		if out.alreadyEmpty {
@@ -884,7 +889,7 @@ func (m *Module) handleMachineInteraction(s *discordgo.Session, i *discordgo.Int
 		inv, err := m.getOrSeedInventory(i.GuildID)
 		if err != nil {
 			slog.Error("coffee: status failed", "error", err)
-			m.respond(s, i, "The machine sputtered and failed. Try again later.", true)
+			m.respond(s, i, m.localizeUI(s, i.ChannelID, "The machine sputtered and failed. Try again later."), true)
 			return
 		}
 		drinkers, _ := m.topDrinkers(i.GuildID, 3)
@@ -985,7 +990,7 @@ func (m *Module) ensureOpener(s *discordgo.Session, i *discordgo.InteractionCrea
 	if interactionUserID(i) == opener {
 		return true
 	}
-	m.respond(s, i, "☕ That's not your order — run `/coffee` or `/tea` to start your own.", true)
+	m.respond(s, i, m.localizeUI(s, i.ChannelID, "☕ That's not your order — run `/coffee` or `/tea` to start your own."), true)
 	return false
 }
 
@@ -1050,13 +1055,13 @@ func takeCupComponents(opener, drinkKey, tea string) []discordgo.MessageComponen
 // openCoffeeMenu shows the interactive coffee menu, gated to its opener.
 func (m *Module) openCoffeeMenu(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	c := brewCfg{opener: interactionUserID(i), choice: coffeeMenu()[0].key}
-	m.openMenu(s, i, coffeeMenuPrompt, coffeeMenuComponents(c))
+	m.openMenu(s, i, m.localizeUI(s, i.ChannelID, coffeeMenuPrompt), coffeeMenuComponents(c))
 }
 
 // openTeaMenu shows the interactive tea menu, gated to its opener.
 func (m *Module) openTeaMenu(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	c := brewCfg{opener: interactionUserID(i), choice: teaFlavors[0].key}
-	m.openMenu(s, i, teaMenuPrompt, teaMenuComponents(c))
+	m.openMenu(s, i, m.localizeUI(s, i.ChannelID, teaMenuPrompt), teaMenuComponents(c))
 }
 
 // handleCoffeeComponent processes clicks on the interactive coffee menu: drink
@@ -1066,20 +1071,23 @@ func (m *Module) handleCoffeeComponent(s *discordgo.Session, i *discordgo.Intera
 	if !ok || !m.ensureOpener(s, i, c.opener) {
 		return
 	}
+	if action == "go" {
+		m.executeBrew(s, i, c.choice, c.milk, c.sugar, "", m.brewResponder(s, i, true))
+		return
+	}
+	prompt := m.localizeUI(s, i.ChannelID, coffeeMenuPrompt)
 	switch action {
 	case "pick":
 		if vals := i.MessageComponentData().Values; len(vals) > 0 {
 			c.choice = vals[0]
 		}
-		m.updateMenu(s, i, coffeeMenuPrompt, coffeeMenuComponents(c))
+		m.updateMenu(s, i, prompt, coffeeMenuComponents(c))
 	case "milk":
 		c.milk = !c.milk
-		m.updateMenu(s, i, coffeeMenuPrompt, coffeeMenuComponents(c))
+		m.updateMenu(s, i, prompt, coffeeMenuComponents(c))
 	case "sugar":
 		c.sugar = !c.sugar
-		m.updateMenu(s, i, coffeeMenuPrompt, coffeeMenuComponents(c))
-	case "go":
-		m.executeBrew(s, i, c.choice, c.milk, c.sugar, "", m.brewResponder(s, i, true))
+		m.updateMenu(s, i, prompt, coffeeMenuComponents(c))
 	}
 }
 
@@ -1090,20 +1098,23 @@ func (m *Module) handleTeaComponent(s *discordgo.Session, i *discordgo.Interacti
 	if !ok || !m.ensureOpener(s, i, c.opener) {
 		return
 	}
+	if action == "go" {
+		m.executeBrew(s, i, "hot_water", c.milk, c.sugar, c.choice, m.brewResponder(s, i, true))
+		return
+	}
+	prompt := m.localizeUI(s, i.ChannelID, teaMenuPrompt)
 	switch action {
 	case "pick":
 		if vals := i.MessageComponentData().Values; len(vals) > 0 {
 			c.choice = vals[0]
 		}
-		m.updateMenu(s, i, teaMenuPrompt, teaMenuComponents(c))
+		m.updateMenu(s, i, prompt, teaMenuComponents(c))
 	case "milk":
 		c.milk = !c.milk
-		m.updateMenu(s, i, teaMenuPrompt, teaMenuComponents(c))
+		m.updateMenu(s, i, prompt, teaMenuComponents(c))
 	case "sugar":
 		c.sugar = !c.sugar
-		m.updateMenu(s, i, teaMenuPrompt, teaMenuComponents(c))
-	case "go":
-		m.executeBrew(s, i, "hot_water", c.milk, c.sugar, c.choice, m.brewResponder(s, i, true))
+		m.updateMenu(s, i, prompt, teaMenuComponents(c))
 	}
 }
 
@@ -1129,7 +1140,10 @@ func (m *Module) handleTakeCupComponent(s *discordgo.Session, i *discordgo.Inter
 	if r, ok := recipeByKey(drinkKey); ok {
 		label = drinkLabel(r, tea)
 	}
-	m.respondUpdate(s, i, fmt.Sprintf("%s <@%s> grabbed their %s out of the machine. Enjoy!", drinkEmojiForKey(drinkKey, tea), opener, label))
+	msg := m.generateInteractionMessage(s, i.ChannelID,
+		fmt.Sprintf("User <@%s> just grabbed their %s out of the coffee machine. Tell the channel to enjoy it, in one short sentence, keeping the <@%s> mention.", opener, label, opener),
+		fmt.Sprintf("%s <@%s> grabbed their %s out of the machine. Enjoy!", drinkEmojiForKey(drinkKey, tea), opener, label))
+	m.respondUpdate(s, i, msg)
 }
 
 // drinkEmojiForKey is drinkEmoji by key, falling back to a coffee cup.

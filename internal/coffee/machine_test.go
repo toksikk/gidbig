@@ -800,6 +800,7 @@ func TestCoffeeMenuComponents_ReflectState(t *testing.T) {
 
 func TestCoffee_NoOptionsOpensMenu(t *testing.T) {
 	m := newTestModule(t)
+	stubLLM(m, t, "", nil) // empty reply -> English fallback prompt
 	opens, _ := captureMenuIO(m)
 	resp, _, _ := captureBrewIO(m)
 
@@ -821,6 +822,7 @@ func TestCoffee_NoOptionsOpensMenu(t *testing.T) {
 
 func TestTea_NoOptionsOpensMenu(t *testing.T) {
 	m := newTestModule(t)
+	stubLLM(m, t, "", nil) // empty reply -> English fallback prompt
 	opens, _ := captureMenuIO(m)
 	resp, _, _ := captureBrewIO(m)
 
@@ -839,6 +841,7 @@ func TestTea_NoOptionsOpensMenu(t *testing.T) {
 
 func TestCoffeeComponent_TogglesAndSelect(t *testing.T) {
 	m := newTestModule(t)
+	stubLLM(m, t, "", nil) // empty reply -> English fallback prompt
 	_, updates := captureMenuIO(m)
 
 	// select espresso
@@ -859,6 +862,45 @@ func TestCoffeeComponent_TogglesAndSelect(t *testing.T) {
 	}
 	if c := menuCfg(t, coffeeCfgPrefix, (*updates)[2].comps); !c.sugar || !c.milk {
 		t.Errorf("after sugar toggle, cfg = %+v, want milk+sugar on", c)
+	}
+}
+
+func TestMenuPromptLocalizedAndCached(t *testing.T) {
+	m := newTestModule(t)
+	getCalls := stubLLM(m, t, "Was darf es sein?", nil)
+	opens, updates := captureMenuIO(m)
+
+	// Opening the menu translates the prompt once.
+	m.handleCoffeeInteraction(nil, makeBrewInteraction("g1")) // no options -> menu
+	if len(*opens) != 1 || (*opens)[0].content != "Was darf es sein?" {
+		t.Fatalf("menu prompt should be the localized text, got %+v", *opens)
+	}
+
+	// A toggle re-renders the menu but must reuse the cached translation.
+	m.handleCoffeeComponent(nil, makeBrewComponent("g1", encodeBrewCfg(coffeeCfgPrefix, "milk", brewCfg{opener: "u1", choice: "coffee"})))
+	if len(*updates) != 1 || (*updates)[0].content != "Was darf es sein?" {
+		t.Fatalf("re-render should keep the localized prompt, got %+v", *updates)
+	}
+	if n := len(getCalls()); n != 1 {
+		t.Errorf("menu prompt should be translated once and cached, got %d LLM calls", n)
+	}
+}
+
+func TestEnsureOpenerNudgeLocalized(t *testing.T) {
+	m := newTestModule(t)
+	stubLLM(m, t, "Nicht deine Bestellung.", nil)
+	resp, _, _ := captureBrewIO(m)
+	_, _ = captureMenuIO(m)
+
+	// The clicking user is "u1" (set by makeBrewComponent) but the menu is owned
+	// by "alice", so the click is rejected with a localized ephemeral nudge.
+	m.handleCoffeeComponent(nil, makeBrewComponent("g1", encodeBrewCfg(coffeeCfgPrefix, "milk", brewCfg{opener: "alice", choice: "coffee"})))
+
+	if len(*resp) != 1 || !(*resp)[0].ephemeral {
+		t.Fatalf("non-owner should get an ephemeral nudge, got %+v", *resp)
+	}
+	if (*resp)[0].content != "Nicht deine Bestellung." {
+		t.Errorf("nudge should be localized, got %q", (*resp)[0].content)
 	}
 }
 
@@ -912,6 +954,7 @@ func TestTeaComponent_GoBrews(t *testing.T) {
 
 func TestTakeCup_Confirms(t *testing.T) {
 	m := newTestModule(t)
+	stubLLM(m, t, "", nil) // empty reply -> English fallback confirmation
 	resp, _, _ := captureBrewIO(m)
 
 	id := strings.Join([]string{takeCupPrefix, "u1", "espresso", ""}, ":")
@@ -927,6 +970,7 @@ func TestTakeCup_Confirms(t *testing.T) {
 
 func TestTakeCup_RejectsNonOwner(t *testing.T) {
 	m := newTestModule(t)
+	stubLLM(m, t, "", nil) // empty reply -> English fallback nudge
 	resp, _, _ := captureBrewIO(m)
 	var updates int
 	m.respondUpdate = func(_ *discordgo.Session, _ *discordgo.InteractionCreate, _ string) { updates++ }
@@ -1177,6 +1221,31 @@ func TestExecuteBrewAppendsServiceHint(t *testing.T) {
 
 	if len(*edits) != 1 || !strings.Contains((*edits)[0], "Heads up") {
 		t.Fatalf("final brew message should carry the service nudge, got %v", *edits)
+	}
+}
+
+func TestExecuteBrew_FoldsServiceHintIntoLLMScenario(t *testing.T) {
+	m := newTestModule(t)
+	getCalls := stubLLM(m, t, "Fertig!", nil) // non-empty -> LLM output used as-is
+	_, edits, _ := captureBrewIO(m)
+	setLevels(m, t, "g1", func(inv *MachineInventory) { inv.WaterMl = 120 }) // empties on brew
+
+	m.handleCoffeeInteraction(nil, makeBrewInteraction("g1", strOpt("drink", "coffee")))
+
+	// The nudge must reach the LLM (so it gets translated), not be appended in
+	// English after generation.
+	foundHint := false
+	for _, c := range getCalls() {
+		if strings.Contains(c, "Heads up") || strings.Contains(c, "running low") {
+			foundHint = true
+		}
+	}
+	if !foundHint {
+		t.Errorf("service nudge should be folded into an LLM scenario, calls=%v", getCalls())
+	}
+	// The final message is the LLM output, with no English nudge appended.
+	if len(*edits) != 1 || (*edits)[0] != "Fertig!" {
+		t.Errorf("final should be the LLM message only, got %v", *edits)
 	}
 }
 
