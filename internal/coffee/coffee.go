@@ -47,6 +47,11 @@ type Module struct {
 	// machineMu serializes mutations to the per-guild machine inventory.
 	machineMu sync.Mutex
 
+	// uiCache holds LLM-translated fixed UI strings (menu prompts, rejection
+	// nudges, generic errors) keyed by channel+text, so menu re-renders and
+	// rejection clicks never trigger an LLM call on every interaction.
+	uiCache sync.Map
+
 	// Test hooks
 	nowFunc              func() time.Time
 	isSpecialDay         func() bool
@@ -293,6 +298,34 @@ func (m *Module) generateInteractionMessage(s *discordgo.Session, channelID, sce
 		return fallback
 	}
 	return strings.TrimSpace(msg)
+}
+
+// cachedUIText is a per-channel localized UI string with an expiry.
+type cachedUIText struct {
+	text      string
+	expiresAt time.Time
+}
+
+const uiTextCacheTTL = time.Hour
+
+// localizeUI returns a fixed UI string rendered in the channel's language via the
+// LLM, cached per channel so menu re-renders and rejection nudges never trigger
+// an LLM call on every interaction. Button labels and select placeholders are
+// deliberately not routed through here — they stay short English. Falls back to
+// english on any error or empty reply.
+func (m *Module) localizeUI(s *discordgo.Session, channelID, english string) string {
+	key := channelID + "\x00" + english
+	if v, ok := m.uiCache.Load(key); ok {
+		if e := v.(cachedUIText); m.nowFunc().Before(e.expiresAt) {
+			return e.text
+		}
+		m.uiCache.Delete(key)
+	}
+	out := m.generateInteractionMessage(s, channelID,
+		"Translate this coffee-station line into the channel's language, keeping every `/slash-command`, **markdown** marker and emoji exactly as written. Reply with only the translated line:\n"+english,
+		english)
+	m.uiCache.Store(key, cachedUIText{text: out, expiresAt: m.nowFunc().Add(uiTextCacheTTL)})
+	return out
 }
 
 func (m *Module) beverageEmojiFor(userID string) string {
