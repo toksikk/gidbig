@@ -47,6 +47,11 @@ type Module struct {
 	// machineMu serializes mutations to the per-guild machine inventory.
 	machineMu sync.Mutex
 
+	// uiCache holds LLM-translated fixed UI strings (menu prompts, rejection
+	// nudges, generic errors) keyed by channel+text, so menu re-renders and
+	// rejection clicks never trigger an LLM call on every interaction.
+	uiCache sync.Map
+
 	// Test hooks
 	nowFunc              func() time.Time
 	isSpecialDay         func() bool
@@ -56,7 +61,11 @@ type Module struct {
 	generateLLMMessage   func(context.Context, string, string) (string, error)
 	deferInteraction     func(*discordgo.Session, *discordgo.InteractionCreate, bool) error
 	editDeferredResponse func(*discordgo.Session, *discordgo.InteractionCreate, string)
+	editWithComponents   func(*discordgo.Session, *discordgo.InteractionCreate, string, []discordgo.MessageComponent)
 	respond              func(*discordgo.Session, *discordgo.InteractionCreate, string, bool)
+	respondUpdate        func(*discordgo.Session, *discordgo.InteractionCreate, string)
+	openMenu             func(*discordgo.Session, *discordgo.InteractionCreate, string, []discordgo.MessageComponent)
+	updateMenu           func(*discordgo.Session, *discordgo.InteractionCreate, string, []discordgo.MessageComponent)
 	sleep                func(time.Duration)
 }
 
@@ -72,7 +81,11 @@ func New() *Module {
 	m.generateLLMMessage = llm.GenerateMessage
 	m.deferInteraction = m.deferInteractionImpl
 	m.editDeferredResponse = m.editDeferredResponseImpl
+	m.editWithComponents = m.editWithComponentsImpl
 	m.respond = m.respondImpl
+	m.respondUpdate = m.respondUpdateImpl
+	m.openMenu = m.openMenuImpl
+	m.updateMenu = m.updateMenuImpl
 	m.sleep = time.Sleep
 	return m
 }
@@ -109,13 +122,13 @@ func (m *Module) Commands() []*discordgo.ApplicationCommand {
 			},
 		},
 		{
-			Name:        "brew",
-			Description: "Get a fresh drink from the coffee machine",
+			Name:        "coffee",
+			Description: "Pull a fresh coffee from the machine (no options opens a menu)",
 			Options: []*discordgo.ApplicationCommandOption{
 				{
 					Type:        discordgo.ApplicationCommandOptionString,
 					Name:        "drink",
-					Description: "What to brew (default: coffee)",
+					Description: "Which coffee (default: coffee)",
 					Required:    false,
 					Choices:     drinkChoices(),
 				},
@@ -131,12 +144,30 @@ func (m *Module) Commands() []*discordgo.ApplicationCommand {
 					Description: "Add sugar",
 					Required:    false,
 				},
+			},
+		},
+		{
+			Name:        "tea",
+			Description: "Steep a tea bag in fresh hot water (no options opens a menu)",
+			Options: []*discordgo.ApplicationCommandOption{
 				{
 					Type:        discordgo.ApplicationCommandOptionString,
-					Name:        "tea",
-					Description: "Drop in a tea bag (hot water only)",
+					Name:        "flavor",
+					Description: "Which tea bag to steep",
 					Required:    false,
 					Choices:     teaChoices(),
+				},
+				{
+					Type:        discordgo.ApplicationCommandOptionBoolean,
+					Name:        "milk",
+					Description: "Add a splash of milk",
+					Required:    false,
+				},
+				{
+					Type:        discordgo.ApplicationCommandOptionBoolean,
+					Name:        "sugar",
+					Description: "Add sugar",
+					Required:    false,
 				},
 			},
 		},
@@ -166,17 +197,32 @@ func (m *Module) Commands() []*discordgo.ApplicationCommand {
 				{
 					Type:        discordgo.ApplicationCommandOptionSubCommand,
 					Name:        "status",
-					Description: "Show machine levels and stats",
+					Description: "Show machine levels and leaderboards",
+				},
+				{
+					Type:        discordgo.ApplicationCommandOptionSubCommand,
+					Name:        "stats",
+					Description: "Detailed coffee stats for a user (default: you)",
+					Options: []*discordgo.ApplicationCommandOption{
+						{
+							Type:        discordgo.ApplicationCommandOptionUser,
+							Name:        "user",
+							Description: "Whose stats to show (omit for your own)",
+							Required:    false,
+						},
+					},
 				},
 			},
 		},
 	}
 }
 
-// drinkChoices builds the /brew drink option choices from the menu.
+// drinkChoices builds the /coffee drink option choices from the coffee menu
+// (hot water is excluded — it lives behind /tea).
 func drinkChoices() []*discordgo.ApplicationCommandOptionChoice {
-	choices := make([]*discordgo.ApplicationCommandOptionChoice, 0, len(menu))
-	for _, r := range menu {
+	coffees := coffeeMenu()
+	choices := make([]*discordgo.ApplicationCommandOptionChoice, 0, len(coffees))
+	for _, r := range coffees {
 		choices = append(choices, &discordgo.ApplicationCommandOptionChoice{Name: r.label, Value: r.key})
 	}
 	return choices
@@ -191,7 +237,7 @@ func refillChoices() []*discordgo.ApplicationCommandOptionChoice {
 	return choices
 }
 
-// teaChoices builds the /brew tea option choices.
+// teaChoices builds the /tea flavor option choices.
 func teaChoices() []*discordgo.ApplicationCommandOptionChoice {
 	choices := make([]*discordgo.ApplicationCommandOptionChoice, 0, len(teaFlavors))
 	for _, t := range teaFlavors {
@@ -233,6 +279,14 @@ func (m *Module) editDeferredResponseImpl(s *discordgo.Session, i *discordgo.Int
 	}
 }
 
+// editWithComponentsImpl edits the interaction's response, replacing both its
+// content and its components (used to attach the "Take cup" button).
+func (m *Module) editWithComponentsImpl(s *discordgo.Session, i *discordgo.InteractionCreate, content string, comps []discordgo.MessageComponent) {
+	if _, err := s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: &content, Components: &comps}); err != nil {
+		slog.Error("coffee: failed to edit response with components", "error", err)
+	}
+}
+
 func (m *Module) generateInteractionMessage(s *discordgo.Session, channelID, scenario, fallback string) string {
 	lang, _ := m.detectLanguage(s, channelID)
 	if lang == "" {
@@ -244,6 +298,34 @@ func (m *Module) generateInteractionMessage(s *discordgo.Session, channelID, sce
 		return fallback
 	}
 	return strings.TrimSpace(msg)
+}
+
+// cachedUIText is a per-channel localized UI string with an expiry.
+type cachedUIText struct {
+	text      string
+	expiresAt time.Time
+}
+
+const uiTextCacheTTL = time.Hour
+
+// localizeUI returns a fixed UI string rendered in the channel's language via the
+// LLM, cached per channel so menu re-renders and rejection nudges never trigger
+// an LLM call on every interaction. Button labels and select placeholders are
+// deliberately not routed through here — they stay short English. Falls back to
+// english on any error or empty reply.
+func (m *Module) localizeUI(s *discordgo.Session, channelID, english string) string {
+	key := channelID + "\x00" + english
+	if v, ok := m.uiCache.Load(key); ok {
+		if e := v.(cachedUIText); m.nowFunc().Before(e.expiresAt) {
+			return e.text
+		}
+		m.uiCache.Delete(key)
+	}
+	out := m.generateInteractionMessage(s, channelID,
+		"Translate this coffee-station line into the channel's language, keeping every `/slash-command`, **markdown** marker and emoji exactly as written. Reply with only the translated line:\n"+english,
+		english)
+	m.uiCache.Store(key, cachedUIText{text: out, expiresAt: m.nowFunc().Add(uiTextCacheTTL)})
+	return out
 }
 
 func (m *Module) beverageEmojiFor(userID string) string {
@@ -294,14 +376,29 @@ func (m *Module) onMessageCreate(s *discordgo.Session, mc *discordgo.MessageCrea
 }
 
 func (m *Module) onInteractionCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	if i.Type == discordgo.InteractionMessageComponent {
+		id := i.MessageComponentData().CustomID
+		switch {
+		case strings.HasPrefix(id, teaCfgPrefix):
+			m.handleTeaComponent(s, i)
+		case strings.HasPrefix(id, coffeeCfgPrefix):
+			m.handleCoffeeComponent(s, i)
+		case strings.HasPrefix(id, takeCupPrefix):
+			m.handleTakeCupComponent(s, i)
+		}
+		return
+	}
 	if i.Type != discordgo.InteractionApplicationCommand {
 		return
 	}
 
 	data := i.ApplicationCommandData()
 	switch data.Name {
-	case "brew":
-		m.handleBrewInteraction(s, i)
+	case "coffee":
+		m.handleCoffeeInteraction(s, i)
+		return
+	case "tea":
+		m.handleTeaInteraction(s, i)
 		return
 	case "coffeemachine":
 		m.handleMachineInteraction(s, i)
@@ -382,6 +479,40 @@ func (m *Module) respondImpl(s *discordgo.Session, i *discordgo.InteractionCreat
 		Data: &discordgo.InteractionResponseData{Content: content, Flags: flags},
 	}); err != nil {
 		slog.Error("coffee: respond failed", "error", err)
+	}
+}
+
+// respondUpdateImpl replaces a component message's content in place and clears
+// its components (used when the interactive menu transitions to brewing/result).
+func (m *Module) respondUpdateImpl(s *discordgo.Session, i *discordgo.InteractionCreate, content string) {
+	empty := []discordgo.MessageComponent{}
+	if err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseUpdateMessage,
+		Data: &discordgo.InteractionResponseData{Content: content, Components: empty},
+	}); err != nil {
+		slog.Error("coffee: respond update failed", "error", err)
+	}
+}
+
+// openMenuImpl sends a public message carrying interactive components. The menu
+// is public (so brewing/readiness stay visible to the channel) but gated to its
+// opener, who is encoded in every component custom ID.
+func (m *Module) openMenuImpl(s *discordgo.Session, i *discordgo.InteractionCreate, content string, comps []discordgo.MessageComponent) {
+	if err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{Content: content, Components: comps},
+	}); err != nil {
+		slog.Error("coffee: open menu failed", "error", err)
+	}
+}
+
+// updateMenuImpl re-renders a component message's content and components in place.
+func (m *Module) updateMenuImpl(s *discordgo.Session, i *discordgo.InteractionCreate, content string, comps []discordgo.MessageComponent) {
+	if err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseUpdateMessage,
+		Data: &discordgo.InteractionResponseData{Content: content, Components: comps},
+	}); err != nil {
+		slog.Error("coffee: update menu failed", "error", err)
 	}
 }
 
