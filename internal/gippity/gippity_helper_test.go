@@ -97,6 +97,7 @@ func TestFetchReferencedMessage_FoundInDB(t *testing.T) {
 	}
 	if msg == nil {
 		t.Fatal("expected non-nil message")
+		return
 	}
 	if msg.Content != "the referenced content" {
 		t.Errorf("Content = %q, want %q", msg.Content, "the referenced content")

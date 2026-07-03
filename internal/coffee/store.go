@@ -7,6 +7,7 @@ import (
 
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // UserBeveragePreference persists a Discord user's preferred beverage emoji.
@@ -419,12 +420,13 @@ func (m *Module) userSlackerBreakdown(guildID, userID string) ([]labelCount, err
 }
 
 // setPendingServiceTx records userID as on the hook for servicing part in
-// guildID, overwriting any prior pending record for that part.
+// guildID, overwriting any prior pending record for that part. Uses an atomic
+// INSERT ... ON CONFLICT DO UPDATE to avoid a race between concurrent brews.
 func setPendingServiceTx(tx *gorm.DB, guildID, part, userID string) error {
-	var ps PendingService
-	return tx.Where(PendingService{GuildID: guildID, Part: part}).
-		Assign(PendingService{UserID: userID}).
-		FirstOrCreate(&ps).Error
+	return tx.Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "guild_id"}, {Name: "part"}},
+		DoUpdates: clause.AssignmentColumns([]string{"user_id", "updated_at"}),
+	}).Create(&PendingService{GuildID: guildID, Part: part, UserID: userID}).Error
 }
 
 // clearPendingServiceTx removes any pending-service record for part in guildID.

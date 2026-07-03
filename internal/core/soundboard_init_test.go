@@ -113,6 +113,7 @@ func TestSoundCollectionRandom_returnsSound(t *testing.T) {
 		got := sc.Random()
 		if got == nil {
 			t.Fatal("Random() returned nil for non-empty collection")
+			return
 		}
 		if got.Name != "beep" {
 			t.Errorf("Random() = %q, want %q", got.Name, "beep")

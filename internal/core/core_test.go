@@ -37,6 +37,7 @@ func TestCreateSound(t *testing.T) {
 	s := createSound("test", 5, 250)
 	if s == nil {
 		t.Fatal("createSound() returned nil")
+		return
 	}
 	if s.Name != "test" {
 		t.Errorf("Name = %q, want %q", s.Name, "test")
@@ -104,6 +105,7 @@ func TestSoundCollectionRandom_SingleSound(t *testing.T) {
 	got := sc.Random()
 	if got == nil {
 		t.Fatal("Random() returned nil for single-sound collection")
+		return
 	}
 	if got.Name != "only" {
 		t.Errorf("Name = %q, want %q", got.Name, "only")
@@ -175,6 +177,7 @@ func TestStatusInteractionResponse_Owner(t *testing.T) {
 
 	if resp == nil {
 		t.Fatal("expected non-nil response")
+		return
 	}
 	if resp.Type != discordgo.InteractionResponseChannelMessageWithSource {
 		t.Errorf("Type = %v, want InteractionResponseChannelMessageWithSource", resp.Type)
@@ -202,6 +205,7 @@ func TestStatusInteractionResponse_NonOwner(t *testing.T) {
 
 	if resp == nil {
 		t.Fatal("expected non-nil response")
+		return
 	}
 	if called {
 		t.Error("buildStats should not be called for non-owner")
