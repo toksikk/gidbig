@@ -102,6 +102,19 @@ type SlackerEvent struct {
 // TableName returns the database table name.
 func (SlackerEvent) TableName() string { return "coffee_slacker_events" }
 
+// TeaBagInventory tracks tea bag counts per guild and tea variety. Seeded at
+// first use with seedTeaBagsPerFlavor bags; capped at maxTeaBagsPerFlavor.
+// Exactly one row per (guild_id, flavor).
+type TeaBagInventory struct {
+	gorm.Model
+	GuildID string `gorm:"not null;uniqueIndex:idx_teabag_guild_flavor"`
+	Flavor  string `gorm:"not null;uniqueIndex:idx_teabag_guild_flavor"`
+	Count   int    `gorm:"not null;default:0"`
+}
+
+// TableName returns the database table name.
+func (TeaBagInventory) TableName() string { return "coffee_teabag_inventory" }
+
 func (m *Module) getDB() *gorm.DB {
 	m.dbMu.RLock()
 	defer m.dbMu.RUnlock()
@@ -118,7 +131,7 @@ func (m *Module) openStore(path string) error {
 	}
 	return m.db.AutoMigrate(&UserBeveragePreference{}, &UserGreeting{},
 		&MachineInventory{}, &RefillEvent{}, &DrinkEvent{},
-		&PendingService{}, &SlackerEvent{})
+		&PendingService{}, &SlackerEvent{}, &TeaBagInventory{})
 }
 
 func (m *Module) closeStore() error {
@@ -433,4 +446,85 @@ func setPendingServiceTx(tx *gorm.DB, guildID, part, userID string) error {
 func clearPendingServiceTx(tx *gorm.DB, guildID, part string) error {
 	return tx.Where("guild_id = ? AND part = ?", guildID, part).
 		Delete(&PendingService{}).Error
+}
+
+// getOrSeedTeaBagTx loads or creates the TeaBagInventory row for the given
+// guild and flavor. New rows start with seedTeaBagsPerFlavor bags. Must be
+// called inside a transaction that holds machineMu.
+func getOrSeedTeaBagTx(tx *gorm.DB, guildID, flavor string) (TeaBagInventory, error) {
+	var tb TeaBagInventory
+	err := tx.Where(TeaBagInventory{GuildID: guildID, Flavor: flavor}).
+		Attrs(TeaBagInventory{Count: seedTeaBagsPerFlavor}).
+		FirstOrCreate(&tb).Error
+	return tb, err
+}
+
+// getTeaBagInventory returns TeaBagInventory rows for all known tea flavors in
+// the guild, seeding any missing varieties so the result is always complete.
+func (m *Module) getTeaBagInventory(guildID string) ([]TeaBagInventory, error) {
+	d := m.getDB()
+	if d == nil {
+		return nil, errors.New("store not initialized")
+	}
+	var rows []TeaBagInventory
+	err := d.Transaction(func(tx *gorm.DB) error {
+		for _, t := range teaFlavors {
+			if _, e := getOrSeedTeaBagTx(tx, guildID, t.key); e != nil {
+				return e
+			}
+		}
+		return tx.Where("guild_id = ?", guildID).Order("flavor ASC").Find(&rows).Error
+	})
+	return rows, err
+}
+
+// refillTeaBagsOutcome is the result of a tea bag refill attempt.
+type refillTeaBagsOutcome struct {
+	flavor      string
+	label       string
+	added       int
+	alreadyFull bool
+}
+
+// refillTeaBags tops up tea bags of the given flavor to maxTeaBagsPerFlavor for
+// the guild and records a RefillEvent for the amount added.
+func (m *Module) refillTeaBags(guildID, userID, flavor string) (refillTeaBagsOutcome, error) {
+	d := m.getDB()
+	if d == nil {
+		return refillTeaBagsOutcome{}, errors.New("store not initialized")
+	}
+	out := refillTeaBagsOutcome{flavor: flavor, label: teaFlavorLabel(flavor)}
+
+	m.machineMu.Lock()
+	defer m.machineMu.Unlock()
+
+	err := d.Transaction(func(tx *gorm.DB) error {
+		tb, e := getOrSeedTeaBagTx(tx, guildID, flavor)
+		if e != nil {
+			return e
+		}
+		if e = clearPendingServiceTx(tx, guildID, "tea_"+flavor); e != nil {
+			return e
+		}
+		if tb.Count >= maxTeaBagsPerFlavor {
+			out.alreadyFull = true
+			return nil
+		}
+		added := maxTeaBagsPerFlavor - tb.Count
+		tb.Count = maxTeaBagsPerFlavor
+		if e = tx.Save(&tb).Error; e != nil {
+			return e
+		}
+		if e = tx.Create(&RefillEvent{
+			GuildID: guildID,
+			UserID:  userID,
+			Part:    "tea_" + flavor,
+			Amount:  added,
+		}).Error; e != nil {
+			return e
+		}
+		out.added = added
+		return nil
+	})
+	return out, err
 }

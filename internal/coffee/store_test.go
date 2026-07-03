@@ -21,7 +21,7 @@ func newTestModule(t *testing.T) *Module {
 	}
 	if err := gormDB.AutoMigrate(&UserBeveragePreference{}, &UserGreeting{},
 		&MachineInventory{}, &RefillEvent{}, &DrinkEvent{},
-		&PendingService{}, &SlackerEvent{}); err != nil {
+		&PendingService{}, &SlackerEvent{}, &TeaBagInventory{}); err != nil {
 		t.Fatalf("failed to migrate: %v", err)
 	}
 	m.dbMu.Lock()

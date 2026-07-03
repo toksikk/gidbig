@@ -27,6 +27,10 @@ const (
 
 	// partGrounds is the RefillEvent.Part value denoting a grounds-empty action.
 	partGrounds = "grounds"
+
+	// Tea bag stock levels per variety. Seeded at first use; capped at max.
+	maxTeaBagsPerFlavor  = 50
+	seedTeaBagsPerFlavor = 20
 )
 
 type beanType int
@@ -50,15 +54,102 @@ type recipe struct {
 	brewSecs   int  // simulated brew time, varies by drink
 }
 
-// menu is the ordered drink list. The first entry is the default for /coffee;
-// hot_water is served only via /tea.
-var menu = []recipe{
+// coffeeRecipes are the espresso-machine drinks. The first entry is the default
+// for /brew when no drink is specified.
+var coffeeRecipes = []recipe{
 	{key: "coffee", label: "Coffee", bean: beanMild, beanGrams: 11, waterMl: 120, groundsG: 20, allowsMilk: true, brewSecs: 28},
 	{key: "espresso", label: "Espresso", bean: beanEspresso, beanGrams: 9, waterMl: 40, groundsG: 18, allowsMilk: true, brewSecs: 24},
 	{key: "milk_coffee", label: "Milk coffee", bean: beanMild, beanGrams: 11, waterMl: 80, milkMl: 120, groundsG: 20, brewSecs: 32},
 	{key: "latte_macchiato", label: "Latte macchiato", bean: beanEspresso, beanGrams: 9, waterMl: 40, milkMl: 180, groundsG: 18, brewSecs: 36},
 	{key: "flat_white", label: "Flat white", bean: beanEspresso, beanGrams: 18, waterMl: 60, milkMl: 120, groundsG: 36, brewSecs: 40},
-	{key: "hot_water", label: "Hot water", bean: beanNone, waterMl: 200, allowsMilk: true, brewSecs: 20},
+}
+
+// teaFlavor describes a tracked tea variety. Each consumes 1 tea bag and 200 ml
+// water per brew and is stored in TeaBagInventory keyed by flavor.key.
+type teaFlavor struct {
+	key   string
+	label string
+}
+
+var teaFlavors = []teaFlavor{
+	{key: "black", label: "Black"},
+	{key: "green", label: "Green"},
+	{key: "earl_grey", label: "Earl Grey"},
+	{key: "peppermint", label: "Peppermint"},
+	{key: "chamomile", label: "Chamomile"},
+	{key: "rooibos", label: "Rooibos"},
+	{key: "fennel", label: "Fennel"},
+}
+
+// teaFlavorLabel returns the display label for a tea flavor key, or the key
+// itself when unknown.
+func teaFlavorLabel(flavor string) string {
+	for _, t := range teaFlavors {
+		if t.key == flavor {
+			return t.label
+		}
+	}
+	return flavor
+}
+
+// menu is the full ordered drink list: coffee recipes followed by tea recipes.
+// Built in init so tea recipes are derived from teaFlavors.
+var menu []recipe
+
+// refillParts are the machine tanks/hoppers refillable via /coffeemachine refill.
+// teaRefillParts are appended in init from teaFlavors.
+var (
+	machineRefillParts = []refillPart{
+		{key: "beans_mild", label: "Mild beans", max: maxBeansMildG, unit: "g"},
+		{key: "beans_espresso", label: "Espresso beans", max: maxBeansEspressoG, unit: "g"},
+		{key: "water", label: "Water", max: maxWaterMl, unit: "ml"},
+		{key: "milk", label: "Milk", max: maxMilkMl, unit: "ml"},
+	}
+	teaRefillParts []refillPart
+	refillParts    []refillPart // machineRefillParts + teaRefillParts, built in init
+)
+
+func init() {
+	// Build full drink menu: coffee recipes + one recipe per tea flavor.
+	menu = make([]recipe, len(coffeeRecipes))
+	copy(menu, coffeeRecipes)
+	for _, t := range teaFlavors {
+		menu = append(menu, recipe{
+			key:        "tea_" + t.key,
+			label:      t.label + " tea",
+			waterMl:    200,
+			allowsMilk: true,
+			brewSecs:   20,
+		})
+	}
+
+	// Build tea refill parts list.
+	for _, t := range teaFlavors {
+		teaRefillParts = append(teaRefillParts, refillPart{
+			key:   "tea_" + t.key,
+			label: "Tea bags (" + t.label + ")",
+			max:   maxTeaBagsPerFlavor,
+			unit:  " bags",
+		})
+	}
+	refillParts = append(machineRefillParts, teaRefillParts...)
+}
+
+// refillPart describes a refillable tank/hopper or tea bag variety.
+type refillPart struct {
+	key   string // choice value, also RefillEvent.Part
+	label string
+	max   int
+	unit  string // "g", "ml", or " bags"
+}
+
+func refillPartByKey(key string) (refillPart, bool) {
+	for _, p := range refillParts {
+		if p.key == key {
+			return p, true
+		}
+	}
+	return refillPart{}, false
 }
 
 // brewTime is how long the machine pretends to take dispensing a drink.
@@ -75,62 +166,14 @@ func recipeByKey(key string) (recipe, bool) {
 	return recipe{}, false
 }
 
-// teaFlavor is an optional tea-bag flavor for the hot-water drink. Tea is
-// cosmetic: it flavors the cup but consumes no tracked inventory.
-type teaFlavor struct {
-	key   string
-	label string
-}
-
-var teaFlavors = []teaFlavor{
-	{key: "black", label: "Black"},
-	{key: "green", label: "Green"},
-	{key: "earl_grey", label: "Earl Grey"},
-	{key: "peppermint", label: "Peppermint"},
-	{key: "chamomile", label: "Chamomile"},
-	{key: "rooibos", label: "Rooibos"},
-	{key: "fennel", label: "Fennel"},
-}
-
-// teaLabel returns the display label for a tea-flavor key.
-func teaLabel(key string) (string, bool) {
-	for _, t := range teaFlavors {
-		if t.key == key {
-			return t.label, true
-		}
-	}
-	return "", false
-}
-
-// refillPart describes a refillable tank/hopper exposed by /coffeemachine refill.
-type refillPart struct {
-	key   string // choice value, also RefillEvent.Part
-	label string
-	max   int
-	unit  string // "g" or "ml"
-}
-
-var refillParts = []refillPart{
-	{key: "beans_mild", label: "Mild beans", max: maxBeansMildG, unit: "g"},
-	{key: "beans_espresso", label: "Espresso beans", max: maxBeansEspressoG, unit: "g"},
-	{key: "water", label: "Water", max: maxWaterMl, unit: "ml"},
-	{key: "milk", label: "Milk", max: maxMilkMl, unit: "ml"},
-}
-
-func refillPartByKey(key string) (refillPart, bool) {
-	for _, p := range refillParts {
-		if p.key == key {
-			return p, true
-		}
-	}
-	return refillPart{}, false
-}
-
 // partLabel returns a human-facing name for a refillable part or the grounds
 // container.
 func partLabel(key string) string {
 	if key == partGrounds {
 		return "grounds container"
+	}
+	if flavor, ok := strings.CutPrefix(key, "tea_"); ok {
+		return strings.ToLower(teaFlavorLabel(flavor)) + " tea bags"
 	}
 	if p, ok := refillPartByKey(key); ok {
 		return strings.ToLower(p.label)
@@ -262,6 +305,12 @@ func (m *Module) dispense(guildID, userID, drinkKey string, addMilk, addSugar bo
 
 	out := dispenseOutcome{recipe: r, splashMilk: splashMilk, withSugar: addSugar}
 
+	// For tea drinks, extract the flavor key so we can check/deduct tea bags.
+	teaBagFlavor, isTea := strings.CutPrefix(drinkKey, "tea_")
+	if !isTea {
+		teaBagFlavor = ""
+	}
+
 	m.machineMu.Lock()
 	defer m.machineMu.Unlock()
 
@@ -269,6 +318,16 @@ func (m *Module) dispense(guildID, userID, drinkKey string, addMilk, addSugar bo
 		inv, e := seedInventoryTx(tx, guildID)
 		if e != nil {
 			return e
+		}
+
+		// Load tea bag inventory up front so we can check stock in the switch below.
+		var teaBag *TeaBagInventory
+		if teaBagFlavor != "" {
+			tb, e2 := getOrSeedTeaBagTx(tx, guildID, teaBagFlavor)
+			if e2 != nil {
+				return e2
+			}
+			teaBag = &tb
 		}
 
 		blockPart := ""
@@ -283,6 +342,10 @@ func (m *Module) dispense(guildID, userID, drinkKey string, addMilk, addSugar bo
 			out.failMsg, blockPart = outOfMsg("milk", "milk"), "milk"
 		case inv.GroundsGrams+r.groundsG > maxGroundsG:
 			out.failMsg, blockPart = "The grounds container is full. Empty it with `/coffeemachine empty`.", partGrounds
+		case teaBag != nil && teaBag.Count < 1:
+			partKey := "tea_" + teaBagFlavor
+			out.failMsg = outOfMsg(teaFlavorLabel(teaBagFlavor)+" tea bags", partKey)
+			blockPart = partKey
 		}
 		if out.failMsg != "" {
 			out.inventory = inv
@@ -309,6 +372,15 @@ func (m *Module) dispense(guildID, userID, drinkKey string, addMilk, addSugar bo
 		if e = tx.Save(&inv).Error; e != nil {
 			return e
 		}
+
+		// Deduct one tea bag and flag service if now empty.
+		if teaBag != nil {
+			teaBag.Count--
+			if e = tx.Save(teaBag).Error; e != nil {
+				return e
+			}
+		}
+
 		if e = tx.Create(&DrinkEvent{
 			GuildID:   guildID,
 			UserID:    userID,
@@ -321,6 +393,9 @@ func (m *Module) dispense(guildID, userID, drinkKey string, addMilk, addSugar bo
 		// Record which parts this brew left needing service and pin the brewer as
 		// responsible, so a later blocked brew can blame them.
 		out.serviceNeeded = partsNeedingService(inv)
+		if teaBag != nil && teaBag.Count == 0 {
+			out.serviceNeeded = append(out.serviceNeeded, "tea_"+teaBagFlavor)
+		}
 		for _, p := range out.serviceNeeded {
 			if e = setPendingServiceTx(tx, guildID, p, userID); e != nil {
 				return e
@@ -495,21 +570,12 @@ func percent(cur, max int) int {
 	return int(math.Round(float64(cur) / float64(max) * 100))
 }
 
-// drinkLabel is the display name for a served drink. A non-empty tea flavor
-// turns hot water into the named tea (ignored for any other drink).
-func drinkLabel(r recipe, tea string) string {
-	if r.key == "hot_water" && tea != "" {
-		if tl, ok := teaLabel(tea); ok {
-			return tl + " tea"
-		}
-		return "tea"
-	}
-	return r.label
-}
+// drinkLabel is the display name for a served drink.
+func drinkLabel(r recipe) string { return r.label }
 
 // drinkEmoji picks the cup emoji for a served drink.
-func drinkEmoji(r recipe, tea string) string {
-	if r.key == "hot_water" && tea != "" {
+func drinkEmoji(r recipe) string {
+	if strings.HasPrefix(r.key, "tea_") {
 		return "🍵"
 	}
 	return "☕"
@@ -532,8 +598,8 @@ func extrasSuffix(splashMilk, withSugar bool) string {
 
 // formatDispenseSuccess builds the deterministic fallback confirmation for a
 // served drink (no machine stats — those live in /coffeemachine status).
-func formatDispenseSuccess(r recipe, splashMilk, withSugar bool, tea string) string {
-	return fmt.Sprintf("%s Here's your %s%s!", drinkEmoji(r, tea), drinkLabel(r, tea), extrasSuffix(splashMilk, withSugar))
+func formatDispenseSuccess(r recipe, splashMilk, withSugar bool) string {
+	return fmt.Sprintf("%s Here's your %s%s!", drinkEmoji(r), drinkLabel(r), extrasSuffix(splashMilk, withSugar))
 }
 
 // humanJoin renders a slice as "a", "a and b", or "a, b and c".
@@ -594,7 +660,7 @@ func blockedFallback(out dispenseOutcome) string {
 // formatStatus renders the machine status, levels, and stat leaderboards. The
 // per-drink and per-part breakdowns live in /coffeemachine stats; this view
 // keeps one headline number per leaderboard.
-func formatStatus(inv MachineInventory, drinkers, refillers []userCount, emptiers []groundsEmptier, slackers []userCount) string {
+func formatStatus(inv MachineInventory, drinkers, refillers []userCount, emptiers []groundsEmptier, slackers []userCount, teaBags []TeaBagInventory) string {
 	var sb strings.Builder
 	sb.WriteString("☕ **Coffee machine status**\n")
 	fmt.Fprintf(&sb, "Mild beans: %d/%dg (%d%%)\n", inv.BeansMildGrams, maxBeansMildG, percent(inv.BeansMildGrams, maxBeansMildG))
@@ -602,6 +668,15 @@ func formatStatus(inv MachineInventory, drinkers, refillers []userCount, emptier
 	fmt.Fprintf(&sb, "Water: %d/%dml (%d%%)\n", inv.WaterMl, maxWaterMl, percent(inv.WaterMl, maxWaterMl))
 	fmt.Fprintf(&sb, "Milk: %d/%dml (%d%%)\n", inv.MilkMl, maxMilkMl, percent(inv.MilkMl, maxMilkMl))
 	fmt.Fprintf(&sb, "Grounds: %d/%dg (%d%%)\n", inv.GroundsGrams, maxGroundsG, percent(inv.GroundsGrams, maxGroundsG))
+
+	if len(teaBags) > 0 {
+		sb.WriteString("\n**Tea bags**\n")
+		for _, tb := range teaBags {
+			fmt.Fprintf(&sb, "🍵 %s: %d/%d bags (%d%%)\n",
+				teaFlavorLabel(tb.Flavor)+" tea", tb.Count, maxTeaBagsPerFlavor,
+				percent(tb.Count, maxTeaBagsPerFlavor))
+		}
+	}
 
 	sb.WriteString("\n**Top baristas**\n")
 	if len(drinkers) == 0 {
@@ -730,15 +805,15 @@ func (m *Module) brewResponder(s *discordgo.Session, i *discordgo.InteractionCre
 	return r
 }
 
-// handleCoffeeInteraction serves /coffee. With no options it opens the
-// interactive drink menu; otherwise it brews the chosen coffee directly.
-func (m *Module) handleCoffeeInteraction(s *discordgo.Session, i *discordgo.InteractionCreate) {
+// handleBrewInteraction serves /brew. With no options it opens the interactive
+// drink menu (coffees + teas); otherwise it brews the chosen drink directly.
+func (m *Module) handleBrewInteraction(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	data := i.ApplicationCommandData()
 	if len(data.Options) == 0 {
-		m.openCoffeeMenu(s, i)
+		m.openBrewMenu(s, i)
 		return
 	}
-	drinkKey := coffeeMenu()[0].key
+	drinkKey := menu[0].key
 	addMilk, addSugar := false, false
 	for _, o := range data.Options {
 		switch o.Name {
@@ -750,35 +825,12 @@ func (m *Module) handleCoffeeInteraction(s *discordgo.Session, i *discordgo.Inte
 			addSugar = o.BoolValue()
 		}
 	}
-	m.executeBrew(s, i, drinkKey, addMilk, addSugar, "", m.brewResponder(s, i, false))
-}
-
-// handleTeaInteraction serves /tea: hot water with a chosen tea-bag flavor and
-// optional milk/sugar. With no options it opens the interactive tea menu.
-func (m *Module) handleTeaInteraction(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	data := i.ApplicationCommandData()
-	if len(data.Options) == 0 {
-		m.openTeaMenu(s, i)
-		return
-	}
-	tea := teaFlavors[0].key
-	addMilk, addSugar := false, false
-	for _, o := range data.Options {
-		switch o.Name {
-		case "flavor":
-			tea = o.StringValue()
-		case "milk":
-			addMilk = o.BoolValue()
-		case "sugar":
-			addSugar = o.BoolValue()
-		}
-	}
-	m.executeBrew(s, i, "hot_water", addMilk, addSugar, tea, m.brewResponder(s, i, false))
+	m.executeBrew(s, i, drinkKey, addMilk, addSugar, m.brewResponder(s, i, false))
 }
 
 // executeBrew dispenses one drink and drives the brewing animation through the
-// supplied responder. tea is cosmetic and only applies to hot water.
-func (m *Module) executeBrew(s *discordgo.Session, i *discordgo.InteractionCreate, drinkKey string, addMilk, addSugar bool, tea string, r brewResponder) {
+// supplied responder.
+func (m *Module) executeBrew(s *discordgo.Session, i *discordgo.InteractionCreate, drinkKey string, addMilk, addSugar bool, r brewResponder) {
 	out, err := m.dispense(i.GuildID, interactionUserID(i), drinkKey, addMilk, addSugar)
 	if err != nil {
 		slog.Error("coffee: dispense failed", "error", err)
@@ -786,9 +838,9 @@ func (m *Module) executeBrew(s *discordgo.Session, i *discordgo.InteractionCreat
 		return
 	}
 	if !out.ok {
-		// Blocked on a missing/low ingredient (or full grounds). Keep the exact
-		// fail message (with any blame) as the fallback so the slash-command hint
-		// and user mention stay correct.
+		// Blocked on a missing/low ingredient (or full grounds or tea bags). Keep
+		// the exact fail message (with any blame) as the fallback so the
+		// slash-command hint and user mention stay correct.
 		fallback := blockedFallback(out)
 		msg := m.generateInteractionMessage(s, i.ChannelID,
 			"The coffee machine cannot make the drink right now: "+fallback+
@@ -798,7 +850,7 @@ func (m *Module) executeBrew(s *discordgo.Session, i *discordgo.InteractionCreat
 		return
 	}
 
-	label := drinkLabel(out.recipe, tea)
+	label := drinkLabel(out.recipe)
 	extras := extrasSuffix(out.splashMilk, out.withSugar)
 	userID := interactionUserID(i)
 
@@ -810,14 +862,14 @@ func (m *Module) executeBrew(s *discordgo.Session, i *discordgo.InteractionCreat
 	ts := fmt.Sprintf("<t:%d:R>", readyAt.Unix())
 	brewing := m.generateInteractionMessage(s, i.ChannelID,
 		fmt.Sprintf("User <@%s> ordered a %s%s. Tell the channel it is brewing for them now, in one short sentence, keeping the <@%s> mention.", userID, label, extras, userID),
-		fmt.Sprintf("%s Brewing <@%s>'s %s%s…", drinkEmoji(out.recipe, tea), userID, label, extras))
+		fmt.Sprintf("%s Brewing <@%s>'s %s%s…", drinkEmoji(out.recipe), userID, label, extras))
 	r.brewing(brewing + " Ready " + ts)
 
 	m.sleep(wait)
 
 	// The reveal is public but personal: it names the orderer's own cup and
 	// carries a Take cup button that only they may press to grab it.
-	readyFallback := fmt.Sprintf("%s <@%s>, your %s%s is ready — grab it!", drinkEmoji(out.recipe, tea), userID, label, extras)
+	readyFallback := fmt.Sprintf("%s <@%s>, your %s%s is ready — grab it!", drinkEmoji(out.recipe), userID, label, extras)
 	scenario := fmt.Sprintf("The %s%s ordered by user <@%s> is ready in the machine. Announce to the channel that it is waiting for them to grab, in one short sentence, keeping the <@%s> mention.", label, extras, userID, userID)
 	// Fold the low-on-supplies nudge into the same generated message so it is
 	// translated alongside the ready announcement (instead of being appended as
@@ -828,7 +880,7 @@ func (m *Module) executeBrew(s *discordgo.Session, i *discordgo.InteractionCreat
 		scenario += " Also add a brief heads-up that the machine is running low: " + strings.TrimSpace(hint) + " Keep any `/coffeemachine` command and emoji exactly as written."
 	}
 	final := m.generateInteractionMessage(s, i.ChannelID, scenario, readyFallback+hint)
-	r.final(final, takeCupComponents(userID, out.recipe.key, tea))
+	r.final(final, takeCupComponents(userID, out.recipe.key))
 }
 
 // handleMachineInteraction handles /coffeemachine refill|empty|status.
@@ -847,6 +899,27 @@ func (m *Module) handleMachineInteraction(s *discordgo.Session, i *discordgo.Int
 			if o.Name == "part" {
 				partKey = o.StringValue()
 			}
+		}
+		// Tea bag refills go to a separate store path; machine parts use refill().
+		if flavor, ok := strings.CutPrefix(partKey, "tea_"); ok {
+			out, err := m.refillTeaBags(i.GuildID, userID, flavor)
+			if err != nil {
+				slog.Error("coffee: tea bag refill failed", "error", err)
+				m.respond(s, i, m.localizeUI(s, i.ChannelID, "The machine sputtered and failed. Try again later."), true)
+				return
+			}
+			if out.alreadyFull {
+				msg := m.generateInteractionMessage(s, i.ChannelID,
+					fmt.Sprintf("The %s tea bag box is already full. Tell the user in one short sentence.", out.label),
+					fmt.Sprintf("%s tea bags are already full.", out.label))
+				m.respond(s, i, msg, true)
+				return
+			}
+			msg := m.generateInteractionMessage(s, i.ChannelID,
+				fmt.Sprintf("A user just restocked the %s tea bags to the top (added %d bags). Thank them in one short sentence.", out.label, out.added),
+				fmt.Sprintf("🍵 <@%s> restocked %s tea bags (+%d bags).", userID, out.label, out.added))
+			m.respond(s, i, msg, false)
+			return
 		}
 		out, err := m.refill(i.GuildID, userID, partKey)
 		if err != nil {
@@ -896,7 +969,8 @@ func (m *Module) handleMachineInteraction(s *discordgo.Session, i *discordgo.Int
 		refillers, _ := m.topRefillers(i.GuildID, 3)
 		emptiers, _ := m.topGroundsEmptiers(i.GuildID, 3)
 		slackers, _ := m.topSlackers(i.GuildID, 3)
-		m.respond(s, i, formatStatus(inv, drinkers, refillers, emptiers, slackers), true)
+		teaBags, _ := m.getTeaBagInventory(i.GuildID)
+		m.respond(s, i, formatStatus(inv, drinkers, refillers, emptiers, slackers, teaBags), true)
 
 	case "stats":
 		targetID := userID
@@ -920,40 +994,23 @@ func (m *Module) buildUserStats(guildID, userID string) string {
 	return formatUserStats(userID, drinks, refills, groundsCount, groundsTotal, slackers)
 }
 
-// --- Interactive order menus (no-options /coffee and /tea) -------------------
+// --- Interactive order menu (no-options /brew) --------------------------------
 
-// Component custom-ID prefixes. The menus are public, so every custom ID also
+// Component custom-ID prefixes. The menu is public, so every custom ID also
 // carries the opener's user ID and only they may operate the components.
-// coffeeCfgPrefix and teaCfgPrefix tag the two order menus; takeCupPrefix tags
-// the Take cup button on a finished drink.
+// brewCfgPrefix tags the unified brew menu; takeCupPrefix tags the Take cup
+// button on a finished drink.
 const (
-	coffeeCfgPrefix = "coffee_brew_cfg"
-	teaCfgPrefix    = "coffee_tea_cfg"
-	takeCupPrefix   = "coffee_take"
+	brewCfgPrefix = "coffee_brew_cfg"
+	takeCupPrefix = "coffee_take"
 )
 
-const (
-	coffeeMenuPrompt = "☕ What can I get you? Pick a coffee, toggle the extras, then hit **Brew**."
-	teaMenuPrompt    = "🍵 Fancy a tea? Pick a flavor, toggle the extras, then hit **Brew**."
-)
-
-// coffeeMenu returns the menu drinks offered by /coffee — everything but hot
-// water, which now lives behind /tea.
-func coffeeMenu() []recipe {
-	out := make([]recipe, 0, len(menu))
-	for _, r := range menu {
-		if r.key == "hot_water" {
-			continue
-		}
-		out = append(out, r)
-	}
-	return out
-}
+const brewMenuPrompt = "☕🍵 What can I get you? Pick a drink, toggle the extras, then hit **Brew**."
 
 // brewCfg is the full state of an in-progress interactive order, carried inside
 // every component custom ID so no server-side session state is needed. opener is
-// the user who started the menu (only they may operate it); choice holds a
-// coffee drink key (coffee menu) or a tea flavor key (tea menu).
+// the user who started the menu (only they may operate it); choice holds a full
+// drinkKey from the menu (e.g. "coffee", "tea_black").
 type brewCfg struct {
 	opener string
 	choice string
@@ -974,8 +1031,8 @@ func encodeBrewCfg(prefix, action string, c brewCfg) string {
 	return strings.Join([]string{prefix, action, c.opener, c.choice, boolFlag(c.milk), boolFlag(c.sugar)}, ":")
 }
 
-// parseBrewCfg reverses encodeBrewCfg for the given prefix. Opener IDs and choice
-// keys never contain a colon.
+// parseBrewCfg reverses encodeBrewCfg for the given prefix. Opener IDs and
+// choice keys never contain a colon.
 func parseBrewCfg(prefix, customID string) (action string, c brewCfg, ok bool) {
 	parts := strings.Split(customID, ":")
 	if len(parts) != 6 || parts[0] != prefix {
@@ -990,7 +1047,7 @@ func (m *Module) ensureOpener(s *discordgo.Session, i *discordgo.InteractionCrea
 	if interactionUserID(i) == opener {
 		return true
 	}
-	m.respond(s, i, m.localizeUI(s, i.ChannelID, "☕ That's not your order — run `/coffee` or `/tea` to start your own."), true)
+	m.respond(s, i, m.localizeUI(s, i.ChannelID, "☕ That's not your order — run `/brew` to start your own."), true)
 	return false
 }
 
@@ -1011,40 +1068,35 @@ func extrasRow(prefix string, c brewCfg) discordgo.ActionsRow {
 	}}
 }
 
-// coffeeMenuComponents builds the /coffee drink select plus the extras row.
-func coffeeMenuComponents(c brewCfg) []discordgo.MessageComponent {
-	coffees := coffeeMenu()
-	options := make([]discordgo.SelectMenuOption, 0, len(coffees))
-	for _, r := range coffees {
-		options = append(options, discordgo.SelectMenuOption{Label: r.label, Value: r.key, Default: r.key == c.choice})
+// brewMenuComponents builds the unified /brew drink select (coffees + teas)
+// plus the extras row.
+func brewMenuComponents(c brewCfg) []discordgo.MessageComponent {
+	options := make([]discordgo.SelectMenuOption, 0, len(menu))
+	for _, r := range menu {
+		emoji := "☕"
+		if strings.HasPrefix(r.key, "tea_") {
+			emoji = "🍵"
+		}
+		options = append(options, discordgo.SelectMenuOption{
+			Label:   r.label,
+			Value:   r.key,
+			Default: r.key == c.choice,
+			Emoji:   &discordgo.ComponentEmoji{Name: emoji},
+		})
 	}
 	return []discordgo.MessageComponent{
 		discordgo.ActionsRow{Components: []discordgo.MessageComponent{
-			discordgo.SelectMenu{CustomID: encodeBrewCfg(coffeeCfgPrefix, "pick", c), Placeholder: "Choose your coffee", Options: options},
+			discordgo.SelectMenu{CustomID: encodeBrewCfg(brewCfgPrefix, "pick", c), Placeholder: "Choose your drink", Options: options},
 		}},
-		extrasRow(coffeeCfgPrefix, c),
-	}
-}
-
-// teaMenuComponents builds the /tea flavor select plus the extras row.
-func teaMenuComponents(c brewCfg) []discordgo.MessageComponent {
-	options := make([]discordgo.SelectMenuOption, 0, len(teaFlavors))
-	for _, t := range teaFlavors {
-		options = append(options, discordgo.SelectMenuOption{Label: t.label, Value: t.key, Default: t.key == c.choice})
-	}
-	return []discordgo.MessageComponent{
-		discordgo.ActionsRow{Components: []discordgo.MessageComponent{
-			discordgo.SelectMenu{CustomID: encodeBrewCfg(teaCfgPrefix, "pick", c), Placeholder: "Choose your tea", Options: options},
-		}},
-		extrasRow(teaCfgPrefix, c),
+		extrasRow(brewCfgPrefix, c),
 	}
 }
 
 // takeCupComponents builds the single-button row offering to grab a finished
 // drink out of the machine. The custom ID carries the orderer (only they may
-// take it) and the drink so the confirmation can name it.
-func takeCupComponents(opener, drinkKey, tea string) []discordgo.MessageComponent {
-	id := strings.Join([]string{takeCupPrefix, opener, drinkKey, tea}, ":")
+// take it) and the drink key so the confirmation can name it.
+func takeCupComponents(opener, drinkKey string) []discordgo.MessageComponent {
+	id := strings.Join([]string{takeCupPrefix, opener, drinkKey}, ":")
 	return []discordgo.MessageComponent{
 		discordgo.ActionsRow{Components: []discordgo.MessageComponent{
 			discordgo.Button{Label: "Take cup", Emoji: &discordgo.ComponentEmoji{Name: "🫴"}, Style: discordgo.SuccessButton, CustomID: id},
@@ -1052,69 +1104,36 @@ func takeCupComponents(opener, drinkKey, tea string) []discordgo.MessageComponen
 	}
 }
 
-// openCoffeeMenu shows the interactive coffee menu, gated to its opener.
-func (m *Module) openCoffeeMenu(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	c := brewCfg{opener: interactionUserID(i), choice: coffeeMenu()[0].key}
-	m.openMenu(s, i, m.localizeUI(s, i.ChannelID, coffeeMenuPrompt), coffeeMenuComponents(c))
+// openBrewMenu shows the interactive unified brew menu, gated to its opener.
+func (m *Module) openBrewMenu(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	c := brewCfg{opener: interactionUserID(i), choice: menu[0].key}
+	m.openMenu(s, i, m.localizeUI(s, i.ChannelID, brewMenuPrompt), brewMenuComponents(c))
 }
 
-// openTeaMenu shows the interactive tea menu, gated to its opener.
-func (m *Module) openTeaMenu(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	c := brewCfg{opener: interactionUserID(i), choice: teaFlavors[0].key}
-	m.openMenu(s, i, m.localizeUI(s, i.ChannelID, teaMenuPrompt), teaMenuComponents(c))
-}
-
-// handleCoffeeComponent processes clicks on the interactive coffee menu: drink
+// handleBrewComponent processes clicks on the interactive brew menu: drink
 // selection and toggles re-render in place; Brew dispenses the configured drink.
-func (m *Module) handleCoffeeComponent(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	action, c, ok := parseBrewCfg(coffeeCfgPrefix, i.MessageComponentData().CustomID)
+func (m *Module) handleBrewComponent(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	action, c, ok := parseBrewCfg(brewCfgPrefix, i.MessageComponentData().CustomID)
 	if !ok || !m.ensureOpener(s, i, c.opener) {
 		return
 	}
 	if action == "go" {
-		m.executeBrew(s, i, c.choice, c.milk, c.sugar, "", m.brewResponder(s, i, true))
+		m.executeBrew(s, i, c.choice, c.milk, c.sugar, m.brewResponder(s, i, true))
 		return
 	}
-	prompt := m.localizeUI(s, i.ChannelID, coffeeMenuPrompt)
+	prompt := m.localizeUI(s, i.ChannelID, brewMenuPrompt)
 	switch action {
 	case "pick":
 		if vals := i.MessageComponentData().Values; len(vals) > 0 {
 			c.choice = vals[0]
 		}
-		m.updateMenu(s, i, prompt, coffeeMenuComponents(c))
+		m.updateMenu(s, i, prompt, brewMenuComponents(c))
 	case "milk":
 		c.milk = !c.milk
-		m.updateMenu(s, i, prompt, coffeeMenuComponents(c))
+		m.updateMenu(s, i, prompt, brewMenuComponents(c))
 	case "sugar":
 		c.sugar = !c.sugar
-		m.updateMenu(s, i, prompt, coffeeMenuComponents(c))
-	}
-}
-
-// handleTeaComponent processes clicks on the interactive tea menu: flavor
-// selection and toggles re-render in place; Brew steeps the configured tea.
-func (m *Module) handleTeaComponent(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	action, c, ok := parseBrewCfg(teaCfgPrefix, i.MessageComponentData().CustomID)
-	if !ok || !m.ensureOpener(s, i, c.opener) {
-		return
-	}
-	if action == "go" {
-		m.executeBrew(s, i, "hot_water", c.milk, c.sugar, c.choice, m.brewResponder(s, i, true))
-		return
-	}
-	prompt := m.localizeUI(s, i.ChannelID, teaMenuPrompt)
-	switch action {
-	case "pick":
-		if vals := i.MessageComponentData().Values; len(vals) > 0 {
-			c.choice = vals[0]
-		}
-		m.updateMenu(s, i, prompt, teaMenuComponents(c))
-	case "milk":
-		c.milk = !c.milk
-		m.updateMenu(s, i, prompt, teaMenuComponents(c))
-	case "sugar":
-		c.sugar = !c.sugar
-		m.updateMenu(s, i, prompt, teaMenuComponents(c))
+		m.updateMenu(s, i, prompt, brewMenuComponents(c))
 	}
 }
 
@@ -1122,34 +1141,31 @@ func (m *Module) handleTeaComponent(s *discordgo.Session, i *discordgo.Interacti
 // take it. It edits the public drink message into a personal "grabbed it"
 // confirmation and drops the button.
 func (m *Module) handleTakeCupComponent(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	parts := strings.SplitN(i.MessageComponentData().CustomID, ":", 4)
-	opener, drinkKey, tea := "", "", ""
+	parts := strings.SplitN(i.MessageComponentData().CustomID, ":", 3)
+	opener, drinkKey := "", ""
 	if len(parts) >= 2 {
 		opener = parts[1]
 	}
 	if len(parts) >= 3 {
 		drinkKey = parts[2]
 	}
-	if len(parts) >= 4 {
-		tea = parts[3]
-	}
 	if !m.ensureOpener(s, i, opener) {
 		return
 	}
 	label := "drink"
 	if r, ok := recipeByKey(drinkKey); ok {
-		label = drinkLabel(r, tea)
+		label = drinkLabel(r)
 	}
 	msg := m.generateInteractionMessage(s, i.ChannelID,
 		fmt.Sprintf("User <@%s> just grabbed their %s out of the coffee machine. Tell the channel to enjoy it, in one short sentence, keeping the <@%s> mention.", opener, label, opener),
-		fmt.Sprintf("%s <@%s> grabbed their %s out of the machine. Enjoy!", drinkEmojiForKey(drinkKey, tea), opener, label))
+		fmt.Sprintf("%s <@%s> grabbed their %s out of the machine. Enjoy!", drinkEmojiForKey(drinkKey), opener, label))
 	m.respondUpdate(s, i, msg)
 }
 
 // drinkEmojiForKey is drinkEmoji by key, falling back to a coffee cup.
-func drinkEmojiForKey(drinkKey, tea string) string {
+func drinkEmojiForKey(drinkKey string) string {
 	if r, ok := recipeByKey(drinkKey); ok {
-		return drinkEmoji(r, tea)
+		return drinkEmoji(r)
 	}
 	return "☕"
 }

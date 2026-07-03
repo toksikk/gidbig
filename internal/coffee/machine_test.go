@@ -157,9 +157,9 @@ func TestDispenseSugar_IsCosmetic(t *testing.T) {
 	}
 }
 
-func TestDispenseHotWater_NoBeansNoGrounds(t *testing.T) {
+func TestDispenseTea_NoBeansNoGrounds(t *testing.T) {
 	m := newTestModule(t)
-	out, err := m.dispense("g1", "u", "hot_water", false, false)
+	out, err := m.dispense("g1", "u", "tea_black", false, false)
 	if err != nil || !out.ok {
 		t.Fatalf("dispense failed: err=%v fail=%q", err, out.failMsg)
 	}
@@ -167,10 +167,10 @@ func TestDispenseHotWater_NoBeansNoGrounds(t *testing.T) {
 		t.Errorf("water = %d, want %d", out.inventory.WaterMl, maxWaterMl-200)
 	}
 	if out.inventory.GroundsGrams != 0 {
-		t.Errorf("hot water should produce no grounds, got %d", out.inventory.GroundsGrams)
+		t.Errorf("tea should produce no grounds, got %d", out.inventory.GroundsGrams)
 	}
 	if out.inventory.BeansMildGrams != maxBeansMildG || out.inventory.BeansEspressoGrams != maxBeansEspressoG {
-		t.Error("hot water should use no beans")
+		t.Error("tea should use no beans")
 	}
 }
 
@@ -382,7 +382,7 @@ func TestLeaderboards(t *testing.T) {
 
 func TestFormatDispenseSuccess(t *testing.T) {
 	r, _ := recipeByKey("coffee")
-	got := formatDispenseSuccess(r, true, true, "")
+	got := formatDispenseSuccess(r, true, true)
 	if !strings.Contains(got, "Coffee with milk and sugar") {
 		t.Errorf("missing extras phrasing: %q", got)
 	}
@@ -391,46 +391,41 @@ func TestFormatDispenseSuccess(t *testing.T) {
 		t.Errorf("brew message should not include machine stats: %q", got)
 	}
 
-	plain := formatDispenseSuccess(r, false, false, "")
+	plain := formatDispenseSuccess(r, false, false)
 	if strings.Contains(plain, "with") {
 		t.Errorf("plain drink should have no extras phrasing: %q", plain)
 	}
 }
 
 func TestFormatDispenseSuccess_Tea(t *testing.T) {
-	hot, _ := recipeByKey("hot_water")
-
-	tea := formatDispenseSuccess(hot, false, false, "peppermint")
+	peppermint, _ := recipeByKey("tea_peppermint")
+	tea := formatDispenseSuccess(peppermint, false, false)
 	if !strings.Contains(tea, "🍵 Here's your Peppermint tea!") {
 		t.Errorf("tea phrasing wrong: %q", tea)
 	}
 
-	teaMilk := formatDispenseSuccess(hot, true, false, "earl_grey")
+	earlGrey, _ := recipeByKey("tea_earl_grey")
+	teaMilk := formatDispenseSuccess(earlGrey, true, false)
 	if !strings.Contains(teaMilk, "Earl Grey tea with milk") {
 		t.Errorf("tea+milk phrasing wrong: %q", teaMilk)
 	}
 
-	plainWater := formatDispenseSuccess(hot, false, false, "")
-	if !strings.Contains(plainWater, "☕ Here's your Hot water!") {
-		t.Errorf("plain hot water phrasing wrong: %q", plainWater)
-	}
-
-	// tea is ignored for non-hot-water drinks
+	// coffee drink should not show tea emoji
 	coffee, _ := recipeByKey("coffee")
-	c := formatDispenseSuccess(coffee, false, false, "green")
-	if strings.Contains(c, "tea") || strings.Contains(c, "🍵") {
-		t.Errorf("tea should be ignored for coffee: %q", c)
+	c := formatDispenseSuccess(coffee, false, false)
+	if strings.Contains(c, "🍵") {
+		t.Errorf("coffee should not show tea emoji: %q", c)
 	}
 }
 
 func TestBrewTimeVariesByDrink(t *testing.T) {
-	hot, _ := recipeByKey("hot_water")
+	tea, _ := recipeByKey("tea_black")
 	flat, _ := recipeByKey("flat_white")
-	if brewTime(hot) >= brewTime(flat) {
-		t.Errorf("hot water (%v) should brew faster than flat white (%v)", brewTime(hot), brewTime(flat))
+	if brewTime(tea) >= brewTime(flat) {
+		t.Errorf("tea (%v) should brew faster than flat white (%v)", brewTime(tea), brewTime(flat))
 	}
-	if brewTime(hot) <= 0 {
-		t.Errorf("brew time must be positive, got %v", brewTime(hot))
+	if brewTime(tea) <= 0 {
+		t.Errorf("brew time must be positive, got %v", brewTime(tea))
 	}
 }
 
@@ -532,7 +527,7 @@ func TestHandleBrew_BlockedShowsErrorNoBrewing(t *testing.T) {
 	resp, edits, sleeps := captureBrewIO(m)
 	setLevels(m, t, "g1", func(inv *MachineInventory) { inv.WaterMl = 10 })
 
-	m.handleCoffeeInteraction(nil, makeBrewInteraction("g1", strOpt("drink", "coffee")))
+	m.handleBrewInteraction(nil, makeBrewInteraction("g1", strOpt("drink", "coffee")))
 
 	if len(*resp) != 1 || (*resp)[0].ephemeral {
 		t.Fatalf("expected 1 public error response, got %+v", *resp)
@@ -555,7 +550,7 @@ func TestHandleBrew_SuccessShowsBrewingThenFinalNoStats(t *testing.T) {
 	stubLLM(m, t, "", nil) // fallback messages
 	resp, edits, sleeps := captureBrewIO(m)
 
-	m.handleCoffeeInteraction(nil, makeBrewInteraction("g1", strOpt("drink", "coffee")))
+	m.handleBrewInteraction(nil, makeBrewInteraction("g1", strOpt("drink", "coffee")))
 
 	if len(*resp) != 1 || (*resp)[0].ephemeral {
 		t.Fatalf("expected 1 public brewing response, got %+v", *resp)
@@ -591,19 +586,23 @@ func TestHandleBrew_UsesLLMForVariation(t *testing.T) {
 	stubLLM(m, t, "Dein Kaffee ist fertig!", nil) // non-empty -> LLM text used
 	_, edits, _ := captureBrewIO(m)
 
-	m.handleCoffeeInteraction(nil, makeBrewInteraction("g1", strOpt("drink", "coffee")))
+	m.handleBrewInteraction(nil, makeBrewInteraction("g1", strOpt("drink", "coffee")))
 
 	if len(*edits) != 1 || (*edits)[0] != "Dein Kaffee ist fertig!" {
 		t.Errorf("final message should come from the LLM, got %v", *edits)
 	}
 }
 
-func TestTeaLabel(t *testing.T) {
-	if l, ok := teaLabel("earl_grey"); !ok || l != "Earl Grey" {
-		t.Errorf("teaLabel(earl_grey) = %q,%v", l, ok)
+func TestTeaFlavorLabel(t *testing.T) {
+	if l := teaFlavorLabel("earl_grey"); l != "Earl Grey" {
+		t.Errorf("teaFlavorLabel(earl_grey) = %q, want Earl Grey", l)
 	}
-	if _, ok := teaLabel("bubble"); ok {
-		t.Error("teaLabel(bubble) should be unknown")
+	if l := teaFlavorLabel("peppermint"); l != "Peppermint" {
+		t.Errorf("teaFlavorLabel(peppermint) = %q, want Peppermint", l)
+	}
+	// Unknown flavor falls back to the key itself (used in display strings).
+	if l := teaFlavorLabel("bubble"); l != "bubble" {
+		t.Errorf("teaFlavorLabel(bubble) = %q, want bubble (key passthrough)", l)
 	}
 }
 
@@ -613,7 +612,8 @@ func TestFormatStatus(t *testing.T) {
 		[]userCount{{UserID: "A", Count: 3}},
 		nil,
 		[]groundsEmptier{{UserID: "A", Count: 2, TotalGrams: 480}},
-		[]userCount{{UserID: "B", Count: 1}})
+		[]userCount{{UserID: "B", Count: 1}},
+		nil)
 	if !strings.Contains(got, "Mild beans: 500/1000g (50%)") {
 		t.Errorf("missing mild beans line with percent: %q", got)
 	}
@@ -636,7 +636,7 @@ func TestFormatStatus(t *testing.T) {
 
 func TestFormatStatus_NoSlackersHidesSection(t *testing.T) {
 	inv := MachineInventory{}
-	got := formatStatus(inv, nil, nil, nil, nil)
+	got := formatStatus(inv, nil, nil, nil, nil, nil)
 	if strings.Contains(got, "Slackers") {
 		t.Errorf("slacker section should be hidden when there are none: %q", got)
 	}
@@ -662,45 +662,30 @@ func TestPercent(t *testing.T) {
 	}
 }
 
-// --- /tea command -----------------------------------------------------------
-
-func makeTeaInteraction(guildID string, opts ...*discordgo.ApplicationCommandInteractionDataOption) *discordgo.InteractionCreate {
-	return &discordgo.InteractionCreate{
-		Interaction: &discordgo.Interaction{
-			GuildID:   guildID,
-			ChannelID: "ch1",
-			Type:      discordgo.InteractionApplicationCommand,
-			Member:    &discordgo.Member{User: &discordgo.User{ID: "u1"}},
-			Data: discordgo.ApplicationCommandInteractionData{
-				Name:    "tea",
-				Options: opts,
-			},
-		},
-	}
-}
+// --- /brew tea tests ---------------------------------------------------------
 
 func TestHandleTea_BrewsTeaNotCoffee(t *testing.T) {
 	m := newTestModule(t)
 	stubLLM(m, t, "", nil) // deterministic fallback
 	_, edits, _ := captureBrewIO(m)
 
-	m.handleTeaInteraction(nil, makeTeaInteraction("g1", strOpt("flavor", "rooibos")))
+	m.handleBrewInteraction(nil, makeBrewInteraction("g1", strOpt("drink", "tea_rooibos")))
 
 	if len(*edits) != 1 || !strings.Contains((*edits)[0], "Rooibos tea") {
 		t.Fatalf("expected a Rooibos tea, got %v", *edits)
 	}
-	// Tea is hot water: no beans, no grounds, only water consumed.
+	// Tea uses only water, no beans, no grounds.
 	inv, _ := m.getOrSeedInventory("g1")
 	if inv.GroundsGrams != 0 || inv.BeansMildGrams != maxBeansMildG || inv.BeansEspressoGrams != maxBeansEspressoG {
-		t.Errorf("tea should brew from hot water only: %+v", inv)
+		t.Errorf("tea should brew from water only: %+v", inv)
 	}
 	if inv.WaterMl != maxWaterMl-200 {
 		t.Errorf("tea should consume 200ml water, got %d", inv.WaterMl)
 	}
 	var de DrinkEvent
 	m.getDB().Where("guild_id = ?", "g1").First(&de)
-	if de.Drink != "hot_water" {
-		t.Errorf("tea DrinkEvent drink = %q, want hot_water", de.Drink)
+	if de.Drink != "tea_rooibos" {
+		t.Errorf("tea DrinkEvent drink = %q, want tea_rooibos", de.Drink)
 	}
 }
 
@@ -709,7 +694,7 @@ func TestHandleTea_WithMilk(t *testing.T) {
 	stubLLM(m, t, "", nil)
 	_, edits, _ := captureBrewIO(m)
 
-	m.handleTeaInteraction(nil, makeTeaInteraction("g1", strOpt("flavor", "earl_grey"), boolOpt("milk", true)))
+	m.handleBrewInteraction(nil, makeBrewInteraction("g1", strOpt("drink", "tea_earl_grey"), boolOpt("milk", true)))
 
 	if len(*edits) != 1 || !strings.Contains((*edits)[0], "Earl Grey tea with milk") {
 		t.Fatalf("expected Earl Grey tea with milk, got %v", *edits)
@@ -761,39 +746,46 @@ func menuCfg(t *testing.T, prefix string, comps []discordgo.MessageComponent) br
 
 func TestBrewCfgRoundTrip(t *testing.T) {
 	in := brewCfg{choice: "latte_macchiato", milk: true, sugar: false}
-	action, out, ok := parseBrewCfg(coffeeCfgPrefix, encodeBrewCfg(coffeeCfgPrefix, "go", in))
+	action, out, ok := parseBrewCfg(brewCfgPrefix, encodeBrewCfg(brewCfgPrefix, "go", in))
 	if !ok || action != "go" || out != in {
 		t.Fatalf("round trip failed: action=%q out=%+v ok=%v", action, out, ok)
 	}
-	// The tea menu uses a different prefix, so a coffee custom ID must not parse
-	// as tea (prevents the two menus' components from cross-firing).
-	if _, _, ok := parseBrewCfg(teaCfgPrefix, encodeBrewCfg(coffeeCfgPrefix, "go", in)); ok {
-		t.Error("coffee custom ID should not parse under the tea prefix")
-	}
-	if _, _, ok := parseBrewCfg(coffeeCfgPrefix, "coffee_brew_cfg:go:coffee"); ok {
+	// A truncated ID (missing fields) must not parse.
+	if _, _, ok := parseBrewCfg(brewCfgPrefix, "coffee_brew_cfg:go:coffee"); ok {
 		t.Error("truncated custom ID should not parse")
+	}
+	// A completely wrong prefix must not parse.
+	if _, _, ok := parseBrewCfg(brewCfgPrefix, "other_prefix:go:coffee:0:0:"); ok {
+		t.Error("wrong prefix must not parse")
 	}
 }
 
 func TestCoffeeMenuExcludesHotWater(t *testing.T) {
-	for _, r := range coffeeMenu() {
-		if r.key == "hot_water" {
-			t.Fatal("coffee menu must not offer hot water (that's /tea now)")
+	// hot_water is gone; /brew now offers teas as first-class drinks.
+	for _, ch := range brewChoices() {
+		if ch.Value == "hot_water" {
+			t.Fatal("brew choices must not include hot_water")
 		}
 	}
-	for _, ch := range drinkChoices() {
-		if ch.Value == "hot_water" {
-			t.Fatal("/coffee drink choices must not include hot water")
+	// At least one tea must be present in the unified menu.
+	foundTea := false
+	for _, ch := range brewChoices() {
+		if strings.HasPrefix(ch.Value.(string), "tea_") {
+			foundTea = true
+			break
 		}
+	}
+	if !foundTea {
+		t.Fatal("brew choices must include at least one tea_* option")
 	}
 }
 
 func TestCoffeeMenuComponents_ReflectState(t *testing.T) {
-	comps := coffeeMenuComponents(brewCfg{choice: "espresso", milk: true, sugar: false})
+	comps := brewMenuComponents(brewCfg{choice: "espresso", milk: true, sugar: false})
 	if d := menuSelectedDrink(t, comps); d != "espresso" {
 		t.Errorf("selected drink = %q, want espresso", d)
 	}
-	if c := menuCfg(t, coffeeCfgPrefix, comps); !c.milk || c.sugar {
+	if c := menuCfg(t, brewCfgPrefix, comps); !c.milk || c.sugar {
 		t.Errorf("button state cfg = %+v, want milk on/sugar off", c)
 	}
 }
@@ -804,7 +796,7 @@ func TestCoffee_NoOptionsOpensMenu(t *testing.T) {
 	opens, _ := captureMenuIO(m)
 	resp, _, _ := captureBrewIO(m)
 
-	m.handleCoffeeInteraction(nil, makeBrewInteraction("g1")) // no options
+	m.handleBrewInteraction(nil, makeBrewInteraction("g1")) // no options
 
 	if len(*opens) != 1 {
 		t.Fatalf("expected the menu to open once, got %d", len(*opens))
@@ -822,20 +814,22 @@ func TestCoffee_NoOptionsOpensMenu(t *testing.T) {
 
 func TestTea_NoOptionsOpensMenu(t *testing.T) {
 	m := newTestModule(t)
-	stubLLM(m, t, "", nil) // empty reply -> English fallback prompt
+	stubLLM(m, t, "", nil)
 	opens, _ := captureMenuIO(m)
 	resp, _, _ := captureBrewIO(m)
 
-	m.handleTeaInteraction(nil, makeTeaInteraction("g1")) // no options
+	// /brew with no options opens the unified menu (defaults to first coffee).
+	m.handleBrewInteraction(nil, makeBrewInteraction("g1"))
 
 	if len(*opens) != 1 {
-		t.Fatalf("expected the tea menu to open once, got %d", len(*opens))
+		t.Fatalf("expected menu to open once, got %d", len(*opens))
 	}
 	if len(*resp) != 0 {
-		t.Errorf("no-options /tea should not brew directly, got %+v", *resp)
+		t.Errorf("no-options /brew should not brew directly, got %+v", *resp)
 	}
-	if d := menuSelectedDrink(t, (*opens)[0].comps); d != teaFlavors[0].key {
-		t.Errorf("tea menu should default to %q, got %q", teaFlavors[0].key, d)
+	// Default is coffee (first menu item).
+	if d := menuSelectedDrink(t, (*opens)[0].comps); d != "coffee" {
+		t.Errorf("menu should default to coffee, got %q", d)
 	}
 }
 
@@ -845,11 +839,11 @@ func TestCoffeeComponent_TogglesAndSelect(t *testing.T) {
 	_, updates := captureMenuIO(m)
 
 	// select espresso
-	m.handleCoffeeComponent(nil, makeBrewComponent("g1", encodeBrewCfg(coffeeCfgPrefix, "pick", brewCfg{opener: "u1", choice: "coffee"}), "espresso"))
+	m.handleBrewComponent(nil, makeBrewComponent("g1", encodeBrewCfg(brewCfgPrefix, "pick", brewCfg{opener: "u1", choice: "coffee"}), "espresso"))
 	// toggle milk on (state still carries espresso)
-	m.handleCoffeeComponent(nil, makeBrewComponent("g1", encodeBrewCfg(coffeeCfgPrefix, "milk", brewCfg{opener: "u1", choice: "espresso"})))
+	m.handleBrewComponent(nil, makeBrewComponent("g1", encodeBrewCfg(brewCfgPrefix, "milk", brewCfg{opener: "u1", choice: "espresso"})))
 	// toggle sugar on
-	m.handleCoffeeComponent(nil, makeBrewComponent("g1", encodeBrewCfg(coffeeCfgPrefix, "sugar", brewCfg{opener: "u1", choice: "espresso", milk: true})))
+	m.handleBrewComponent(nil, makeBrewComponent("g1", encodeBrewCfg(brewCfgPrefix, "sugar", brewCfg{opener: "u1", choice: "espresso", milk: true})))
 
 	if len(*updates) != 3 {
 		t.Fatalf("expected 3 in-place menu updates, got %d", len(*updates))
@@ -857,10 +851,10 @@ func TestCoffeeComponent_TogglesAndSelect(t *testing.T) {
 	if d := menuSelectedDrink(t, (*updates)[0].comps); d != "espresso" {
 		t.Errorf("after select, drink = %q, want espresso", d)
 	}
-	if c := menuCfg(t, coffeeCfgPrefix, (*updates)[1].comps); !c.milk {
+	if c := menuCfg(t, brewCfgPrefix, (*updates)[1].comps); !c.milk {
 		t.Errorf("after milk toggle, cfg = %+v, want milk on", c)
 	}
-	if c := menuCfg(t, coffeeCfgPrefix, (*updates)[2].comps); !c.sugar || !c.milk {
+	if c := menuCfg(t, brewCfgPrefix, (*updates)[2].comps); !c.sugar || !c.milk {
 		t.Errorf("after sugar toggle, cfg = %+v, want milk+sugar on", c)
 	}
 }
@@ -871,13 +865,13 @@ func TestMenuPromptLocalizedAndCached(t *testing.T) {
 	opens, updates := captureMenuIO(m)
 
 	// Opening the menu translates the prompt once.
-	m.handleCoffeeInteraction(nil, makeBrewInteraction("g1")) // no options -> menu
+	m.handleBrewInteraction(nil, makeBrewInteraction("g1")) // no options -> menu
 	if len(*opens) != 1 || (*opens)[0].content != "Was darf es sein?" {
 		t.Fatalf("menu prompt should be the localized text, got %+v", *opens)
 	}
 
 	// A toggle re-renders the menu but must reuse the cached translation.
-	m.handleCoffeeComponent(nil, makeBrewComponent("g1", encodeBrewCfg(coffeeCfgPrefix, "milk", brewCfg{opener: "u1", choice: "coffee"})))
+	m.handleBrewComponent(nil, makeBrewComponent("g1", encodeBrewCfg(brewCfgPrefix, "milk", brewCfg{opener: "u1", choice: "coffee"})))
 	if len(*updates) != 1 || (*updates)[0].content != "Was darf es sein?" {
 		t.Fatalf("re-render should keep the localized prompt, got %+v", *updates)
 	}
@@ -894,7 +888,7 @@ func TestEnsureOpenerNudgeLocalized(t *testing.T) {
 
 	// The clicking user is "u1" (set by makeBrewComponent) but the menu is owned
 	// by "alice", so the click is rejected with a localized ephemeral nudge.
-	m.handleCoffeeComponent(nil, makeBrewComponent("g1", encodeBrewCfg(coffeeCfgPrefix, "milk", brewCfg{opener: "alice", choice: "coffee"})))
+	m.handleBrewComponent(nil, makeBrewComponent("g1", encodeBrewCfg(brewCfgPrefix, "milk", brewCfg{opener: "alice", choice: "coffee"})))
 
 	if len(*resp) != 1 || !(*resp)[0].ephemeral {
 		t.Fatalf("non-owner should get an ephemeral nudge, got %+v", *resp)
@@ -910,7 +904,7 @@ func TestCoffeeComponent_GoBrews(t *testing.T) {
 	resp, edits, sleeps := captureBrewIO(m)
 	_, _ = captureMenuIO(m)
 
-	m.handleCoffeeComponent(nil, makeBrewComponent("g1", encodeBrewCfg(coffeeCfgPrefix, "go", brewCfg{opener: "u1", choice: "espresso", milk: true, sugar: true})))
+	m.handleBrewComponent(nil, makeBrewComponent("g1", encodeBrewCfg(brewCfgPrefix, "go", brewCfg{opener: "u1", choice: "espresso", milk: true, sugar: true})))
 
 	if len(*resp) != 1 || !strings.Contains((*resp)[0].content, "Brewing") {
 		t.Fatalf("expected an in-place brewing update, got %+v", *resp)
@@ -934,7 +928,7 @@ func TestTeaComponent_GoBrews(t *testing.T) {
 	resp, edits, sleeps := captureBrewIO(m)
 	_, _ = captureMenuIO(m)
 
-	m.handleTeaComponent(nil, makeBrewComponent("g1", encodeBrewCfg(teaCfgPrefix, "go", brewCfg{opener: "u1", choice: "rooibos", milk: true})))
+	m.handleBrewComponent(nil, makeBrewComponent("g1", encodeBrewCfg(brewCfgPrefix, "go", brewCfg{opener: "u1", choice: "tea_rooibos", milk: true})))
 
 	if len(*resp) != 1 || !strings.Contains((*resp)[0].content, "Brewing") {
 		t.Fatalf("expected an in-place brewing update, got %+v", *resp)
@@ -947,8 +941,8 @@ func TestTeaComponent_GoBrews(t *testing.T) {
 	}
 	var de DrinkEvent
 	m.getDB().Where("guild_id = ?", "g1").First(&de)
-	if de.Drink != "hot_water" || !de.WithMilk {
-		t.Errorf("tea brew DrinkEvent = %+v, want hot_water with milk", de)
+	if de.Drink != "tea_rooibos" || !de.WithMilk {
+		t.Errorf("tea brew DrinkEvent = %+v, want tea_rooibos with milk", de)
 	}
 }
 
@@ -957,7 +951,7 @@ func TestTakeCup_Confirms(t *testing.T) {
 	stubLLM(m, t, "", nil) // empty reply -> English fallback confirmation
 	resp, _, _ := captureBrewIO(m)
 
-	id := strings.Join([]string{takeCupPrefix, "u1", "espresso", ""}, ":")
+	id := strings.Join([]string{takeCupPrefix, "u1", "espresso"}, ":")
 	m.handleTakeCupComponent(nil, makeBrewComponent("g1", id))
 
 	if len(*resp) != 1 {
@@ -976,7 +970,7 @@ func TestTakeCup_RejectsNonOwner(t *testing.T) {
 	m.respondUpdate = func(_ *discordgo.Session, _ *discordgo.InteractionCreate, _ string) { updates++ }
 
 	// orderer is "alice", but the interaction comes from "u1"
-	id := strings.Join([]string{takeCupPrefix, "alice", "espresso", ""}, ":")
+	id := strings.Join([]string{takeCupPrefix, "alice", "espresso"}, ":")
 	m.handleTakeCupComponent(nil, makeBrewComponent("g1", id))
 
 	if updates != 0 {
@@ -997,7 +991,7 @@ func TestExecuteBrew_AttachesTakeCupButton(t *testing.T) {
 	}
 	m.sleep = func(time.Duration) {}
 
-	m.handleCoffeeInteraction(nil, makeBrewInteraction("g1", strOpt("drink", "coffee")))
+	m.handleBrewInteraction(nil, makeBrewInteraction("g1", strOpt("drink", "coffee")))
 
 	if len(finalComps) != 1 {
 		t.Fatalf("expected the finished drink to carry a Take cup row, got %d rows", len(finalComps))
@@ -1217,7 +1211,7 @@ func TestExecuteBrewAppendsServiceHint(t *testing.T) {
 	_, edits, _ := captureBrewIO(m)
 	setLevels(m, t, "g1", func(inv *MachineInventory) { inv.WaterMl = 120 })
 
-	m.handleCoffeeInteraction(nil, makeBrewInteraction("g1", strOpt("drink", "coffee")))
+	m.handleBrewInteraction(nil, makeBrewInteraction("g1", strOpt("drink", "coffee")))
 
 	if len(*edits) != 1 || !strings.Contains((*edits)[0], "Heads up") {
 		t.Fatalf("final brew message should carry the service nudge, got %v", *edits)
@@ -1230,7 +1224,7 @@ func TestExecuteBrew_FoldsServiceHintIntoLLMScenario(t *testing.T) {
 	_, edits, _ := captureBrewIO(m)
 	setLevels(m, t, "g1", func(inv *MachineInventory) { inv.WaterMl = 120 }) // empties on brew
 
-	m.handleCoffeeInteraction(nil, makeBrewInteraction("g1", strOpt("drink", "coffee")))
+	m.handleBrewInteraction(nil, makeBrewInteraction("g1", strOpt("drink", "coffee")))
 
 	// The nudge must reach the LLM (so it gets translated), not be appended in
 	// English after generation.
@@ -1260,7 +1254,7 @@ func TestBlockedBrewMentionsSlacker(t *testing.T) {
 	resp, _, _ := captureBrewIO(m)
 	bob := makeBrewInteraction("g1", strOpt("drink", "coffee"))
 	bob.Member.User.ID = "bob"
-	m.handleCoffeeInteraction(nil, bob)
+	m.handleBrewInteraction(nil, bob)
 
 	if len(*resp) != 1 || (*resp)[0].ephemeral {
 		t.Fatalf("expected 1 public blocked response, got %+v", *resp)

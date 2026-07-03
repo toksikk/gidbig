@@ -122,45 +122,20 @@ func (m *Module) Commands() []*discordgo.ApplicationCommand {
 			},
 		},
 		{
-			Name:        "coffee",
-			Description: "Pull a fresh coffee from the machine (no options opens a menu)",
+			Name:        "brew",
+			Description: "Order a hot drink from the machine (no options opens a menu)",
 			Options: []*discordgo.ApplicationCommandOption{
 				{
 					Type:        discordgo.ApplicationCommandOptionString,
 					Name:        "drink",
-					Description: "Which coffee (default: coffee)",
+					Description: "Coffee or tea variety (default: coffee)",
 					Required:    false,
-					Choices:     drinkChoices(),
+					Choices:     brewChoices(),
 				},
 				{
 					Type:        discordgo.ApplicationCommandOptionBoolean,
 					Name:        "milk",
 					Description: "Add a splash of milk (ignored for milk-based drinks)",
-					Required:    false,
-				},
-				{
-					Type:        discordgo.ApplicationCommandOptionBoolean,
-					Name:        "sugar",
-					Description: "Add sugar",
-					Required:    false,
-				},
-			},
-		},
-		{
-			Name:        "tea",
-			Description: "Steep a tea bag in fresh hot water (no options opens a menu)",
-			Options: []*discordgo.ApplicationCommandOption{
-				{
-					Type:        discordgo.ApplicationCommandOptionString,
-					Name:        "flavor",
-					Description: "Which tea bag to steep",
-					Required:    false,
-					Choices:     teaChoices(),
-				},
-				{
-					Type:        discordgo.ApplicationCommandOptionBoolean,
-					Name:        "milk",
-					Description: "Add a splash of milk",
 					Required:    false,
 				},
 				{
@@ -217,31 +192,22 @@ func (m *Module) Commands() []*discordgo.ApplicationCommand {
 	}
 }
 
-// drinkChoices builds the /coffee drink option choices from the coffee menu
-// (hot water is excluded — it lives behind /tea).
-func drinkChoices() []*discordgo.ApplicationCommandOptionChoice {
-	coffees := coffeeMenu()
-	choices := make([]*discordgo.ApplicationCommandOptionChoice, 0, len(coffees))
-	for _, r := range coffees {
+// brewChoices builds the /brew drink option choices: all coffees followed by
+// all tea varieties.
+func brewChoices() []*discordgo.ApplicationCommandOptionChoice {
+	choices := make([]*discordgo.ApplicationCommandOptionChoice, 0, len(menu))
+	for _, r := range menu {
 		choices = append(choices, &discordgo.ApplicationCommandOptionChoice{Name: r.label, Value: r.key})
 	}
 	return choices
 }
 
-// refillChoices builds the /coffeemachine refill part option choices.
+// refillChoices builds the /coffeemachine refill part option choices (machine
+// parts + tea bag varieties).
 func refillChoices() []*discordgo.ApplicationCommandOptionChoice {
 	choices := make([]*discordgo.ApplicationCommandOptionChoice, 0, len(refillParts))
 	for _, p := range refillParts {
 		choices = append(choices, &discordgo.ApplicationCommandOptionChoice{Name: p.label, Value: p.key})
-	}
-	return choices
-}
-
-// teaChoices builds the /tea flavor option choices.
-func teaChoices() []*discordgo.ApplicationCommandOptionChoice {
-	choices := make([]*discordgo.ApplicationCommandOptionChoice, 0, len(teaFlavors))
-	for _, t := range teaFlavors {
-		choices = append(choices, &discordgo.ApplicationCommandOptionChoice{Name: t.label, Value: t.key})
 	}
 	return choices
 }
@@ -379,10 +345,8 @@ func (m *Module) onInteractionCreate(s *discordgo.Session, i *discordgo.Interact
 	if i.Type == discordgo.InteractionMessageComponent {
 		id := i.MessageComponentData().CustomID
 		switch {
-		case strings.HasPrefix(id, teaCfgPrefix):
-			m.handleTeaComponent(s, i)
-		case strings.HasPrefix(id, coffeeCfgPrefix):
-			m.handleCoffeeComponent(s, i)
+		case strings.HasPrefix(id, brewCfgPrefix):
+			m.handleBrewComponent(s, i)
 		case strings.HasPrefix(id, takeCupPrefix):
 			m.handleTakeCupComponent(s, i)
 		}
@@ -394,11 +358,8 @@ func (m *Module) onInteractionCreate(s *discordgo.Session, i *discordgo.Interact
 
 	data := i.ApplicationCommandData()
 	switch data.Name {
-	case "coffee":
-		m.handleCoffeeInteraction(s, i)
-		return
-	case "tea":
-		m.handleTeaInteraction(s, i)
+	case "brew":
+		m.handleBrewInteraction(s, i)
 		return
 	case "coffeemachine":
 		m.handleMachineInteraction(s, i)
