@@ -435,12 +435,15 @@ type respCall struct {
 }
 
 // captureBrewIO stubs the interaction response, edit, and sleep hooks so brew
-// handler behavior can be asserted without a live Discord session. respondUpdate
-// (used by the interactive-menu brew path) is captured alongside respond.
+// handler behavior can be asserted without a live Discord session. All brew paths
+// now defer immediately and edit rather than posting a new response, so the brewing
+// and final messages both land in edits; resp captures only ephemeral nudges.
 func captureBrewIO(m *Module) (*[]respCall, *[]string, *[]time.Duration) {
 	resp := &[]respCall{}
 	edits := &[]string{}
 	sleeps := &[]time.Duration{}
+	m.deferInteraction = func(_ *discordgo.Session, _ *discordgo.InteractionCreate, _ bool) error { return nil }
+	m.deferUpdate = func(_ *discordgo.Session, _ *discordgo.InteractionCreate) error { return nil }
 	m.respond = func(_ *discordgo.Session, _ *discordgo.InteractionCreate, content string, ephemeral bool) {
 		*resp = append(*resp, respCall{content, ephemeral})
 	}
@@ -529,14 +532,14 @@ func TestHandleBrew_BlockedShowsErrorNoBrewing(t *testing.T) {
 
 	m.handleBrewInteraction(nil, makeBrewInteraction("g1", strOpt("drink", "coffee")))
 
-	if len(*resp) != 1 || (*resp)[0].ephemeral {
-		t.Fatalf("expected 1 public error response, got %+v", *resp)
+	if len(*edits) != 1 {
+		t.Fatalf("expected 1 public error edit, got %d", len(*edits))
 	}
-	if !strings.Contains((*resp)[0].content, "water") {
-		t.Errorf("error should name the missing ingredient: %q", (*resp)[0].content)
+	if !strings.Contains((*edits)[0], "water") {
+		t.Errorf("error should name the missing ingredient: %q", (*edits)[0])
 	}
-	if len(*edits) != 0 || len(*sleeps) != 0 {
-		t.Errorf("blocked brew must not brew/edit: edits=%d sleeps=%d", len(*edits), len(*sleeps))
+	if len(*resp) != 0 || len(*sleeps) != 0 {
+		t.Errorf("blocked brew must not post responses or sleep: resp=%d sleeps=%d", len(*resp), len(*sleeps))
 	}
 	if c := countDrinks(m, t, "g1"); c != 0 {
 		t.Errorf("blocked brew should record no drink, got %d", c)
@@ -548,28 +551,25 @@ func TestHandleBrew_SuccessShowsBrewingThenFinalNoStats(t *testing.T) {
 	now := time.Date(2026, 6, 25, 9, 0, 0, 0, time.UTC)
 	useNow(m, t, now)
 	stubLLM(m, t, "", nil) // fallback messages
-	resp, edits, sleeps := captureBrewIO(m)
+	_, edits, sleeps := captureBrewIO(m)
 
 	m.handleBrewInteraction(nil, makeBrewInteraction("g1", strOpt("drink", "coffee")))
 
-	if len(*resp) != 1 || (*resp)[0].ephemeral {
-		t.Fatalf("expected 1 public brewing response, got %+v", *resp)
+	if len(*edits) != 2 {
+		t.Fatalf("expected 2 edits (brewing + final), got %d", len(*edits))
 	}
-	if !strings.Contains((*resp)[0].content, "Brewing") {
-		t.Errorf("first response should be a brewing status: %q", (*resp)[0].content)
+	if !strings.Contains((*edits)[0], "Brewing") {
+		t.Errorf("first edit should be the brewing status: %q", (*edits)[0])
 	}
 	coffee, _ := recipeByKey("coffee")
 	wantTS := fmt.Sprintf("<t:%d:R>", now.Add(brewTime(coffee)).Unix())
-	if !strings.Contains((*resp)[0].content, wantTS) {
-		t.Errorf("brewing status should carry the relative ready time %q, got %q", wantTS, (*resp)[0].content)
+	if !strings.Contains((*edits)[0], wantTS) {
+		t.Errorf("brewing status should carry the relative ready time %q, got %q", wantTS, (*edits)[0])
 	}
 	if len(*sleeps) != 1 || (*sleeps)[0] != brewTime(coffee) {
 		t.Errorf("expected one sleep of %v, got %v", brewTime(coffee), *sleeps)
 	}
-	if len(*edits) != 1 {
-		t.Fatalf("expected 1 final edit, got %d", len(*edits))
-	}
-	final := (*edits)[0]
+	final := (*edits)[1]
 	if !strings.Contains(final, "Coffee is ready") {
 		t.Errorf("final message wrong: %q", final)
 	}
@@ -588,8 +588,11 @@ func TestHandleBrew_UsesLLMForVariation(t *testing.T) {
 
 	m.handleBrewInteraction(nil, makeBrewInteraction("g1", strOpt("drink", "coffee")))
 
-	if len(*edits) != 1 || (*edits)[0] != "Dein Kaffee ist fertig!" {
-		t.Errorf("final message should come from the LLM, got %v", *edits)
+	if len(*edits) != 2 {
+		t.Fatalf("expected 2 edits (brewing + final), got %d", len(*edits))
+	}
+	if (*edits)[1] != "Dein Kaffee ist fertig!" {
+		t.Errorf("final message should come from the LLM, got %q", (*edits)[1])
 	}
 }
 
@@ -671,8 +674,8 @@ func TestHandleTea_BrewsTeaNotCoffee(t *testing.T) {
 
 	m.handleBrewInteraction(nil, makeBrewInteraction("g1", strOpt("drink", "tea_rooibos")))
 
-	if len(*edits) != 1 || !strings.Contains((*edits)[0], "Rooibos tea") {
-		t.Fatalf("expected a Rooibos tea, got %v", *edits)
+	if len(*edits) != 2 || !strings.Contains((*edits)[1], "Rooibos tea") {
+		t.Fatalf("expected a Rooibos tea in final edit, got %v", *edits)
 	}
 	// Tea uses only water, no beans, no grounds.
 	inv, _ := m.getOrSeedInventory("g1")
@@ -696,8 +699,8 @@ func TestHandleTea_WithMilk(t *testing.T) {
 
 	m.handleBrewInteraction(nil, makeBrewInteraction("g1", strOpt("drink", "tea_earl_grey"), boolOpt("milk", true)))
 
-	if len(*edits) != 1 || !strings.Contains((*edits)[0], "Earl Grey tea with milk") {
-		t.Fatalf("expected Earl Grey tea with milk, got %v", *edits)
+	if len(*edits) != 2 || !strings.Contains((*edits)[1], "Earl Grey tea with milk") {
+		t.Fatalf("expected Earl Grey tea with milk in final edit, got %v", *edits)
 	}
 	inv, _ := m.getOrSeedInventory("g1")
 	if inv.MilkMl != maxMilkMl-addMilkMl {
@@ -901,19 +904,22 @@ func TestEnsureOpenerNudgeLocalized(t *testing.T) {
 func TestCoffeeComponent_GoBrews(t *testing.T) {
 	m := newTestModule(t)
 	stubLLM(m, t, "", nil)
-	resp, edits, sleeps := captureBrewIO(m)
+	_, edits, sleeps := captureBrewIO(m)
 	_, _ = captureMenuIO(m)
 
 	m.handleBrewComponent(nil, makeBrewComponent("g1", encodeBrewCfg(brewCfgPrefix, "go", brewCfg{opener: "u1", choice: "espresso", milk: true, sugar: true})))
 
-	if len(*resp) != 1 || !strings.Contains((*resp)[0].content, "Brewing") {
-		t.Fatalf("expected an in-place brewing update, got %+v", *resp)
+	if len(*edits) != 2 {
+		t.Fatalf("expected 2 edits (brewing + final), got %d", len(*edits))
+	}
+	if !strings.Contains((*edits)[0], "Brewing") {
+		t.Errorf("first edit should be an in-place brewing update: %q", (*edits)[0])
 	}
 	if len(*sleeps) != 1 {
 		t.Errorf("expected one brew delay, got %d", len(*sleeps))
 	}
-	if len(*edits) != 1 || !strings.Contains((*edits)[0], "Espresso with milk and sugar") {
-		t.Fatalf("expected final espresso with milk+sugar, got %v", *edits)
+	if !strings.Contains((*edits)[1], "Espresso with milk and sugar") {
+		t.Errorf("expected final espresso with milk+sugar, got %q", (*edits)[1])
 	}
 	var de DrinkEvent
 	m.getDB().Where("guild_id = ?", "g1").First(&de)
@@ -925,19 +931,22 @@ func TestCoffeeComponent_GoBrews(t *testing.T) {
 func TestTeaComponent_GoBrews(t *testing.T) {
 	m := newTestModule(t)
 	stubLLM(m, t, "", nil)
-	resp, edits, sleeps := captureBrewIO(m)
+	_, edits, sleeps := captureBrewIO(m)
 	_, _ = captureMenuIO(m)
 
 	m.handleBrewComponent(nil, makeBrewComponent("g1", encodeBrewCfg(brewCfgPrefix, "go", brewCfg{opener: "u1", choice: "tea_rooibos", milk: true})))
 
-	if len(*resp) != 1 || !strings.Contains((*resp)[0].content, "Brewing") {
-		t.Fatalf("expected an in-place brewing update, got %+v", *resp)
+	if len(*edits) != 2 {
+		t.Fatalf("expected 2 edits (brewing + final), got %d", len(*edits))
+	}
+	if !strings.Contains((*edits)[0], "Brewing") {
+		t.Errorf("first edit should be an in-place brewing update: %q", (*edits)[0])
 	}
 	if len(*sleeps) != 1 {
 		t.Errorf("expected one brew delay, got %d", len(*sleeps))
 	}
-	if len(*edits) != 1 || !strings.Contains((*edits)[0], "Rooibos tea with milk") {
-		t.Fatalf("expected final Rooibos tea with milk, got %v", *edits)
+	if !strings.Contains((*edits)[1], "Rooibos tea with milk") {
+		t.Errorf("expected final Rooibos tea with milk, got %q", (*edits)[1])
 	}
 	var de DrinkEvent
 	m.getDB().Where("guild_id = ?", "g1").First(&de)
@@ -949,16 +958,16 @@ func TestTeaComponent_GoBrews(t *testing.T) {
 func TestTakeCup_Confirms(t *testing.T) {
 	m := newTestModule(t)
 	stubLLM(m, t, "", nil) // empty reply -> English fallback confirmation
-	resp, _, _ := captureBrewIO(m)
+	_, edits, _ := captureBrewIO(m)
 
 	id := strings.Join([]string{takeCupPrefix, "u1", "espresso"}, ":")
 	m.handleTakeCupComponent(nil, makeBrewComponent("g1", id))
 
-	if len(*resp) != 1 {
-		t.Fatalf("expected 1 confirmation update, got %d", len(*resp))
+	if len(*edits) != 1 {
+		t.Fatalf("expected 1 confirmation edit, got %d", len(*edits))
 	}
-	if !strings.Contains((*resp)[0].content, "grabbed their Espresso") {
-		t.Errorf("take-cup confirmation should name the drink: %q", (*resp)[0].content)
+	if !strings.Contains((*edits)[0], "grabbed their Espresso") {
+		t.Errorf("take-cup confirmation should name the drink: %q", (*edits)[0])
 	}
 }
 
@@ -985,7 +994,7 @@ func TestExecuteBrew_AttachesTakeCupButton(t *testing.T) {
 	m := newTestModule(t)
 	stubLLM(m, t, "", nil)
 	var finalComps []discordgo.MessageComponent
-	m.respond = func(_ *discordgo.Session, _ *discordgo.InteractionCreate, _ string, _ bool) {}
+	m.deferInteraction = func(_ *discordgo.Session, _ *discordgo.InteractionCreate, _ bool) error { return nil }
 	m.editWithComponents = func(_ *discordgo.Session, _ *discordgo.InteractionCreate, _ string, comps []discordgo.MessageComponent) {
 		finalComps = comps
 	}
@@ -1213,7 +1222,7 @@ func TestExecuteBrewAppendsServiceHint(t *testing.T) {
 
 	m.handleBrewInteraction(nil, makeBrewInteraction("g1", strOpt("drink", "coffee")))
 
-	if len(*edits) != 1 || !strings.Contains((*edits)[0], "Heads up") {
+	if len(*edits) != 2 || !strings.Contains((*edits)[1], "Heads up") {
 		t.Fatalf("final brew message should carry the service nudge, got %v", *edits)
 	}
 }
@@ -1238,7 +1247,7 @@ func TestExecuteBrew_FoldsServiceHintIntoLLMScenario(t *testing.T) {
 		t.Errorf("service nudge should be folded into an LLM scenario, calls=%v", getCalls())
 	}
 	// The final message is the LLM output, with no English nudge appended.
-	if len(*edits) != 1 || (*edits)[0] != "Fertig!" {
+	if len(*edits) != 2 || (*edits)[1] != "Fertig!" {
 		t.Errorf("final should be the LLM message only, got %v", *edits)
 	}
 }
@@ -1251,16 +1260,16 @@ func TestBlockedBrewMentionsSlacker(t *testing.T) {
 		t.Fatalf("alice brew: %v", err)
 	}
 
-	resp, _, _ := captureBrewIO(m)
+	_, edits, _ := captureBrewIO(m)
 	bob := makeBrewInteraction("g1", strOpt("drink", "coffee"))
 	bob.Member.User.ID = "bob"
 	m.handleBrewInteraction(nil, bob)
 
-	if len(*resp) != 1 || (*resp)[0].ephemeral {
-		t.Fatalf("expected 1 public blocked response, got %+v", *resp)
+	if len(*edits) != 1 {
+		t.Fatalf("expected 1 public blocked edit, got %d", len(*edits))
 	}
-	if !strings.Contains((*resp)[0].content, "<@alice>") {
-		t.Errorf("blocked message should name the slacker: %q", (*resp)[0].content)
+	if !strings.Contains((*edits)[0], "<@alice>") {
+		t.Errorf("blocked message should name the slacker: %q", (*edits)[0])
 	}
 }
 

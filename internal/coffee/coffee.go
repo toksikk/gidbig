@@ -60,6 +60,7 @@ type Module struct {
 	detectLanguage       func(*discordgo.Session, string) (string, error)
 	generateLLMMessage   func(context.Context, string, string) (string, error)
 	deferInteraction     func(*discordgo.Session, *discordgo.InteractionCreate, bool) error
+	deferUpdate          func(*discordgo.Session, *discordgo.InteractionCreate) error
 	editDeferredResponse func(*discordgo.Session, *discordgo.InteractionCreate, string)
 	editWithComponents   func(*discordgo.Session, *discordgo.InteractionCreate, string, []discordgo.MessageComponent)
 	respond              func(*discordgo.Session, *discordgo.InteractionCreate, string, bool)
@@ -80,6 +81,7 @@ func New() *Module {
 	m.detectLanguage = llm.DetectChannelLanguage
 	m.generateLLMMessage = llm.GenerateMessage
 	m.deferInteraction = m.deferInteractionImpl
+	m.deferUpdate = m.deferUpdateImpl
 	m.editDeferredResponse = m.editDeferredResponseImpl
 	m.editWithComponents = m.editWithComponentsImpl
 	m.respond = m.respondImpl
@@ -236,6 +238,15 @@ func (m *Module) deferInteractionImpl(s *discordgo.Session, i *discordgo.Interac
 	return s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
 		Data: &discordgo.InteractionResponseData{Flags: flags},
+	})
+}
+
+// deferUpdateImpl acknowledges a component interaction by deferring an in-place
+// message update, giving the handler time to call LLM without hitting the 3-second
+// Discord acknowledgment deadline.
+func (m *Module) deferUpdateImpl(s *discordgo.Session, i *discordgo.InteractionCreate) error {
+	return s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseDeferredMessageUpdate,
 	})
 }
 
