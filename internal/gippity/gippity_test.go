@@ -276,6 +276,7 @@ func TestGetMessageFromDatabase_Found(t *testing.T) {
 	}
 	if msg == nil {
 		t.Fatal("expected non-nil message")
+		return
 	}
 	if msg.Message != "hello from db" {
 		t.Errorf("Message = %q, want %q", msg.Message, "hello from db")
@@ -296,7 +297,6 @@ func TestGetMessageFromDatabase_NotFound(t *testing.T) {
 		t.Errorf("expected nil message for nonexistent ID, got %+v", msg)
 	}
 }
-
 
 func TestGenerateAnswer_NoReference_NoSystemNoteInjected(t *testing.T) {
 	setupGippityTest(t)

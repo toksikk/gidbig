@@ -68,6 +68,7 @@ func TestCommands_CoffeeBeveragesSubcommand(t *testing.T) {
 	}
 	if coffeeGroup == nil {
 		t.Fatal("no coffee subcommand group")
+		return
 	}
 	if coffeeGroup.Type != discordgo.ApplicationCommandOptionSubCommandGroup {
 		t.Errorf("coffee Type = %v, want SubCommandGroup", coffeeGroup.Type)
@@ -81,6 +82,7 @@ func TestCommands_CoffeeBeveragesSubcommand(t *testing.T) {
 	}
 	if beverages == nil {
 		t.Fatal("no beverages subcommand under coffee")
+		return
 	}
 	if beverages.Type != discordgo.ApplicationCommandOptionSubCommand {
 		t.Errorf("beverages Type = %v, want SubCommand", beverages.Type)
@@ -98,6 +100,7 @@ func TestCommands_GippitySubcommands(t *testing.T) {
 	}
 	if gippityGroup == nil {
 		t.Fatal("no gippity subcommand group")
+		return
 	}
 
 	subNames := make(map[string]bool)
@@ -122,6 +125,7 @@ func TestCommands_InfoSubcommand(t *testing.T) {
 	}
 	if info == nil {
 		t.Fatal("no info subcommand")
+		return
 	}
 	if info.Type != discordgo.ApplicationCommandOptionSubCommand {
 		t.Errorf("info Type = %v, want SubCommand", info.Type)
