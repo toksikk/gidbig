@@ -787,22 +787,16 @@ type brewResponder struct {
 }
 
 // brewResponder builds the responder used by both the slash commands and the
-// interactive menu. Output is public either way: the slash path posts a public
-// reply and edits it; the menu path edits its (public) menu message in place.
-// The final reveal carries the supplied components (the Take cup button);
-// brewing/blocked drop components.
-func (m *Module) brewResponder(s *discordgo.Session, i *discordgo.InteractionCreate, fromMenu bool) brewResponder {
-	r := brewResponder{
-		final: func(c string, comps []discordgo.MessageComponent) { m.editWithComponents(s, i, c, comps) },
+// interactive menu. Both callers defer the interaction before calling executeBrew,
+// so all messages here are edits. The final reveal carries the supplied components
+// (the Take cup button); brewing and blocked messages drop components.
+func (m *Module) brewResponder(s *discordgo.Session, i *discordgo.InteractionCreate) brewResponder {
+	empty := []discordgo.MessageComponent{}
+	return brewResponder{
+		brewing: func(c string) { m.editWithComponents(s, i, c, empty) },
+		blocked: func(c string) { m.editWithComponents(s, i, c, empty) },
+		final:   func(c string, comps []discordgo.MessageComponent) { m.editWithComponents(s, i, c, comps) },
 	}
-	if fromMenu {
-		r.brewing = func(c string) { m.respondUpdate(s, i, c) }
-		r.blocked = func(c string) { m.respondUpdate(s, i, c) }
-	} else {
-		r.brewing = func(c string) { m.respond(s, i, c, false) }
-		r.blocked = func(c string) { m.respond(s, i, c, false) }
-	}
-	return r
 }
 
 // handleBrewInteraction serves /brew. With no options it opens the interactive
@@ -811,6 +805,12 @@ func (m *Module) handleBrewInteraction(s *discordgo.Session, i *discordgo.Intera
 	data := i.ApplicationCommandData()
 	if len(data.Options) == 0 {
 		m.openBrewMenu(s, i)
+		return
+	}
+	// Acknowledge immediately so the 3-second Discord deadline doesn't expire
+	// while generateInteractionMessage calls the LLM.
+	if err := m.deferInteraction(s, i, false); err != nil {
+		slog.Error("coffee: defer brew failed", "error", err)
 		return
 	}
 	drinkKey := menu[0].key
@@ -825,7 +825,7 @@ func (m *Module) handleBrewInteraction(s *discordgo.Session, i *discordgo.Intera
 			addSugar = o.BoolValue()
 		}
 	}
-	m.executeBrew(s, i, drinkKey, addMilk, addSugar, m.brewResponder(s, i, false))
+	m.executeBrew(s, i, drinkKey, addMilk, addSugar, m.brewResponder(s, i))
 }
 
 // executeBrew dispenses one drink and drives the brewing animation through the
@@ -1118,7 +1118,11 @@ func (m *Module) handleBrewComponent(s *discordgo.Session, i *discordgo.Interact
 		return
 	}
 	if action == "go" {
-		m.executeBrew(s, i, c.choice, c.milk, c.sugar, m.brewResponder(s, i, true))
+		if err := m.deferUpdate(s, i); err != nil {
+			slog.Error("coffee: defer brew component failed", "error", err)
+			return
+		}
+		m.executeBrew(s, i, c.choice, c.milk, c.sugar, m.brewResponder(s, i))
 		return
 	}
 	prompt := m.localizeUI(s, i.ChannelID, brewMenuPrompt)
@@ -1156,10 +1160,14 @@ func (m *Module) handleTakeCupComponent(s *discordgo.Session, i *discordgo.Inter
 	if r, ok := recipeByKey(drinkKey); ok {
 		label = drinkLabel(r)
 	}
+	if err := m.deferUpdate(s, i); err != nil {
+		slog.Error("coffee: defer take-cup failed", "error", err)
+		return
+	}
 	msg := m.generateInteractionMessage(s, i.ChannelID,
 		fmt.Sprintf("User <@%s> just grabbed their %s out of the coffee machine. Tell the channel to enjoy it, in one short sentence, keeping the <@%s> mention.", opener, label, opener),
 		fmt.Sprintf("%s <@%s> grabbed their %s out of the machine. Enjoy!", drinkEmojiForKey(drinkKey), opener, label))
-	m.respondUpdate(s, i, msg)
+	m.editWithComponents(s, i, msg, []discordgo.MessageComponent{})
 }
 
 // drinkEmojiForKey is drinkEmoji by key, falling back to a coffee cup.
