@@ -3,6 +3,7 @@
     "extends": [
         "config:recommended"
     ],
+    "labels": ["patch"],
     "packageRules": [
         {
             "matchPackageNames": ["github.com/yeongaori/discordgo-fork", "github.com/bwmarrin/discordgo"],
