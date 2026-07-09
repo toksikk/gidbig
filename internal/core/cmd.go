@@ -326,6 +326,14 @@ func StartGidbig() {
 		return
 	}
 
+	// The pinned discordgo fork sets no read/write deadlines on its
+	// websockets, so a degraded network can hang Open() (waiting for the
+	// Hello packet while holding the session lock) or the heartbeat write
+	// (holding wsMutex) forever, silently stalling the reconnect loop.
+	// Bound every read/write at the transport level so stalls turn into
+	// errors and discordgo reconnects on its own. See wsdeadline.go.
+	discord.Dialer = newDeadlineDialer()
+
 	// Surface the discordgo voice-protocol logs so #113 can be diagnosed from
 	// production: encryption mode negotiated, DAVE handshake progress, UDP
 	// errors, etc. Only on dev mode — LogDebug is very verbose.
