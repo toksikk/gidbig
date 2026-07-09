@@ -4,11 +4,25 @@
         "config:recommended"
     ],
     "labels": ["patch"],
+    "platformAutomerge": false,
+    "automergeStrategy": "rebase",
     "packageRules": [
         {
             "matchPackageNames": ["github.com/yeongaori/discordgo-fork", "github.com/bwmarrin/discordgo"],
             "enabled": false,
             "description": "Pinned to 930441e7 — later commits break DAVE voice encryption (see go.mod comment and issue #113)"
+        },
+        {
+            "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
+            "automerge": true,
+            "minimumReleaseAge": "4 days",
+            "description": "Auto-merge non-major bumps only after the release is 4 days old, to mitigate supply-chain attacks via freshly published malicious releases. Majors stay manual."
+        },
+        {
+            "matchManagers": ["github-actions"],
+            "automerge": false,
+            "minimumReleaseAge": null,
+            "description": "GitHub Actions bumps are reviewed and merged manually, without the grace-period delay."
         }
     ]
 }
