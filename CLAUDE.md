@@ -81,7 +81,7 @@ Gidbig is a Discord bot focused on soundboard playback in voice channels, with a
 
 ### Web server (`internal/core/webserver.go`)
 
-Gorilla mux + sessions. Discord OAuth2 (identify + guilds). Session key is the OAuth ClientSecret. Routes: `/`, `/discordLogin`, `/discordCallback`, `/playsound` (POST), `/logout`. IP addresses are anonymized to /16 (IPv4) or /64 (IPv6).
+Standard library `net/http` (`ServeMux`) + AES-GCM encrypted cookie session store. Discord OAuth2 (identify + guilds). Session key is derived from the Web SessionSecret. Routes: `/`, `/discordLogin`, `/discordCallback`, `/playsound` (POST), `/logout`, `/api/queue`. IP addresses are anonymized to /16 (IPv4) or /64 (IPv6).
 
 ### Key packages
 

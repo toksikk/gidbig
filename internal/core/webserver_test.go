@@ -8,8 +8,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/gorilla/sessions"
 )
 
 func writeAudioDescription(t *testing.T, prefix, name, content string) {
@@ -112,8 +110,48 @@ func TestReadSoundDescription_doesNotLeakFD(t *testing.T) {
 	}
 }
 
+func TestSessionStore_EncryptDecrypt(t *testing.T) {
+	s := newSessionStore("secret-key-123")
+	data := &sessionData{
+		DiscordUserID:   "user1",
+		DiscordUsername: "user1_name",
+	}
+
+	w := httptest.NewRecorder()
+	if err := s.Save(w, data); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	cookies := w.Result().Cookies()
+	if len(cookies) == 0 {
+		t.Fatal("expected cookie in response")
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.AddCookie(cookies[0])
+
+	got := s.Get(req)
+	if got.DiscordUserID != data.DiscordUserID || got.DiscordUsername != data.DiscordUsername {
+		t.Errorf("got %+v, want %+v", got, data)
+	}
+}
+
+func TestSessionStore_TamperedCookie(t *testing.T) {
+	s := newSessionStore("secret-key-123")
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.AddCookie(&http.Cookie{
+		Name:  sessionCookieName,
+		Value: "tampered_base64_string",
+	})
+
+	got := s.Get(req)
+	if got.DiscordUserID != "" {
+		t.Errorf("expected empty session for tampered cookie, got %+v", got)
+	}
+}
+
 func TestHandleAPIQueue_unauthorized(t *testing.T) {
-	store = sessions.NewCookieStore([]byte("test-secret"))
+	store = newSessionStore("test-secret")
 
 	req := httptest.NewRequest(http.MethodGet, "/api/queue", nil)
 	w := httptest.NewRecorder()
@@ -125,14 +163,12 @@ func TestHandleAPIQueue_unauthorized(t *testing.T) {
 }
 
 func TestHandleAPIQueue_emptyQueue(t *testing.T) {
-	store = sessions.NewCookieStore([]byte("test-secret"))
+	store = newSessionStore("test-secret")
 
 	// Create a session with a logged-in user by saving it to a recorder first.
-	setReq := httptest.NewRequest(http.MethodGet, "/", nil)
 	setRec := httptest.NewRecorder()
-	sess, _ := store.Get(setReq, "gidbig-session")
-	sess.Values["discordUserID"] = "12345"
-	if err := sess.Save(setReq, setRec); err != nil {
+	sess := &sessionData{DiscordUserID: "12345"}
+	if err := store.Save(setRec, sess); err != nil {
 		t.Fatalf("save session: %v", err)
 	}
 
