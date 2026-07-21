@@ -3,12 +3,16 @@ package gidbig
 import (
 	"bufio"
 	"context"
+	"crypto/aes"
+	"crypto/cipher"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"html/template"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -16,18 +20,122 @@ import (
 	"strconv"
 
 	"github.com/bwmarrin/discordgo"
-	"github.com/gorilla/mux"
-	"github.com/gorilla/sessions"
 	"github.com/simplesurance/go-ip-anonymizer/ipanonymizer"
 	"github.com/toksikk/gidbig/internal/cfg"
 	"golang.org/x/oauth2"
 )
 
 const (
-	header      string = "web/templates/header.html"
-	footer      string = "web/templates/footer.html"
-	templateDir string = "web/templates/"
+	header            string = "web/templates/header.html"
+	footer            string = "web/templates/footer.html"
+	templateDir       string = "web/templates/"
+	sessionCookieName string = "gidbig-session"
 )
+
+type sessionData struct {
+	State            string `json:"state,omitempty"`
+	DiscordUserID    string `json:"discordUserID,omitempty"`
+	DiscordUsername  string `json:"discordUsername,omitempty"`
+	DiscordAvatarURL string `json:"discordAvatarURL,omitempty"`
+	AccessToken      string `json:"accessToken,omitempty"`
+}
+
+type sessionStore struct {
+	secret []byte
+}
+
+func newSessionStore(secret string) *sessionStore {
+	key := sha256.Sum256([]byte(secret))
+	return &sessionStore{secret: key[:]}
+}
+
+func (s *sessionStore) Get(r *http.Request) *sessionData {
+	cookie, err := r.Cookie(sessionCookieName)
+	if err != nil || cookie.Value == "" {
+		return &sessionData{}
+	}
+	data, err := s.decrypt(cookie.Value)
+	if err != nil {
+		return &sessionData{}
+	}
+	return data
+}
+
+func (s *sessionStore) Save(w http.ResponseWriter, data *sessionData) error {
+	encoded, err := s.encrypt(data)
+	if err != nil {
+		return err
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name:     sessionCookieName,
+		Value:    encoded,
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+	})
+	return nil
+}
+
+func (s *sessionStore) Clear(w http.ResponseWriter) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     sessionCookieName,
+		Value:    "",
+		Path:     "/",
+		MaxAge:   -1,
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+	})
+}
+
+func (s *sessionStore) encrypt(data *sessionData) (string, error) {
+	jsonData, err := json.Marshal(data)
+	if err != nil {
+		return "", err
+	}
+	block, err := aes.NewCipher(s.secret)
+	if err != nil {
+		return "", err
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return "", err
+	}
+	nonce := make([]byte, gcm.NonceSize())
+	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
+		return "", err
+	}
+	ciphertext := gcm.Seal(nonce, nonce, jsonData, nil)
+	return base64.URLEncoding.EncodeToString(ciphertext), nil
+}
+
+func (s *sessionStore) decrypt(cookieValue string) (*sessionData, error) {
+	ciphertext, err := base64.URLEncoding.DecodeString(cookieValue)
+	if err != nil {
+		return nil, err
+	}
+	block, err := aes.NewCipher(s.secret)
+	if err != nil {
+		return nil, err
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, err
+	}
+	nonceSize := gcm.NonceSize()
+	if len(ciphertext) < nonceSize {
+		return nil, errors.New("invalid ciphertext length")
+	}
+	nonce, ciphertext := ciphertext[:nonceSize], ciphertext[nonceSize:]
+	plaintext, err := gcm.Open(nil, nonce, ciphertext, nil)
+	if err != nil {
+		return nil, err
+	}
+	var data sessionData
+	if err := json.Unmarshal(plaintext, &data); err != nil {
+		return nil, err
+	}
+	return &data, nil
+}
 
 var (
 	discordOauthConfig = &oauth2.Config{
@@ -45,7 +153,7 @@ var (
 	}
 	tmpls = map[string]*template.Template{}
 
-	store *sessions.CookieStore
+	store *sessionStore
 
 	ipAnonymizer = ipanonymizer.NewWithMask(
 		net.CIDRMask(16, 32),
@@ -62,21 +170,23 @@ func startWebServer(config *cfg.Config) {
 	tmpls["itemrowend.html"] = template.Must(template.ParseFiles(templateDir + "itemrowend.html"))
 	tmpls["collwrapstart.html"] = template.Must(template.ParseFiles(templateDir + "collwrapstart.html"))
 	tmpls["collwrapend.html"] = template.Must(template.ParseFiles(templateDir + "collwrapend.html"))
-	store = sessions.NewCookieStore([]byte(config.Web.SessionSecret))
+
+	store = newSessionStore(config.Web.SessionSecret)
+
 	discordOauthConfig.ClientID = config.Web.Oauth.ClientID
 	discordOauthConfig.ClientSecret = config.Web.Oauth.ClientSecret
 	discordOauthConfig.RedirectURL = config.Web.Oauth.RedirectURI + "/discordCallback"
 
-	r := mux.NewRouter()
-	r.HandleFunc("/", handleMain)
-	r.HandleFunc("/logout", handleLogout)
-	r.HandleFunc("/discordLogin", handleDiscordLogin)
-	r.HandleFunc("/discordCallback", handleDiscordCallback)
-	r.HandleFunc("/playsound", handlePlaySound)
-	r.HandleFunc("/api/queue", handleAPIQueue)
-	http.Handle("/", r)
-	http.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("web/static"))))
-	err := http.ListenAndServe(":"+strconv.Itoa(config.Web.Port), nil)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", handleMain)
+	mux.HandleFunc("/logout", handleLogout)
+	mux.HandleFunc("/discordLogin", handleDiscordLogin)
+	mux.HandleFunc("/discordCallback", handleDiscordCallback)
+	mux.HandleFunc("/playsound", handlePlaySound)
+	mux.HandleFunc("/api/queue", handleAPIQueue)
+	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("web/static"))))
+
+	err := http.ListenAndServe(":"+strconv.Itoa(config.Web.Port), mux)
 	if err != nil {
 		slog.Error("could not start webserver", "error", err)
 		os.Exit(1)
@@ -107,9 +217,9 @@ func handlePlaySound(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sound, soundCollection := findSoundAndCollection(r.FormValue("command"), r.FormValue("soundname"))
-	session, _ := store.Get(r, "gidbig-session")
-	userID, ok := session.Values["discordUserID"].(string)
-	if !ok || userID == "" {
+	session := store.Get(r)
+	userID := session.DiscordUserID
+	if userID == "" {
 		http.Error(w, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
 		return
 	}
@@ -141,8 +251,8 @@ type guildQueueStatus struct {
 }
 
 func handleAPIQueue(w http.ResponseWriter, r *http.Request) {
-	session, _ := store.Get(r, "gidbig-session")
-	if session.Values["discordUserID"] == nil {
+	session := store.Get(r)
+	if session.DiscordUserID == "" {
 		http.Error(w, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
 		return
 	}
@@ -171,10 +281,14 @@ func handleAPIQueue(w http.ResponseWriter, r *http.Request) {
 
 func handleMain(w http.ResponseWriter, r *http.Request) {
 	logWebRequests(r)
-	session, _ := store.Get(r, "gidbig-session")
-	if session.Values["discordUsername"] != nil {
-		username, _ := session.Values["discordUsername"].(string)
-		avatarURL, _ := session.Values["discordAvatarURL"].(string)
+	if r.URL.Path != "/" {
+		http.NotFound(w, r)
+		return
+	}
+	session := store.Get(r)
+	if session.DiscordUsername != "" {
+		username := session.DiscordUsername
+		avatarURL := session.DiscordAvatarURL
 
 		var prefixes []string
 		var si []soundItem
@@ -292,13 +406,7 @@ func handleMain(w http.ResponseWriter, r *http.Request) {
 
 func handleLogout(w http.ResponseWriter, r *http.Request) {
 	slog.Info("WebUI /logout Request", "Requesting IP", r.RemoteAddr)
-	cookie := &http.Cookie{
-		Name:   "gidbig-session",
-		Value:  "",
-		Path:   "/",
-		MaxAge: -1,
-	}
-	http.SetCookie(w, cookie)
+	store.Clear(w)
 	http.Redirect(w, r, "/", http.StatusFound)
 }
 
@@ -312,9 +420,9 @@ func handleDiscordLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	oauthStateString = base64.URLEncoding.EncodeToString(b)
 
-	session, _ := store.Get(r, "gidbig-session")
-	session.Values["state"] = oauthStateString
-	err = session.Save(r, w)
+	session := store.Get(r)
+	session.State = oauthStateString
+	err = store.Save(w, session)
 	if err != nil {
 		slog.Error("unable to Save", "error", err)
 	}
@@ -325,13 +433,8 @@ func handleDiscordLogin(w http.ResponseWriter, r *http.Request) {
 
 func handleDiscordCallback(w http.ResponseWriter, r *http.Request) {
 	logWebRequests(r)
-	session, err := store.Get(r, "gidbig-session")
-	if err != nil {
-		slog.Error("failed to get session", "error", err)
-		http.Error(w, "aborted", http.StatusInternalServerError)
-		return
-	}
-	if r.URL.Query().Get("state") != session.Values["state"] {
+	session := store.Get(r)
+	if r.URL.Query().Get("state") != session.State {
 		slog.Warn("oauth state mismatch; possible CSRF or cookies disabled")
 		http.Error(w, "no state match; possible csrf OR cookies not enabled", http.StatusForbidden)
 		return
@@ -369,11 +472,11 @@ func handleDiscordCallback(w http.ResponseWriter, r *http.Request) {
 		avatarURL = fmt.Sprintf("https://cdn.discordapp.com/avatars/%s/%s.png", user.ID, user.Avatar)
 	}
 
-	session.Values["discordUserID"] = user.ID
-	session.Values["discordUsername"] = user.Username
-	session.Values["discordAvatarURL"] = avatarURL
-	session.Values["accessToken"] = token.AccessToken
-	err = session.Save(r, w)
+	session.DiscordUserID = user.ID
+	session.DiscordUsername = user.Username
+	session.DiscordAvatarURL = avatarURL
+	session.AccessToken = token.AccessToken
+	err = store.Save(w, session)
 	if err != nil {
 		slog.Error("unable to Save", "error", err)
 		return
