@@ -190,3 +190,19 @@ func TestHandleAPIQueue_emptyQueue(t *testing.T) {
 		t.Error("expected 'guilds' key in response")
 	}
 }
+
+func TestHandleHealth(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	w := httptest.NewRecorder()
+	handleHealth(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected %d, got %d", http.StatusOK, w.Code)
+	}
+	if ct := w.Header().Get("Content-Type"); ct != "application/json" {
+		t.Errorf("Content-Type = %q, want %q", ct, "application/json")
+	}
+	if w.Body.String() != `{"status":"ok"}` {
+		t.Errorf("body = %q, want %q", w.Body.String(), `{"status":"ok"}`)
+	}
+}
