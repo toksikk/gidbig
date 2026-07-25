@@ -408,7 +408,9 @@ func handleMain(w http.ResponseWriter, r *http.Request) {
 func handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	fmt.Fprint(w, `{"status":"ok"}`)
+	if _, err := fmt.Fprint(w, `{"status":"ok"}`); err != nil {
+		slog.Error("health check write failed", "error", err)
+	}
 }
 
 func handleLogout(w http.ResponseWriter, r *http.Request) {
