@@ -184,6 +184,7 @@ func startWebServer(config *cfg.Config) {
 	mux.HandleFunc("/discordCallback", handleDiscordCallback)
 	mux.HandleFunc("/playsound", handlePlaySound)
 	mux.HandleFunc("/api/queue", handleAPIQueue)
+	mux.HandleFunc("/health", handleHealth)
 	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("web/static"))))
 
 	err := http.ListenAndServe(":"+strconv.Itoa(config.Web.Port), mux)
@@ -402,6 +403,12 @@ func handleMain(w http.ResponseWriter, r *http.Request) {
 		slog.Error("unable to execute template", "error", err)
 		return
 	}
+}
+
+func handleHealth(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	fmt.Fprint(w, `{"status":"ok"}`)
 }
 
 func handleLogout(w http.ResponseWriter, r *http.Request) {
