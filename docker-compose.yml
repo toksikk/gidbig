@@ -9,7 +9,6 @@ services:
             - "8080:8080"
         volumes:
             - ./config.yaml:/gidbig/config.yaml
-            - ./plugins:/gidbig/plugins
             - ./audio:/gidbig/audio
         healthcheck:
             test: ["CMD", "wget", "-qO-", "http://localhost:8080/health"]
