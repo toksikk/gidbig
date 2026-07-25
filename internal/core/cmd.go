@@ -412,7 +412,6 @@ func StartGidbig() {
 	}
 
 	Banner(nil)
-	Banner(nil)
 
 	slog.Info("Gidbig is ready. Quit with CTRL-C.")
 	setStartedStatus()

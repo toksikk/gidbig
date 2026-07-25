@@ -18,7 +18,7 @@ Gidbig is a Discord bot written in Go — soundboard playback in voice channels,
 - 🌐 **Web UI** — browser interface to trigger sounds; requires Discord OAuth2 credentials in config
 - 📊 **`/status`** — slash command showing bot version and uptime
 
-### 🔌 Plugins
+### 🔌 Modules
 
 | Plugin | What it does |
 |---|---|
@@ -57,6 +57,9 @@ gippity:
     allowed_guilds:
         - "YOUR_DISCORD_GUILD_ID"
     ignored_users: []
+llm:
+    personality: ""
+    personality_preset: ""
 dev_mode: true
 ```
 
@@ -102,7 +105,7 @@ Or use `docker-compose.yml` in the repo root.
 ## 🗺️ Roadmap
 
 - 🔀 **Migrate all `!`-prefix commands to Discord slash commands** — soundboard, `!wttr`, `!stoll`, `!eso`, etc.
-- 🏗️ **Refactor architecture** — move from the current event-handler-per-plugin pattern toward a cleaner command/handler abstraction
+- 🏗️ **Refactor architecture** — move from the current event-handler-per-module pattern toward a cleaner command/handler abstraction
 
 ## 📄 License
 
