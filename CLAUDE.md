@@ -47,14 +47,13 @@ make test                     # go test -v ./...
 make release                  # Cross-compile for linux/amd64, arm64, 386, arm and darwin/amd64
 make docker                   # Build Docker image
 make update                   # go get -u -t ./... && go mod tidy
-make build_with_local_plugins # Build with local plugin path replacements
 ```
 
-CI runs `golangci-lint` on every push. The project uses pre-commit hooks for `go fmt`, `go lint`, and `golangci-lint-full`.
+CI runs `golangci-lint` on every push. The project uses pre-commit hooks via `.pre-commit-config.yaml` (`go fmt`, `golangci-lint`).
 
 ## Architecture
 
-Gidbig is a Discord bot focused on soundboard playback in voice channels, with a web UI, AI chat, and a plugin system.
+Gidbig is a Discord bot focused on soundboard playback in voice channels, with a web UI, AI chat, and a module system.
 
 ### Startup flow (`internal/core/cmd.go:StartGidbig`)
 
@@ -62,15 +61,14 @@ Gidbig is a Discord bot focused on soundboard playback in voice channels, with a
 2. Scan `./audio/` for `{prefix}_{soundname}.dca` files → build `COLLECTIONS`
 3. Start optional web server (requires OAuth credentials in config)
 4. Pre-load all `.dca` audio into memory as Opus frame buffers
-5. Open Discord WebSocket, register `onMessageCreate` handler
-6. Call `Start()` on every built-in plugin (coffee, eso, gamerstatus, gippity, leetoclock, stoll, wttrin)
-7. Load dynamic plugins from `./plugins/*.so` via `gbploader.LoadPlugins`
+5. Open Discord WebSocket, register `onMessageCreate` and interaction handlers
+6. Initialize LLM client and resolve personality
+7. Initialize each module (coffee, eso, gamerstatus, gippity, leetoclock, stoll, wttrin) via its `Init()` or `Start()` call
+8. Register all slash commands via `ApplicationCommandBulkOverwrite`
 
-### Plugin system
+### Module system (built-in)
 
-**Built-in plugins** (`internal/`) — compiled into the binary, each has a `Start(*discordgo.Session)` called from `StartGidbig`. They register their own `discordgo` event handlers independently.
-
-**Dynamic plugins** (`plugins/*.so`) — loaded at runtime via Go's `plugin` package. Must export `Start(*discordgo.Session)`, `PluginName string`, and `PluginVersion string`.
+All modules live in `internal/`, compile into the binary, and implement `bot.Module` (or use `Start(*discordgo.Session)` for legacy modules). Each registers its own event handlers and slash commands during init.
 
 ### Soundboard / audio
 
@@ -81,18 +79,24 @@ Gidbig is a Discord bot focused on soundboard playback in voice channels, with a
 
 ### Web server (`internal/core/webserver.go`)
 
-Standard library `net/http` (`ServeMux`) + AES-GCM encrypted cookie session store. Discord OAuth2 (identify + guilds). Session key is derived from the Web SessionSecret. Routes: `/`, `/discordLogin`, `/discordCallback`, `/playsound` (POST), `/logout`, `/api/queue`. IP addresses are anonymized to /16 (IPv4) or /64 (IPv6).
+Standard library `net/http` (`ServeMux`) + AES-GCM encrypted cookie session store. Discord OAuth2 (identify + guilds). Session key is derived from the Web SessionSecret. Routes: `/`, `/discordLogin`, `/discordCallback`, `/playsound` (POST), `/logout`, `/api/queue`, `/health`. IP addresses are anonymized to /16 (IPv4) or /64 (IPv6).
 
 ### Key packages
 
 | Package | Role |
-|---|---|
+|---|---|---|
 | `internal/core` | Discord session, soundboard, web server |
 | `internal/cfg` | YAML config loading |
-| `internal/gbploader` | Dynamic `.so` plugin loader |
+| `internal/bot` | Module interface, deps, router, middleware |
+| `internal/admin` | `/admin` slash command, admin subcommand registry |
+| `internal/llm` | Shared OpenAI/LLM client |
 | `internal/gippity` | OpenAI integration with GORM/SQLite conversation history |
-| `internal/leetoclock` | Time-based joke plugin with SQLite datastore |
-| `internal/coffee` | Greeting-reaction plugin |
+| `internal/leetoclock` | Time-based joke module with SQLite datastore |
+| `internal/coffee` | Greeting-reaction module |
+| `internal/eso` | Conspiracy-text generator |
+| `internal/stoll` | Quote/Stoll module |
+| `internal/wttrin` | Weather module |
+| `internal/gamerstatus` | Rotating custom status |
 | `internal/util` | Shared Discord helpers and random utilities |
 
 ### Configuration
@@ -100,16 +104,24 @@ Standard library `net/http` (`ServeMux`) + AES-GCM encrypted cookie session stor
 `config.yaml` (required, copy from `config.example.yaml`):
 ```yaml
 discord:
-  token: "BOT_TOKEN"
-  owner_id: "USER_ID"
-  shard_id: 0
-  shard_count: 0
+    token: "BOT_TOKEN"
+    owner_id: "USER_ID"
+    shard_id: 0
+    shard_count: 0
 web:
-  oauth:
-    client_id: "OAUTH_ID"
-    client_secret: "OAUTH_SECRET"
-    redirect_uri: "REDIRECT_URI"
-  port: 8080
+    oauth:
+        client_id: "OAUTH_ID"
+        client_secret: "OAUTH_SECRET"
+        redirect_uri: "REDIRECT_URI"
+    session_secret: "base64-encoded-32-random-bytes"
+    port: 8080
+gippity:
+    allowed_guilds:
+        - "YOUR_DISCORD_GUILD_ID"
+    ignored_users: []
+llm:
+    personality: ""
+    personality_preset: ""
 dev_mode: true
 ```
 
