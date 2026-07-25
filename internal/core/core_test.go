@@ -114,7 +114,7 @@ func TestSoundCollectionRandom_SingleSound(t *testing.T) {
 
 func TestBanner_WritesToWriter(t *testing.T) {
 	var buf bytes.Buffer
-	Banner(&buf, nil)
+	Banner(&buf)
 
 	output := buf.String()
 	if len(output) == 0 {
@@ -122,30 +122,13 @@ func TestBanner_WritesToWriter(t *testing.T) {
 	}
 }
 
-func TestBanner_WithPlugins(t *testing.T) {
-	var buf bytes.Buffer
-	plugins := map[string][2]string{
-		"test-plugin": {"1.0.0", "2024-01-01"},
-	}
-	Banner(&buf, plugins)
-
-	output := buf.String()
-	if !strings.Contains(output, "test-plugin") {
-		t.Errorf("Banner() output missing plugin name %q\noutput: %s", "test-plugin", output)
-	}
-	if !strings.Contains(output, "1.0.0") {
-		t.Errorf("Banner() output missing plugin version\noutput: %s", output)
-	}
-}
-
 func TestBanner_NilWriter(t *testing.T) {
-	// Should not panic when writer is nil (writes to stdout)
 	defer func() {
 		if r := recover(); r != nil {
-			t.Errorf("Banner(nil, nil) panicked: %v", r)
+			t.Errorf("Banner(nil) panicked: %v", r)
 		}
 	}()
-	Banner(nil, nil)
+	Banner(nil)
 }
 
 func TestAddNewSoundCollection(t *testing.T) {

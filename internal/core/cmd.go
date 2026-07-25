@@ -1,7 +1,6 @@
 package gidbig
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"log/slog"
@@ -21,7 +20,6 @@ import (
 	"github.com/toksikk/gidbig/internal/coffee"
 	"github.com/toksikk/gidbig/internal/eso"
 	"github.com/toksikk/gidbig/internal/gamerstatus"
-	"github.com/toksikk/gidbig/internal/gbploader"
 	"github.com/toksikk/gidbig/internal/gippity"
 	"github.com/toksikk/gidbig/internal/leetoclock"
 	"github.com/toksikk/gidbig/internal/llm"
@@ -123,26 +121,17 @@ Pointer Lookups: %d
 Tasks:           %d
 Servers:         %d
 Users:           %d
-Plugins:         %d
 
 Uptime:          %s (since %s)
-
-Loaded Plugins:
 `, version, discordgo.VERSION, runtime.Version(),
 		humanize.Bytes(stats.Alloc), humanize.Bytes(stats.Sys), humanize.Bytes(stats.TotalAlloc),
 		humanize.Bytes(stats.Mallocs), humanize.Bytes(stats.Frees),
 		humanize.Bytes(stats.HeapAlloc), humanize.Bytes(stats.HeapInuse), humanize.Bytes(stats.HeapSys),
 		humanize.Bytes(stats.HeapIdle), humanize.Bytes(stats.HeapReleased),
 		humanize.Bytes(stats.StackInuse), humanize.Bytes(stats.StackSys),
-		stats.Lookups, runtime.NumGoroutine(), servers, users, len(*gbploader.GetLoadedPlugins()), uptime, startDateTime)
+		stats.Lookups, runtime.NumGoroutine(), servers, users, uptime, startDateTime)
 
-	var sb strings.Builder
-	sb.WriteString(msg)
-	for n, p := range *gbploader.GetLoadedPlugins() {
-		fmt.Fprintf(&sb, "%s %s\n", n, p[0])
-	}
-
-	return sb.String()
+	return msg
 }
 
 // statusInteractionResponse builds the ephemeral interaction response for /status.
@@ -422,10 +411,8 @@ func StartGidbig() {
 		slog.Error("Failed to register slash commands", "error", err)
 	}
 
-	gbploader.LoadPlugins(discord)
-
-	Banner(nil, *gbploader.GetLoadedPlugins())
-	Banner(new(bytes.Buffer), *gbploader.GetLoadedPlugins())
+	Banner(nil)
+	Banner(nil)
 
 	slog.Info("Gidbig is ready. Quit with CTRL-C.")
 	setStartedStatus()

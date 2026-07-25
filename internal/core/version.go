@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"runtime"
 	"runtime/debug"
-	"sort"
 	"strings"
 )
 
@@ -19,7 +18,7 @@ func LogVersion() {
 }
 
 // Banner Print Version on stdout
-func Banner(w io.Writer, loadedPlugins map[string][2]string) {
+func Banner(w io.Writer) {
 	if version == "" {
 		if build, ok := debug.ReadBuildInfo(); ok {
 			version = build.Main.Version
@@ -33,11 +32,6 @@ func Banner(w io.Writer, loadedPlugins map[string][2]string) {
 		"( ( | | ( (_| | |_) ) ( ( | |\n",
 		" \\_|| |_|\\____|____/|_|\\_|| |\n",
 		"(_____|               (_____| %s\n(%s)\n\n",
-	}
-
-	bannerLoadedPlugins := []string{
-		"\nLoaded Plugins: \n",
-		"%s %s (%s)\n",
 	}
 
 	withoutWriter := w == nil
@@ -58,28 +52,6 @@ func Banner(w io.Writer, loadedPlugins map[string][2]string) {
 				fmt.Printf(v, version, builddate)
 			} else {
 				_, _ = fmt.Fprintf(w, v, version, builddate)
-			}
-		}
-	}
-
-	if len(loadedPlugins) > 0 {
-		var pluginNames []string
-		for k := range loadedPlugins {
-			pluginNames = append(pluginNames, k)
-		}
-		sort.Strings(pluginNames)
-
-		if withoutWriter {
-			fmt.Printf("%s", bannerLoadedPlugins[0])
-		} else {
-			_, _ = fmt.Fprintf(w, "%s", bannerLoadedPlugins[0])
-		}
-
-		for _, v := range pluginNames {
-			if withoutWriter {
-				fmt.Printf(bannerLoadedPlugins[1], v, loadedPlugins[v][0], loadedPlugins[v][1])
-			} else {
-				_, _ = fmt.Fprintf(w, bannerLoadedPlugins[1], v, loadedPlugins[v][0], loadedPlugins[v][1])
 			}
 		}
 	}

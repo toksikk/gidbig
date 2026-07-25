@@ -18,7 +18,7 @@ Gidbig is a Discord bot written in Go — soundboard playback in voice channels,
 - 🌐 **Web UI** — browser interface to trigger sounds; requires Discord OAuth2 credentials in config
 - 📊 **`/status`** — slash command showing bot version and uptime
 
-### 🔌 Built-in plugins
+### 🔌 Plugins
 
 | Plugin | What it does |
 |---|---|
@@ -29,10 +29,6 @@ Gidbig is a Discord bot written in Go — soundboard playback in voice channels,
 | 🕐 **leetoclock** | Daily 13:37 game — first to post in the channel wins; scores by reaction time; posts a scoreboard at end of game |
 | 🧌 **stoll** | `!stoll` — Stoll-related commands |
 | 🌤️ **wttrin** | `!wttr <location>` / `!wttrf <location>` — current weather / forecast with an LLM-generated outro |
-
-### 🧩 Dynamic plugins
-
-Gidbig loads `.so` plugin files from `./plugins/` at startup. A plugin must export `Start(*discordgo.Session)`, `PluginName string`, and `PluginVersion string`.
 
 ## 🚀 Quickstart
 
@@ -87,7 +83,6 @@ make lint                     # golangci-lint run ./...
 make release                  # Cross-compile: linux/amd64, arm64, 386, arm and darwin/amd64
 make docker                   # Build Docker image
 make update                   # go get -u -t ./... && go mod tidy
-make build_with_local_plugins # Build with local plugin path replacements (see Makefile)
 ```
 
 ## 🐳 Docker
@@ -107,7 +102,6 @@ Or use `docker-compose.yml` in the repo root.
 ## 🗺️ Roadmap
 
 - 🔀 **Migrate all `!`-prefix commands to Discord slash commands** — soundboard, `!wttr`, `!stoll`, `!eso`, etc.
-- 🗑️ **Remove dynamic plugin system** — retire the `.so` loader; consolidate everything into built-in plugins
 - 🏗️ **Refactor architecture** — move from the current event-handler-per-plugin pattern toward a cleaner command/handler abstraction
 
 ## 📄 License

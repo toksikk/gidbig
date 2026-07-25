@@ -64,7 +64,7 @@ type Store struct {
 
 // InitDB initializes the database connection and performs migrations.
 func InitDB() *gorm.DB {
-	db, err := gorm.Open(sqlite.Open("plugins/leetoclock.sqlite"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open("leetoclock.sqlite"), &gorm.Config{})
 
 	if err != nil {
 		slog.Error("failed to connect database", "Error", err)

@@ -6,7 +6,5 @@ static/img/*.jpg
 ./gidbig
 config.yaml
 bin
-plugins/*
-!plugins/README.md
 gippity.db
 .claude/
