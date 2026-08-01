@@ -302,8 +302,8 @@ type esoRequest struct {
 func handleAPIEsoWithGenerator(w http.ResponseWriter, r *http.Request, generator esoGenerator) {
 	slog.Info("ESO API request", "method", r.Method, "path", r.URL.Path)
 
-	if r.Method != http.MethodPost {
-		w.Header().Set("Allow", http.MethodPost)
+	if r.Method != http.MethodGet && r.Method != http.MethodPost {
+		w.Header().Set("Allow", http.MethodGet+", "+http.MethodPost)
 		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
 		return
 	}
@@ -315,7 +315,7 @@ func handleAPIEsoWithGenerator(w http.ResponseWriter, r *http.Request, generator
 	}
 
 	var request esoRequest
-	if r.Body != nil && r.ContentLength != 0 {
+	if r.Method == http.MethodPost && r.Body != nil && r.ContentLength != 0 {
 		mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
 		if err != nil || mediaType != "application/json" {
 			http.Error(w, "Content-Type must be application/json", http.StatusUnsupportedMediaType)

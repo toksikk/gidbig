@@ -256,8 +256,23 @@ func TestHandleAPIEso_moduleUnavailable(t *testing.T) {
 	}
 }
 
-func TestHandleAPIEso_rejectsUnsupportedMethod(t *testing.T) {
+func TestHandleAPIEso_acceptsGetWithoutTopic(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/api/eso", nil)
+	w := httptest.NewRecorder()
+	generator := &stubEsoGenerator{text: "response"}
+
+	handleAPIEsoWithGenerator(w, req, generator)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusOK)
+	}
+	if generator.thema != "" {
+		t.Errorf("thema = %q, want empty", generator.thema)
+	}
+}
+
+func TestHandleAPIEso_rejectsUnsupportedMethod(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPut, "/api/eso", nil)
 	w := httptest.NewRecorder()
 
 	handleAPIEsoWithGenerator(w, req, &stubEsoGenerator{})
@@ -265,8 +280,8 @@ func TestHandleAPIEso_rejectsUnsupportedMethod(t *testing.T) {
 	if w.Code != http.StatusMethodNotAllowed {
 		t.Errorf("status = %d, want %d", w.Code, http.StatusMethodNotAllowed)
 	}
-	if allow := w.Header().Get("Allow"); allow != http.MethodPost {
-		t.Errorf("Allow = %q, want %q", allow, http.MethodPost)
+	if allow := w.Header().Get("Allow"); allow != "GET, POST" {
+		t.Errorf("Allow = %q, want %q", allow, "GET, POST")
 	}
 }
 
