@@ -1,7 +1,11 @@
 package gidbig
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -9,6 +13,26 @@ import (
 	"strings"
 	"testing"
 )
+
+type stubEsoGenerator struct {
+	text  string
+	thema string
+}
+
+func (g *stubEsoGenerator) GenerateText(_ context.Context, thema string) string {
+	g.thema = thema
+	return g.text
+}
+
+type failingResponseWriter struct {
+	header http.Header
+}
+
+func (w *failingResponseWriter) Header() http.Header { return w.header }
+func (w *failingResponseWriter) Write([]byte) (int, error) {
+	return 0, errors.New("simulated write failure")
+}
+func (w *failingResponseWriter) WriteHeader(int) {}
 
 func writeAudioDescription(t *testing.T, prefix, name, content string) {
 	t.Helper()
@@ -188,6 +212,135 @@ func TestHandleAPIQueue_emptyQueue(t *testing.T) {
 	}
 	if _, ok := result["guilds"]; !ok {
 		t.Error("expected 'guilds' key in response")
+	}
+}
+
+func TestHandleAPIEso_success(t *testing.T) {
+	generator := &stubEsoGenerator{text: "Kosmische Energie fließt."}
+	req := httptest.NewRequest(http.MethodPost, "/api/eso", strings.NewReader(`{"thema":"Kristalle"}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	handleAPIEsoWithGenerator(w, req, generator)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
+	}
+	if ct := w.Header().Get("Content-Type"); ct != "application/json" {
+		t.Errorf("Content-Type = %q, want %q", ct, "application/json")
+	}
+	if generator.thema != "Kristalle" {
+		t.Errorf("thema = %q, want %q", generator.thema, "Kristalle")
+	}
+	var response map[string]string
+	if err := json.NewDecoder(w.Body).Decode(&response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response["text"] != generator.text {
+		t.Errorf("text = %q, want %q", response["text"], generator.text)
+	}
+}
+
+func TestHandleAPIEso_moduleUnavailable(t *testing.T) {
+	previousEsoMod := esoMod
+	esoMod = nil
+	t.Cleanup(func() { esoMod = previousEsoMod })
+
+	req := httptest.NewRequest(http.MethodPost, "/api/eso", nil)
+	w := httptest.NewRecorder()
+
+	handleAPIEso(w, req)
+
+	if w.Code != http.StatusServiceUnavailable {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusServiceUnavailable)
+	}
+}
+
+func TestHandleAPIEso_rejectsUnsupportedMethod(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/api/eso", nil)
+	w := httptest.NewRecorder()
+
+	handleAPIEsoWithGenerator(w, req, &stubEsoGenerator{})
+
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusMethodNotAllowed)
+	}
+	if allow := w.Header().Get("Allow"); allow != http.MethodPost {
+		t.Errorf("Allow = %q, want %q", allow, http.MethodPost)
+	}
+}
+
+func TestHandleAPIEso_rejectsLongThema(t *testing.T) {
+	thema := strings.Repeat("ä", 201)
+	req := httptest.NewRequest(http.MethodPost, "/api/eso", strings.NewReader(`{"thema":"`+thema+`"}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	generator := &stubEsoGenerator{}
+
+	handleAPIEsoWithGenerator(w, req, generator)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+	if generator.thema != "" {
+		t.Error("generator called for invalid thema")
+	}
+}
+
+func TestHandleAPIEso_acceptsMissingBody(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/api/eso", nil)
+	w := httptest.NewRecorder()
+	generator := &stubEsoGenerator{text: "response"}
+
+	handleAPIEsoWithGenerator(w, req, generator)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusOK)
+	}
+	if generator.thema != "" {
+		t.Errorf("thema = %q, want empty", generator.thema)
+	}
+}
+
+func TestHandleAPIEso_rejectsInvalidJSON(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/api/eso", strings.NewReader(`{"thema":`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	handleAPIEsoWithGenerator(w, req, &stubEsoGenerator{})
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}
+
+func TestHandleAPIEso_requiresJSONContentType(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/api/eso", strings.NewReader(`{"thema":"Kristalle"}`))
+	w := httptest.NewRecorder()
+
+	handleAPIEsoWithGenerator(w, req, &stubEsoGenerator{})
+
+	if w.Code != http.StatusUnsupportedMediaType {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusUnsupportedMediaType)
+	}
+}
+
+func TestHandleAPIEso_logsRequestAndEncodingFailure(t *testing.T) {
+	var logs bytes.Buffer
+	previousLogger := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+	t.Cleanup(func() { slog.SetDefault(previousLogger) })
+
+	req := httptest.NewRequest(http.MethodPost, "/api/eso", nil)
+	w := &failingResponseWriter{header: make(http.Header)}
+	handleAPIEsoWithGenerator(w, req, &stubEsoGenerator{text: "response"})
+
+	output := logs.String()
+	if !strings.Contains(output, "ESO API request") {
+		t.Errorf("request log missing: %s", output)
+	}
+	if !strings.Contains(output, "ESO API response encoding failed") {
+		t.Errorf("encoding error log missing: %s", output)
 	}
 }
 

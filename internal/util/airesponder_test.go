@@ -23,22 +23,29 @@ func TestAIResponder_Generate_AIPath(t *testing.T) {
 }
 
 func TestAIResponder_Generate_FallbackOnError(t *testing.T) {
+	wantErr := errors.New("simulated failure")
+	var fallbackErr error
 	r := &AIResponder{
 		SystemPromptTemplate: "{{examples}}",
 		ExamplePool:          []string{"a"},
 		ExampleCount:         1,
 		Fallback:             func() string { return "fallback" },
 		GenerateFn: func(_ context.Context, _, _ string) (string, error) {
-			return "", errors.New("simulated failure")
+			return "", wantErr
 		},
+		OnFallback: func(err error) { fallbackErr = err },
 	}
 	got := r.Generate(context.Background())
 	if got != "fallback" {
 		t.Fatalf("expected 'fallback', got %q", got)
 	}
+	if !errors.Is(fallbackErr, wantErr) {
+		t.Errorf("fallback error = %v, want %v", fallbackErr, wantErr)
+	}
 }
 
 func TestAIResponder_Generate_FallbackOnEmptyResponse(t *testing.T) {
+	var fallbackErr error
 	r := &AIResponder{
 		SystemPromptTemplate: "{{examples}}",
 		ExamplePool:          []string{"a"},
@@ -47,10 +54,14 @@ func TestAIResponder_Generate_FallbackOnEmptyResponse(t *testing.T) {
 		GenerateFn: func(_ context.Context, _, _ string) (string, error) {
 			return "   ", nil
 		},
+		OnFallback: func(err error) { fallbackErr = err },
 	}
 	got := r.Generate(context.Background())
 	if got != "fallback" {
 		t.Fatalf("expected 'fallback' on whitespace-only response, got %q", got)
+	}
+	if !errors.Is(fallbackErr, errEmptyAIResponse) {
+		t.Errorf("fallback error = %v, want %v", fallbackErr, errEmptyAIResponse)
 	}
 }
 

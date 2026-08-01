@@ -14,10 +14,12 @@ import (
 	"html/template"
 	"io"
 	"log/slog"
+	"mime"
 	"net"
 	"net/http"
 	"os"
 	"strconv"
+	"unicode/utf8"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/simplesurance/go-ip-anonymizer/ipanonymizer"
@@ -184,6 +186,7 @@ func startWebServer(config *cfg.Config) {
 	mux.HandleFunc("/discordCallback", handleDiscordCallback)
 	mux.HandleFunc("/playsound", handlePlaySound)
 	mux.HandleFunc("/api/queue", handleAPIQueue)
+	mux.HandleFunc("/api/eso", handleAPIEso)
 	mux.HandleFunc("/health", handleHealth)
 	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("web/static"))))
 
@@ -278,6 +281,70 @@ func handleAPIQueue(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{"guilds": guilds})
+}
+
+func handleAPIEso(w http.ResponseWriter, r *http.Request) {
+	if esoMod == nil {
+		handleAPIEsoWithGenerator(w, r, nil)
+		return
+	}
+	handleAPIEsoWithGenerator(w, r, esoMod)
+}
+
+type esoGenerator interface {
+	GenerateText(context.Context, string) string
+}
+
+type esoRequest struct {
+	Thema string `json:"thema"`
+}
+
+func handleAPIEsoWithGenerator(w http.ResponseWriter, r *http.Request, generator esoGenerator) {
+	slog.Info("ESO API request", "method", r.Method, "path", r.URL.Path)
+
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", http.MethodPost)
+		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
+		return
+	}
+
+	if generator == nil {
+		slog.Warn("ESO API unavailable: module not initialized")
+		http.Error(w, "eso module not initialized", http.StatusServiceUnavailable)
+		return
+	}
+
+	var request esoRequest
+	if r.Body != nil && r.ContentLength != 0 {
+		mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+		if err != nil || mediaType != "application/json" {
+			http.Error(w, "Content-Type must be application/json", http.StatusUnsupportedMediaType)
+			return
+		}
+
+		decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096))
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&request); err != nil {
+			http.Error(w, "invalid JSON body", http.StatusBadRequest)
+			return
+		}
+		if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+			http.Error(w, "body must contain one JSON object", http.StatusBadRequest)
+			return
+		}
+	}
+
+	if utf8.RuneCountInString(request.Thema) > 200 {
+		http.Error(w, "thema must not exceed 200 characters", http.StatusBadRequest)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(map[string]string{
+		"text": generator.GenerateText(r.Context(), request.Thema),
+	}); err != nil {
+		slog.Error("ESO API response encoding failed", "error", err)
+	}
 }
 
 func handleMain(w http.ResponseWriter, r *http.Request) {

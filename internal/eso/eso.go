@@ -40,6 +40,9 @@ func (m *Module) Init(d bot.Deps) error {
 		ExampleCount:         5,
 		Fallback:             buildMessage,
 		GenerateFn:           llm.GenerateMessage,
+		OnFallback: func(err error) {
+			slog.Warn("eso: LLM generation failed; using fallback", "error", err)
+		},
 	}
 
 	slog.Info("eso: initialized")
@@ -71,6 +74,15 @@ func (m *Module) Listeners() []bot.EventListener {
 func (m *Module) Components() []bot.ComponentHandler { return nil }
 func (m *Module) Background() []bot.BackgroundTask   { return nil }
 func (m *Module) Shutdown() error                    { return nil }
+
+// GenerateText generates an esoteric sentence, optionally themed.
+func (m *Module) GenerateText(ctx context.Context, thema string) string {
+	prompt := "Generiere einen esoterischen Unsinn-Satz."
+	if thema != "" {
+		prompt = "Generiere esoterischen Unsinn über das Thema: " + thema
+	}
+	return m.responder.GenerateWithPrompt(ctx, prompt)
+}
 
 func (m *Module) onInteractionCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	if i.Type != discordgo.InteractionApplicationCommand {
