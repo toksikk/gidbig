@@ -39,6 +39,9 @@ var (
 
 	// Start time for uptime calculation
 	startTime = time.Now()
+
+	// Eso module instance for web server access
+	esoMod *eso.Module
 )
 
 func onReady(s *discordgo.Session, event *discordgo.Ready) {
@@ -292,14 +295,6 @@ func StartGidbig() {
 	// create SoundCollections by scanning the audio folder
 	createCollections()
 
-	// Start Webserver if a valid port is provided and if ClientID and ClientSecret are set
-	if conf.Web.Port != 0 && conf.Web.Port >= 1 && conf.Web.Oauth.ClientID != "" && conf.Web.Oauth.ClientSecret != "" && conf.Web.Oauth.RedirectURI != "" {
-		slog.Info("Starting web server", "port", conf.Web.Port)
-		go startWebServer(conf)
-	} else {
-		slog.Info("Required web server arguments missing or invalid. Skipping web server start.")
-	}
-
 	// Preload all the sounds
 	slog.Info("Preloading sounds...")
 	for _, coll := range COLLECTIONS {
@@ -364,7 +359,7 @@ func StartGidbig() {
 	}
 	admin.RegisterProvider(coffeeMod)
 	admin.Start(discord, conf.Discord.OwnerID, buildBotStatsMessage)
-	esoMod := eso.New()
+	esoMod = eso.New()
 	if err := esoMod.Init(bot.Deps{Session: discord, OwnerID: conf.Discord.OwnerID}); err != nil {
 		slog.Error("eso: init failed", "error", err)
 	} else {
@@ -409,6 +404,14 @@ func StartGidbig() {
 	cmds = append(cmds, stollMod.Commands()...)
 	if _, err := discord.ApplicationCommandBulkOverwrite(discord.State.User.ID, "", cmds); err != nil {
 		slog.Error("Failed to register slash commands", "error", err)
+	}
+
+	// Start Webserver if a valid port is provided and if ClientID and ClientSecret are set
+	if conf.Web.Port != 0 && conf.Web.Port >= 1 && conf.Web.Oauth.ClientID != "" && conf.Web.Oauth.ClientSecret != "" && conf.Web.Oauth.RedirectURI != "" {
+		slog.Info("Starting web server", "port", conf.Web.Port)
+		go startWebServer(conf)
+	} else {
+		slog.Info("Required web server arguments missing or invalid. Skipping web server start.")
 	}
 
 	Banner(nil)

@@ -1,8 +1,10 @@
 package eso
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"strings"
 	"testing"
 
@@ -221,6 +223,28 @@ func TestModule_Responder_FallbackOnError(t *testing.T) {
 	}
 	if !hasOhai {
 		t.Fatalf("fallback output not a valid eso message: %q", got)
+	}
+}
+
+func TestModule_Responder_LogsFallback(t *testing.T) {
+	var logs bytes.Buffer
+	previousLogger := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+	t.Cleanup(func() { slog.SetDefault(previousLogger) })
+
+	m := New()
+	s, _ := discordgo.New("Bot fake-token")
+	if err := m.Init(bot.Deps{Session: s}); err != nil {
+		t.Fatalf("Init failed: %v", err)
+	}
+	m.responder.GenerateFn = func(_ context.Context, _, _ string) (string, error) {
+		return "", errors.New("simulated LLM failure")
+	}
+
+	m.GenerateText(context.Background(), "")
+
+	if !strings.Contains(logs.String(), "eso: LLM generation failed; using fallback") {
+		t.Errorf("fallback log missing: %s", logs.String())
 	}
 }
 
