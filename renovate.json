@@ -20,9 +20,9 @@
         },
         {
             "matchManagers": ["github-actions"],
-            "automerge": false,
-            "minimumReleaseAge": null,
-            "description": "GitHub Actions bumps are reviewed and merged manually, without the grace-period delay."
+            "automerge": true,
+            "minimumReleaseAge": "6 days",
+            "description": "Auto-merge GitHub Actions bumps only after the release is 6 days old."
         }
     ]
 }
