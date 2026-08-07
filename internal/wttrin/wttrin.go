@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"math/rand"
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
@@ -18,8 +18,9 @@ import (
 )
 
 const (
-	baseURL   = "https://wttr.in/"
-	apiSuffix = "?format=j1"
+	baseURL         = "https://wttr.in/"
+	apiSuffix       = "?format=j1"
+	weatherCacheTTL = 10 * time.Minute
 )
 
 var weatherCodes = map[string]string{
@@ -249,6 +250,21 @@ type Module struct {
 	detectLang   func(*discordgo.Session, string) (string, error)
 	generateFn   func(context.Context, string, string) (string, error)
 	getWeatherFn func(string) (wttrinResponse, error)
+	now          func() time.Time
+	cacheMu      sync.Mutex
+	cache        map[string]weatherCacheEntry
+	inflight     map[string]*weatherCall
+}
+
+type weatherCacheEntry struct {
+	result    wttrinResponse
+	expiresAt time.Time
+}
+
+type weatherCall struct {
+	done   chan struct{}
+	result wttrinResponse
+	err    error
 }
 
 // New returns a new wttrin Module with default LLM functions.
@@ -257,6 +273,9 @@ func New() *Module {
 		detectLang:   llm.DetectChannelLanguage,
 		generateFn:   llm.GenerateMessage,
 		getWeatherFn: getWeather,
+		now:          time.Now,
+		cache:        make(map[string]weatherCacheEntry),
+		inflight:     make(map[string]*weatherCall),
 	}
 }
 
@@ -320,7 +339,7 @@ func (m *Module) constructDiscordMessage(s *discordgo.Session, mc *discordgo.Mes
 		return ""
 	}
 	location := strings.Join(parts[1:], "+")
-	weatherResult, err := m.getWeatherFn(location)
+	weatherResult, err := m.getWeatherCached(location)
 	if err != nil {
 		slog.Error("Failed to get weather", "MessageID", mc.ID, "Location", location, "Error", err)
 		if _, err2 := s.ChannelMessageSend(mc.ChannelID, "Failed to get weather for "+location+": "+err.Error()); err2 != nil {
@@ -339,6 +358,41 @@ func (m *Module) constructDiscordMessage(s *discordgo.Session, mc *discordgo.Mes
 		return structured + "\n" + outro
 	}
 	return structured
+}
+
+func (m *Module) getWeatherCached(location string) (wttrinResponse, error) {
+	key := strings.ToLower(location)
+	now := m.now()
+
+	m.cacheMu.Lock()
+	if entry, ok := m.cache[key]; ok {
+		if now.Before(entry.expiresAt) {
+			m.cacheMu.Unlock()
+			return entry.result, nil
+		}
+		delete(m.cache, key)
+	}
+	if call, ok := m.inflight[key]; ok {
+		m.cacheMu.Unlock()
+		<-call.done
+		return call.result, call.err
+	}
+
+	call := &weatherCall{done: make(chan struct{})}
+	m.inflight[key] = call
+	m.cacheMu.Unlock()
+
+	call.result, call.err = m.getWeatherFn(location)
+
+	m.cacheMu.Lock()
+	if call.err == nil {
+		m.cache[key] = weatherCacheEntry{result: call.result, expiresAt: m.now().Add(weatherCacheTTL)}
+	}
+	delete(m.inflight, key)
+	close(call.done)
+	m.cacheMu.Unlock()
+
+	return call.result, call.err
 }
 
 func (m *Module) buildLLMWeatherOutro(s *discordgo.Session, mc *discordgo.MessageCreate, location, weatherData string) string {
@@ -439,93 +493,40 @@ func mostOccurringWeatherCodeForDay(hours []hourly) string {
 	return mostOccurringCode
 }
 
-func checkForHighChances(hourly []hourly) (highChances string) {
-	highestChanceOfFog := 0
-	highestChanceOfFrost := 0
-	highestChanceOfHighTemp := 0
-	highestChanceOfRain := 0
-	highestChanceOfSnow := 0
-	highestChanceOfThunder := 0
-	highestChanceOfWindy := 0
+func checkForHighChances(hours []hourly) (highChances string) {
+	type chance struct {
+		name    string
+		emoji   string
+		value   func(hourly) string
+		highest int
+	}
+	chances := []chance{
+		{name: "chanceoffog", emoji: "🌫️", value: func(h hourly) string { return h.Chanceoffog }},
+		{name: "chanceoffrost", emoji: "🥶", value: func(h hourly) string { return h.Chanceoffrost }},
+		{name: "chanceofhightemp", emoji: "🥵", value: func(h hourly) string { return h.Chanceofhightemp }},
+		{name: "chanceofrain", emoji: "🌧️", value: func(h hourly) string { return h.Chanceofrain }},
+		{name: "chanceofsnow", emoji: "❄️", value: func(h hourly) string { return h.Chanceofsnow }},
+		{name: "chanceofthunder", emoji: "⛈️", value: func(h hourly) string { return h.Chanceofthunder }},
+		{name: "chanceofwindy", emoji: "💨", value: func(h hourly) string { return h.Chanceofwindy }},
+	}
 
-	for _, hour := range hourly {
-		chanceoffog, err := strconv.Atoi(hour.Chanceoffog)
-		if err != nil {
-			slog.Error("Failed to convert chanceoffog to integer", "hour.Chanceoffog", hour.Chanceoffog, "Error", err)
-			return
-		}
-		chanceoffrost, err := strconv.Atoi(hour.Chanceoffrost)
-		if err != nil {
-			slog.Error("Failed to convert chanceoffrost to integer", "hour.Chanceoffrost", hour.Chanceoffrost, "Error", err)
-			return
-		}
-		chanceofhightemp, err := strconv.Atoi(hour.Chanceofhightemp)
-		if err != nil {
-			slog.Error("Failed to convert chanceofhightemp to integer", "hour.Chanceofhightemp", hour.Chanceofhightemp, "Error", err)
-			return
-		}
-		chanceofrain, err := strconv.Atoi(hour.Chanceofrain)
-		if err != nil {
-			slog.Error("Failed to convert chanceofrain to integer", "hour.Chanceofrain", hour.Chanceofrain, "Error", err)
-			return
-		}
-		chanceofsnow, err := strconv.Atoi(hour.Chanceofsnow)
-		if err != nil {
-			slog.Error("Failed to convert chanceofsnow to integer", "hour.Chanceofsnow", hour.Chanceofsnow, "Error", err)
-			return
-		}
-		chanceofthunder, err := strconv.Atoi(hour.Chanceofthunder)
-		if err != nil {
-			slog.Error("Failed to convert chanceofthunder to integer", "hour.Chanceofthunder", hour.Chanceofthunder, "Error", err)
-			return
-		}
-		chanceofwindy, err := strconv.Atoi(hour.Chanceofwindy)
-		if err != nil {
-			slog.Error("Failed to convert chanceofwindy to integer", "hour.Chanceofwindy", hour.Chanceofwindy, "Error", err)
-			return
-		}
-		if chanceoffog > 50 && chanceoffog > highestChanceOfFog {
-			highestChanceOfFog = chanceoffog
-		}
-		if chanceoffrost > 50 && chanceoffrost > highestChanceOfFrost {
-			highestChanceOfFrost = chanceoffrost
-		}
-		if chanceofhightemp > 50 && chanceofhightemp > highestChanceOfHighTemp {
-			highestChanceOfHighTemp = chanceofhightemp
-		}
-		if chanceofrain > 50 && chanceofrain > highestChanceOfRain {
-			highestChanceOfRain = chanceofrain
-		}
-		if chanceofsnow > 50 && chanceofsnow > highestChanceOfSnow {
-			highestChanceOfSnow = chanceofsnow
-		}
-		if chanceofthunder > 50 && chanceofthunder > highestChanceOfThunder {
-			highestChanceOfThunder = chanceofthunder
-		}
-		if chanceofwindy > 50 && chanceofwindy > highestChanceOfWindy {
-			highestChanceOfWindy = chanceofwindy
+	for _, hour := range hours {
+		for i := range chances {
+			value := chances[i].value(hour)
+			parsed, err := strconv.Atoi(value)
+			if err != nil {
+				slog.Error("Failed to convert weather chance to integer", "chance", chances[i].name, "value", value, "Error", err)
+				return ""
+			}
+			if parsed > 50 && parsed > chances[i].highest {
+				chances[i].highest = parsed
+			}
 		}
 	}
-	if highestChanceOfFog > 0 {
-		highChances += "🌫️ " + strconv.Itoa(highestChanceOfFog) + "% "
-	}
-	if highestChanceOfFrost > 0 {
-		highChances += "🥶 " + strconv.Itoa(highestChanceOfFrost) + "% "
-	}
-	if highestChanceOfHighTemp > 0 {
-		highChances += "🥵 " + strconv.Itoa(highestChanceOfHighTemp) + "% "
-	}
-	if highestChanceOfRain > 0 {
-		highChances += "🌧️ " + strconv.Itoa(highestChanceOfRain) + "% "
-	}
-	if highestChanceOfSnow > 0 {
-		highChances += "❄️ " + strconv.Itoa(highestChanceOfSnow) + "% "
-	}
-	if highestChanceOfThunder > 0 {
-		highChances += "⛈️ " + strconv.Itoa(highestChanceOfThunder) + "% "
-	}
-	if highestChanceOfWindy > 0 {
-		highChances += "💨 " + strconv.Itoa(highestChanceOfWindy) + "% "
+	for _, chance := range chances {
+		if chance.highest > 0 {
+			highChances += chance.emoji + " " + strconv.Itoa(chance.highest) + "% "
+		}
 	}
 	if highChances != "" {
 		highChances = "⚠️ " + highChances
@@ -612,8 +613,7 @@ func buildForecastString(weatherResult wttrinResponse) (result string) {
 }
 
 func getWeather(location string) (weatherResult wttrinResponse, err error) {
-	nocache := "&nonce=" + strconv.Itoa(rand.Intn(32768))
-	queryURL := baseURL + location + apiSuffix + nocache
+	queryURL := baseURL + location + apiSuffix
 	slog.Info("Querying wttr.in", "URL", queryURL)
 	return httpGet(queryURL)
 }
