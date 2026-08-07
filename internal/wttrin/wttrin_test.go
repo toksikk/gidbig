@@ -4,7 +4,10 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/bwmarrin/discordgo"
 )
@@ -14,6 +17,9 @@ func newTestModule() *Module {
 		detectLang:   func(_ *discordgo.Session, _ string) (string, error) { return "English", nil },
 		generateFn:   func(_ context.Context, _, _ string) (string, error) { return "", nil },
 		getWeatherFn: func(_ string) (wttrinResponse, error) { return wttrinResponse{}, nil },
+		now:          time.Now,
+		cache:        make(map[string]weatherCacheEntry),
+		inflight:     make(map[string]*weatherCall),
 	}
 }
 
@@ -232,6 +238,121 @@ func TestMostOccurringWeatherCodeForDay_ReturnsDominantCode(t *testing.T) {
 	}
 	if got := mostOccurringWeatherCodeForDay(hours); got != "113" {
 		t.Errorf("expected %q, got %q", "113", got)
+	}
+}
+
+func TestCheckForHighChances_ReturnsHighestValues(t *testing.T) {
+	hours := []hourly{
+		{Chanceoffog: "51", Chanceoffrost: "0", Chanceofhightemp: "0", Chanceofrain: "70", Chanceofsnow: "0", Chanceofthunder: "0", Chanceofwindy: "0"},
+		{Chanceoffog: "80", Chanceoffrost: "0", Chanceofhightemp: "0", Chanceofrain: "60", Chanceofsnow: "0", Chanceofthunder: "0", Chanceofwindy: "0"},
+	}
+
+	if got, want := checkForHighChances(hours), "⚠️ 🌫️ 80% 🌧️ 70% "; got != want {
+		t.Errorf("checkForHighChances() = %q, want %q", got, want)
+	}
+}
+
+func TestCheckForHighChances_InvalidValueReturnsEmpty(t *testing.T) {
+	hour := hourly{
+		Chanceoffog: "invalid", Chanceoffrost: "0", Chanceofhightemp: "0", Chanceofrain: "70",
+		Chanceofsnow: "0", Chanceofthunder: "0", Chanceofwindy: "0",
+	}
+
+	if got := checkForHighChances([]hourly{hour}); got != "" {
+		t.Errorf("checkForHighChances() = %q, want empty result", got)
+	}
+}
+
+func TestGetWeatherCached_CachesByNormalizedLocation(t *testing.T) {
+	m := newTestModule()
+	var calls int
+	m.getWeatherFn = func(_ string) (wttrinResponse, error) {
+		calls++
+		return minimalWeatherResponse(), nil
+	}
+
+	if _, err := m.getWeatherCached("Berlin"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.getWeatherCached("berlin"); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 1 {
+		t.Errorf("weather fetch called %d times, want 1", calls)
+	}
+}
+
+func TestGetWeatherCached_RefreshesExpiredEntry(t *testing.T) {
+	m := newTestModule()
+	now := time.Date(2026, time.August, 7, 12, 0, 0, 0, time.UTC)
+	m.now = func() time.Time { return now }
+	var calls int
+	m.getWeatherFn = func(_ string) (wttrinResponse, error) {
+		calls++
+		return minimalWeatherResponse(), nil
+	}
+
+	if _, err := m.getWeatherCached("Berlin"); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(weatherCacheTTL)
+	if _, err := m.getWeatherCached("Berlin"); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 2 {
+		t.Errorf("weather fetch called %d times, want 2", calls)
+	}
+}
+
+func TestGetWeatherCached_DoesNotCacheErrors(t *testing.T) {
+	m := newTestModule()
+	var calls int
+	m.getWeatherFn = func(_ string) (wttrinResponse, error) {
+		calls++
+		return wttrinResponse{}, errors.New("unavailable")
+	}
+
+	for range 2 {
+		if _, err := m.getWeatherCached("Berlin"); err == nil {
+			t.Fatal("expected weather fetch error")
+		}
+	}
+	if calls != 2 {
+		t.Errorf("weather fetch called %d times, want 2", calls)
+	}
+}
+
+func TestGetWeatherCached_CoalescesConcurrentRequests(t *testing.T) {
+	m := newTestModule()
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var calls atomic.Int32
+	m.getWeatherFn = func(_ string) (wttrinResponse, error) {
+		if calls.Add(1) == 1 {
+			close(started)
+		}
+		<-release
+		return minimalWeatherResponse(), nil
+	}
+
+	const requests = 8
+	var wg sync.WaitGroup
+	wg.Add(requests)
+	for range requests {
+		go func() {
+			defer wg.Done()
+			if _, err := m.getWeatherCached("Berlin"); err != nil {
+				t.Errorf("getWeatherCached() error = %v", err)
+			}
+		}()
+	}
+	<-started
+	time.Sleep(10 * time.Millisecond)
+	close(release)
+	wg.Wait()
+
+	if got := calls.Load(); got != 1 {
+		t.Errorf("weather fetch called %d times, want 1", got)
 	}
 }
 
