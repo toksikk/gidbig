@@ -8,26 +8,27 @@ Gidbig is a Discord bot written in Go — soundboard playback in voice channels,
 
 ### Core
 
-- 🏓 **Ping/Pong** — type `ping` → bot replies `Pong!` (and vice versa)
+- 🏓 **Ping/Pong** — send exact lowercase `ping` or `pong`; the bot replies `Pong!` or `Ping!` and updates its game status
 - 🔊 **Soundboard** — plays pre-encoded `.dca` audio files in your voice channel
   - `!<prefix>` — play a random sound from that collection
   - `!<prefix> <soundname>` — play a specific sound
   - `!list` — list all available sound collections
-  - `!uptime` — show bot uptime
-  - Files live in `audio/` as `{prefix}_{soundname}.dca`; optional `.txt` file with the same name adds a description
+  - `!uptime` — owner-only uptime command
+  - Files live in `audio/` as `{prefix}_{soundname}.dca`; an optional matching `.txt` file supplies the Web UI description
 - 🌐 **Web UI** — browser interface to trigger sounds; requires Discord OAuth2 credentials in config
-- 📊 **`/status`** — slash command showing bot version and uptime
+- 📊 **`/status`** — owner-only ephemeral command showing versions, uptime, memory/runtime statistics, and guild/user counts
+- 🛡️ **`/admin`** — owner-only administrative commands
 
 ### 🔌 Modules
 
 | Plugin | What it does |
 |---|---|
-| ☕ **coffee** | Greets users with their preferred morning beverage when they say "moin", "hallo", etc. `/setbeverage <emoji>` to configure, `/brew` to trigger manually |
-| 🔮 **eso** | `!eso` — generates random esoteric pseudoscience nonsense: tachyonized homeopathic energy cards irradiated with scalar waves to combat the Illuminati mind control agenda |
-| 🎮 **gamerstatus** | Rotates the bot's Discord custom status periodically |
-| 🤖 **gippity** | AI chat via `/gippity`; backed by an LLM, stores conversation history in SQLite; restricted to configured guild IDs |
-| 🕐 **leetoclock** | Daily 13:37 game — first to post in the channel wins; scores by reaction time; posts a scoreboard at end of game |
-| 🧌 **stoll** | `!stoll` — Stoll-related commands |
+| ☕ **coffee** | Greets users with their preferred morning beverage when they say "moin", "morgen", etc. `/setbeverage` configures it, `/brew` serves a selected drink, and `/coffeemachine` manages and reports machine state |
+| 🔮 **eso** | `/eso [thema]` generates esoteric pseudoscience nonsense through the LLM, with a local fallback |
+| 🎮 **gamerstatus** | Rotates the bot's Discord game/activity status every 5–15 minutes after an initial 5-minute delay |
+| 🤖 **gippity** | Responds through an LLM when mentioned in an allowed guild, stores conversation history in SQLite, and provides `/gippity privacy set:on\|off` |
+| 🕐 **leetoclock** | Daily 13:37 game — messages around 13:37 score by time offset; the top three at or after 13:37 rank alongside early/late categories |
+| 🧌 **stoll** | `/stoll` — Stoll-related commands |
 | 🌤️ **wttrin** | `!wttr <location>` / `!wttrf <location>` — current weather / forecast with an LLM-generated outro |
 
 ## 🚀 Quickstart
@@ -51,8 +52,10 @@ web:
         client_id: "YOUR_OAUTH_CLIENT_ID"
         client_secret: "YOUR_OAUTH_CLIENT_SECRET"
         redirect_uri: "YOUR_REDIRECT_URI"
-    session_secret: "base64-encoded-32-random-bytes"
+    session_secret: "A_STRONG_RANDOM_SESSION_SECRET"
     port: 8080
+database:
+    path: "gidbig.db"
 gippity:
     allowed_guilds:
         - "YOUR_DISCORD_GUILD_ID"
@@ -63,19 +66,25 @@ llm:
 dev_mode: true
 ```
 
-The web server only starts when `web.port`, `web.oauth.client_id`, and `web.oauth.client_secret` are all set. `gippity.allowed_guilds` restricts which servers can use `/gippity`.
+Set `OPENAI_API_KEY` in the bot environment to enable LLM-backed behavior. Keep API credentials out of `config.yaml`.
+
+The web server starts only when `web.port`, `web.session_secret`, `web.oauth.client_id`, `web.oauth.client_secret`, and `web.oauth.redirect_uri` are set. `gippity.allowed_guilds` restricts guilds where mention-driven AI chat runs.
 
 ### 2. Add audio files 🎵
 
-Drop `.dca` files into `./audio/` following the naming scheme `{prefix}_{soundname}.dca`.  
+Drop `.dca` files into `./audio/` following the naming scheme `{prefix}_{soundname}.dca`. Prefix and sound name must be nonempty and cannot contain underscores.
 Example: `airhorn_default.dca` → `!airhorn default`
 
 ### 3. Build and run 🔨
+
+Local builds require Go 1.25 and a CGO-capable C compiler for SQLite.
 
 ```bash
 make build
 ./bin/gidbig
 ```
+
+Run the binary from a working directory containing `config.yaml`, `audio/`, `web/`, and a writable `plugins/` directory.
 
 ## 🛠️ Build
 
@@ -83,7 +92,7 @@ make build
 make build                    # Build binary → ./bin/gidbig
 make test                     # go test -v ./...
 make lint                     # golangci-lint run ./...
-make release                  # Cross-compile: linux/amd64, arm64, 386, arm and darwin/amd64
+make release                  # Cross-compile linux/{amd64,arm64,386,arm} and darwin/amd64 into ./bin/release
 make docker                   # Build Docker image
 make update                   # go get -u -t ./... && go mod tidy
 ```
@@ -93,19 +102,27 @@ make update                   # go get -u -t ./... && go mod tidy
 ```bash
 make docker
 
-# Run with mounted config and audio directory
+# Prepare writable persistent storage
+mkdir -p data/plugins
+touch data/gippity.db data/gidbig.db
+
+# Run with Web UI on port 8080
 docker run -it \
+  -p 8080:8080 \
   --mount type=bind,source=$(pwd)/config.yaml,target=/gidbig/config.yaml \
   --mount type=bind,source=$(pwd)/audio,target=/gidbig/audio \
+  --mount type=bind,source=$(pwd)/data/plugins,target=/gidbig/plugins \
+  --mount type=bind,source=$(pwd)/data/gippity.db,target=/gidbig/gippity.db \
+  --mount type=bind,source=$(pwd)/data/gidbig.db,target=/gidbig/gidbig.db \
   gidbig:$(git describe --tags)
 ```
 
-Or use `docker-compose.yml` in the repo root.
+The database mount must match `database.path`. `docker-compose.yml` is also available, but add equivalent writable persistence mounts before using it in production.
 
 ## 🗺️ Roadmap
 
-- 🔀 **Migrate all `!`-prefix commands to Discord slash commands** — soundboard, `!wttr`, `!stoll`, `!eso`, etc.
-- 🏗️ **Refactor architecture** — move from the current event-handler-per-module pattern toward a cleaner command/handler abstraction
+- 🔀 **Finish migrating `!`-prefix commands to Discord slash commands** — soundboard and wttrin remain legacy commands
+- 🏗️ **Finish module migration** — move gippity and leetoclock to `bot.Module` and centralize routing and command registration
 
 ## 📄 License
 
