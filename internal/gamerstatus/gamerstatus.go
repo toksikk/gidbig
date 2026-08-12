@@ -56,6 +56,8 @@ type Module struct {
 	initialDelay time.Duration
 	rotationMin  time.Duration
 	rotationMax  time.Duration
+	isSpecial    func() bool
+	isHalloween  func() bool
 }
 
 // New returns a new gamerstatus Module with production timing defaults.
@@ -64,6 +66,8 @@ func New() *Module {
 		initialDelay: 5 * time.Minute,
 		rotationMin:  5 * time.Minute,
 		rotationMax:  15 * time.Minute,
+		isSpecial:    util.IsSpecial,
+		isHalloween:  util.IsHalloween,
 	}
 }
 
@@ -76,9 +80,9 @@ func (m *Module) Init(d bot.Deps) error {
 }
 
 func (m *Module) Commands() []*discordgo.ApplicationCommand { return nil }
-func (m *Module) Listeners() []bot.EventListener           { return nil }
-func (m *Module) Components() []bot.ComponentHandler       { return nil }
-func (m *Module) Shutdown() error                          { return nil }
+func (m *Module) Listeners() []bot.EventListener            { return nil }
+func (m *Module) Components() []bot.ComponentHandler        { return nil }
+func (m *Module) Shutdown() error                           { return nil }
 
 func (m *Module) Background() []bot.BackgroundTask {
 	return []bot.BackgroundTask{
@@ -98,12 +102,7 @@ func (m *Module) runStatusLoop(ctx context.Context) {
 			slog.Error("gamerstatus: could not clear streaming status", "error", err)
 		}
 
-		var game string
-		if util.IsSpecial() {
-			game = string(util.Cl)
-		} else {
-			game = games[rand.Intn(len(games))]
-		}
+		game := m.currentGame()
 		if err := m.session.UpdateGameStatus(0, game); err != nil {
 			slog.Error("gamerstatus: could not set game status", "error", err)
 		}
@@ -115,4 +114,14 @@ func (m *Module) runStatusLoop(ctx context.Context) {
 			return
 		}
 	}
+}
+
+func (m *Module) currentGame() string {
+	if m.isHalloween() {
+		return "🎃 Spooky Season 👻"
+	}
+	if m.isSpecial() {
+		return string(util.Cl)
+	}
+	return games[rand.Intn(len(games))]
 }

@@ -22,6 +22,18 @@ func TestEnrichSystemMessage_returnsInputUnchanged(t *testing.T) {
 	}
 }
 
+func TestDecodeModifier(t *testing.T) {
+	got := decodeModifier("fallback", []string{"c3Bvb2t5"})
+	if got != "spooky" {
+		t.Fatalf("decodeModifier() = %q, want spooky", got)
+	}
+
+	got = decodeModifier("fallback", []string{"not base64"})
+	if got != "fallback" {
+		t.Fatalf("decodeModifier() = %q, want fallback", got)
+	}
+}
+
 func TestRemoveSpoilerTagContent(t *testing.T) {
 	cases := []struct {
 		input string

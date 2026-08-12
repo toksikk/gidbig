@@ -34,3 +34,12 @@ func IsSpecial() bool {
 	today := time.Now()
 	return today.Day() == int(da) && today.Month() == time.Month(int(mo))
 }
+
+// IsHalloween returns true on October 31.
+func IsHalloween() bool {
+	return isHalloween(time.Now())
+}
+
+func isHalloween(today time.Time) bool {
+	return today.Day() == 31 && today.Month() == time.October
+}

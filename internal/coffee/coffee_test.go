@@ -50,6 +50,17 @@ func useSpecialDay(m *Module, t *testing.T, special bool) {
 	})
 }
 
+func useHalloween(m *Module, t *testing.T, halloween bool) {
+	t.Helper()
+	previous := m.isHalloween
+	m.isHalloween = func() bool {
+		return halloween
+	}
+	t.Cleanup(func() {
+		m.isHalloween = previous
+	})
+}
+
 func greetingMessage(userID, content string) *discordgo.MessageCreate {
 	return &discordgo.MessageCreate{
 		Message: &discordgo.Message{
@@ -264,6 +275,7 @@ func TestOnMessageCreate_SpecialDayFirstGreetingReactsAndRecordsGreeting(t *test
 	m := newTestModule(t)
 	useNow(m, t, time.Date(2026, 5, 3, 9, 0, 0, 0, time.Local))
 	useSpecialDay(m, t, true)
+	useHalloween(m, t, false)
 	getReactions := captureReactions(m, t)
 	_ = captureIntroDMs(m, t)
 
@@ -281,6 +293,22 @@ func TestOnMessageCreate_SpecialDayFirstGreetingReactsAndRecordsGreeting(t *test
 	}
 	if count := countGreetings(m, t, "user1"); count != 1 {
 		t.Errorf("expected 1 greeting row, got %d", count)
+	}
+}
+
+func TestOnMessageCreate_HalloweenGreeting(t *testing.T) {
+	m := newTestModule(t)
+	useNow(m, t, time.Date(2026, time.October, 31, 9, 0, 0, 0, time.Local))
+	useSpecialDay(m, t, false)
+	useHalloween(m, t, true)
+	getReactions := captureReactions(m, t)
+	_ = captureIntroDMs(m, t)
+
+	m.onMessageCreate(nil, greetingMessage("user1", "moin"))
+
+	reactions := getReactions()
+	if len(reactions) != 2 || reactions[0].emoji != "🎃" || reactions[1].emoji != "👻" {
+		t.Fatalf("Halloween reactions = %#v, want pumpkin and ghost", reactions)
 	}
 }
 

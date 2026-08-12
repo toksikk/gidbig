@@ -58,6 +58,7 @@ type Module struct {
 	// Test hooks
 	nowFunc              func() time.Time
 	isSpecialDay         func() bool
+	isHalloween          func() bool
 	reactOnMessage       func(*discordgo.Session, string, string, string, string)
 	sendIntroDM          func(*discordgo.Session, string, string)
 	detectLanguage       func(*discordgo.Session, string) (string, error)
@@ -82,6 +83,7 @@ func New() *Module {
 		uiWarmSlots: make(chan struct{}, 2),
 	}
 	m.isSpecialDay = util.IsSpecial
+	m.isHalloween = util.IsHalloween
 	m.reactOnMessage = util.ReactOnMessage
 	m.sendIntroDM = m.sendIntroDMImpl
 	m.detectLanguage = llm.DetectChannelLanguage
@@ -394,7 +396,10 @@ func (m *Module) onMessageCreate(s *discordgo.Session, mc *discordgo.MessageCrea
 			}
 
 			emoji := m.beverageEmojiFor(mc.Author.ID)
-			if m.isSpecialDay() {
+			if m.isHalloween() {
+				m.reactOnMessage(s, mc.ChannelID, mc.ID, "🎃", "add")
+				m.reactOnMessage(s, mc.ChannelID, mc.ID, "👻", "add")
+			} else if m.isSpecialDay() {
 				m.reactOnMessage(s, mc.ChannelID, mc.ID, string(util.Ae[util.RandomRange(0, len(util.Ae))]), "add")
 				m.reactOnMessage(s, mc.ChannelID, mc.ID, string(util.Cl), "add")
 			} else {
