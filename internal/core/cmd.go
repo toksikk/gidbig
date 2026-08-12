@@ -94,7 +94,7 @@ func buildBotStatsMessage(s *discordgo.Session) string {
 	uptime := time.Since(startTime).Round(time.Second)
 	startDateTime := startTime.Format("2006-01-02 15:04:05")
 
-	msg := fmt.Sprintf(`Gidbig:          %s
+	msg := fmt.Sprintf(`Version:         %s
 Discordgo:       %s
 Go:              %s
 
@@ -126,7 +126,7 @@ Servers:         %d
 Users:           %d
 
 Uptime:          %s (since %s)
-`, version, discordgo.VERSION, runtime.Version(),
+`, currentVersion(), discordgo.VERSION, runtime.Version(),
 		humanize.Bytes(stats.Alloc), humanize.Bytes(stats.Sys), humanize.Bytes(stats.TotalAlloc),
 		humanize.Bytes(stats.Mallocs), humanize.Bytes(stats.Frees),
 		humanize.Bytes(stats.HeapAlloc), humanize.Bytes(stats.HeapInuse), humanize.Bytes(stats.HeapSys),
