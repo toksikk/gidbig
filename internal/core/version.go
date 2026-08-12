@@ -16,13 +16,40 @@ func currentVersion() string {
 	if version != "" {
 		return version
 	}
-	if build, ok := debug.ReadBuildInfo(); ok && build.Main.Version != "" {
-		version = build.Main.Version
+	if build, ok := debug.ReadBuildInfo(); ok {
+		version = versionFromBuildInfo(build)
 	}
 	if version == "" {
 		version = "(devel)"
 	}
 	return version
+}
+
+func versionFromBuildInfo(build *debug.BuildInfo) string {
+	resolved := build.Main.Version
+	revision := ""
+	modified := false
+	for _, setting := range build.Settings {
+		switch setting.Key {
+		case "vcs.revision":
+			revision = setting.Value
+		case "vcs.modified":
+			modified = setting.Value == "true"
+		}
+	}
+	if resolved != "" && resolved != "(devel)" {
+		return resolved
+	}
+	if revision == "" {
+		return "(devel)"
+	}
+	if len(revision) > 12 {
+		revision = revision[:12]
+	}
+	if modified {
+		revision += " dirty"
+	}
+	return "(devel " + revision + ")"
 }
 
 // LogVersion print version to log

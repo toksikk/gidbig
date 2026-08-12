@@ -2,6 +2,7 @@ package gidbig
 
 import (
 	"bytes"
+	"runtime/debug"
 	"strings"
 	"testing"
 
@@ -184,6 +185,19 @@ func TestBuildBotStatsMessageIncludesVersion(t *testing.T) {
 	got := buildBotStatsMessage(&discordgo.Session{})
 	if !strings.Contains(got, "Version:         v1.2.3") {
 		t.Fatalf("status missing bot version:\n%s", got)
+	}
+}
+
+func TestVersionFromBuildInfoIncludesRevisionForDevelopmentBuild(t *testing.T) {
+	build := &debug.BuildInfo{
+		Main: debug.Module{Version: "(devel)"},
+		Settings: []debug.BuildSetting{
+			{Key: "vcs.revision", Value: "0123456789abcdef0123456789abcdef01234567"},
+			{Key: "vcs.modified", Value: "true"},
+		},
+	}
+	if got := versionFromBuildInfo(build); got != "(devel 0123456789ab dirty)" {
+		t.Fatalf("versionFromBuildInfo() = %q", got)
 	}
 }
 
