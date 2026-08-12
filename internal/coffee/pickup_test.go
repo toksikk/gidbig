@@ -251,3 +251,33 @@ func TestBackgroundTaskIsRegistered(t *testing.T) {
 		t.Fatalf("background tasks = %+v", tasks)
 	}
 }
+
+func TestPickupPenaltyStatsShowsStrikesTimeoutsAndProbation(t *testing.T) {
+	m := newTestModule(t)
+	now := time.Date(2026, 8, 12, 12, 0, 0, 0, time.UTC)
+	for id := uint(1); id <= 3; id++ {
+		recordViolation(t, m, id, "blocked", now.Add(-time.Duration(4-id)*time.Hour))
+	}
+	for id := uint(4); id <= 6; id++ {
+		recordViolation(t, m, id, "probation", now.Add(-5*24*time.Hour+time.Duration(id-4)*time.Hour))
+	}
+	recordViolation(t, m, 7, "old", now.Add(-violationWindow-time.Hour))
+
+	stats, err := m.pickupPenaltyStats(now)
+	if err != nil {
+		t.Fatalf("pickupPenaltyStats: %v", err)
+	}
+	if len(stats) != 2 {
+		t.Fatalf("stats = %+v, want blocked and probation users", stats)
+	}
+	byUser := make(map[string]pickupPenaltyStat, len(stats))
+	for _, stat := range stats {
+		byUser[stat.UserID] = stat
+	}
+	if got := byUser["blocked"]; got.Strikes != 3 || got.Stage != 1 || !now.Before(got.BlockedUntil) {
+		t.Fatalf("blocked stat = %+v", got)
+	}
+	if got := byUser["probation"]; got.Strikes != 3 || got.Stage != 1 || now.Before(got.BlockedUntil) || !now.Before(got.ProbationUntil) {
+		t.Fatalf("probation stat = %+v", got)
+	}
+}

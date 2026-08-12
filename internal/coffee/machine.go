@@ -762,7 +762,7 @@ func avgGrams(total, count int) int {
 
 // formatUserStats renders the detailed per-user breakdown for /coffeemachine
 // stats: drinks by type, refills by part, grounds emptied, and slacker misses.
-func formatUserStats(userID string, drinks, refills []labelCount, groundsCount, groundsTotal int, slackers []labelCount) string {
+func formatUserStats(userID string, drinks, refills []labelCount, groundsCount, groundsTotal int, slackers []labelCount, penalties []pickupPenaltyStat, now time.Time) string {
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "📊 **Coffee stats for <@%s>**\n", userID)
 
@@ -793,6 +793,21 @@ func formatUserStats(userID string, drinks, refills []labelCount, groundsCount, 
 		for _, s := range slackers {
 			fmt.Fprintf(&sb, "%s: %d\n", titleCase(partLabel(s.Key)), s.Count)
 		}
+	}
+
+	sb.WriteString("\n**Unclaimed-drink strikes** _(Discord-wide, last 90 days)_\n")
+	if len(penalties) == 0 {
+		sb.WriteString("_none active_\n")
+	}
+	for _, penalty := range penalties {
+		fmt.Fprintf(&sb, "<@%s>: %d strikes", penalty.UserID, penalty.Strikes)
+		switch {
+		case now.Before(penalty.BlockedUntil):
+			fmt.Fprintf(&sb, " · stage %d timeout until <t:%d:F> (<t:%d:R>)", penalty.Stage, penalty.BlockedUntil.Unix(), penalty.BlockedUntil.Unix())
+		case now.Before(penalty.ProbationUntil):
+			fmt.Fprintf(&sb, " · stage %d probation until <t:%d:F> (<t:%d:R>)", penalty.Stage, penalty.ProbationUntil.Unix(), penalty.ProbationUntil.Unix())
+		}
+		sb.WriteByte('\n')
 	}
 
 	return strings.TrimRight(sb.String(), "\n")
@@ -1073,7 +1088,9 @@ func (m *Module) buildUserStats(guildID, userID string) string {
 	refills, _ := m.userRefillBreakdown(guildID, userID)
 	groundsCount, groundsTotal, _ := m.userGroundsStats(guildID, userID)
 	slackers, _ := m.userSlackerBreakdown(guildID, userID)
-	return formatUserStats(userID, drinks, refills, groundsCount, groundsTotal, slackers)
+	now := m.nowFunc().UTC()
+	penalties, _ := m.pickupPenaltyStats(now)
+	return formatUserStats(userID, drinks, refills, groundsCount, groundsTotal, slackers, penalties, now)
 }
 
 // --- Interactive order menu (no-options /brew) --------------------------------

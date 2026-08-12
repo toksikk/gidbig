@@ -37,6 +37,14 @@ type pickupResult struct {
 	expired bool
 }
 
+type pickupPenaltyStat struct {
+	UserID         string
+	Strikes        int64
+	Stage          int
+	BlockedUntil   time.Time
+	ProbationUntil time.Time
+}
+
 func (s restrictionStatus) blocked(now time.Time) bool {
 	return !s.BlockedUntil.IsZero() && now.Before(s.BlockedUntil)
 }
@@ -86,6 +94,52 @@ func (m *Module) restrictionForUser(userID string, now time.Time) (restrictionSt
 		return err
 	})
 	return status, err
+}
+
+func (m *Module) pickupPenaltyStats(now time.Time) ([]pickupPenaltyStat, error) {
+	db := m.getDB()
+	if db == nil {
+		return nil, errors.New("store not initialized")
+	}
+	m.machineMu.Lock()
+	defer m.machineMu.Unlock()
+	var stats []pickupPenaltyStat
+	err := db.Transaction(func(tx *gorm.DB) error {
+		var restrictions []BrewRestriction
+		if err := tx.Find(&restrictions).Error; err != nil {
+			return err
+		}
+		states := make(map[string]BrewRestriction, len(restrictions))
+		for idx := range restrictions {
+			state, err := normalizeRestrictionTx(tx, restrictions[idx].UserID, now)
+			if err != nil {
+				return err
+			}
+			if state.UserID != "" {
+				states[state.UserID] = state
+			}
+		}
+
+		type strikeCount struct {
+			UserID string
+			Count  int64
+		}
+		var counts []strikeCount
+		if err := tx.Model(&PickupViolation{}).
+			Select("user_id, count(*) AS count").
+			Where("occurred_at > ?", now.Add(-violationWindow)).
+			Group("user_id").
+			Order("count DESC, user_id ASC").
+			Scan(&counts).Error; err != nil {
+			return err
+		}
+		for _, count := range counts {
+			state := states[count.UserID]
+			stats = append(stats, pickupPenaltyStat{UserID: count.UserID, Strikes: count.Count, Stage: state.Stage, BlockedUntil: state.BlockedUntil, ProbationUntil: state.ProbationUntil})
+		}
+		return nil
+	})
+	return stats, err
 }
 
 // recordPickupViolationTx records one missed pickup and advances the user's ban
