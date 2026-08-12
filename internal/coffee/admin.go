@@ -42,26 +42,26 @@ func (m *Module) HandleAdminSubcommand(s *discordgo.Session, i *discordgo.Intera
 	if targetID != "" {
 		pref, found := m.adminGetBeveragePreference(targetID)
 		if !found {
-			adminEphemeral(s, i, fmt.Sprintf("No beverage preference found for <@%s>.", targetID))
+			adminEditEphemeral(s, i, fmt.Sprintf("No beverage preference found for <@%s>.", targetID))
 			return
 		}
-		adminEphemeral(s, i, fmt.Sprintf("<@%s>: %s (introduced: %v)", targetID, pref.BeverageEmoji, pref.HasSeenIntro))
+		adminEditEphemeral(s, i, fmt.Sprintf("<@%s>: %s (introduced: %v)", targetID, pref.BeverageEmoji, pref.HasSeenIntro))
 		return
 	}
 	prefs, err := m.adminGetAllBeveragePreferences()
 	if err != nil {
-		adminEphemeral(s, i, fmt.Sprintf("Error querying beverage preferences: %v", err))
+		adminEditEphemeral(s, i, fmt.Sprintf("Error querying beverage preferences: %v", err))
 		return
 	}
 	if len(prefs) == 0 {
-		adminEphemeral(s, i, "No beverage preferences stored.")
+		adminEditEphemeral(s, i, "No beverage preferences stored.")
 		return
 	}
 	var sb strings.Builder
 	for _, p := range prefs {
 		fmt.Fprintf(&sb, "<@%s>: %s (introduced: %v)\n", p.UserID, p.BeverageEmoji, p.HasSeenIntro)
 	}
-	adminEphemeral(s, i, sb.String())
+	adminEditEphemeral(s, i, sb.String())
 }
 
 func (m *Module) adminGetBeveragePreference(userID string) (*UserBeveragePreference, bool) {
@@ -99,14 +99,8 @@ func adminOptUserID(s *discordgo.Session, opts []*discordgo.ApplicationCommandIn
 	return ""
 }
 
-func adminEphemeral(s *discordgo.Session, i *discordgo.InteractionCreate, content string) {
-	if err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseChannelMessageWithSource,
-		Data: &discordgo.InteractionResponseData{
-			Content: content,
-			Flags:   discordgo.MessageFlagsEphemeral,
-		},
-	}); err != nil {
-		slog.Error("coffee: admin respond failed", "error", err)
+func adminEditEphemeral(s *discordgo.Session, i *discordgo.InteractionCreate, content string) {
+	if _, err := s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: &content}); err != nil {
+		slog.Error("coffee: admin edit response failed", "error", err)
 	}
 }

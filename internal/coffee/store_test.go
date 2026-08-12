@@ -1,11 +1,13 @@
 package coffee
 
 import (
+	"context"
 	"fmt"
 	"net/url"
 	"testing"
 	"time"
 
+	"github.com/bwmarrin/discordgo"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
@@ -14,6 +16,8 @@ import (
 func newTestModule(t *testing.T) *Module {
 	t.Helper()
 	m := New()
+	m.detectLanguage = func(_ *discordgo.Session, _ string) (string, error) { return "English", nil }
+	m.generateLLMMessage = func(_ context.Context, _, _ string) (string, error) { return "", nil }
 	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", url.PathEscape(t.Name()))
 	gormDB, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	if err != nil {
@@ -28,6 +32,7 @@ func newTestModule(t *testing.T) *Module {
 	m.db = gormDB
 	m.dbMu.Unlock()
 	t.Cleanup(func() {
+		m.uiWarmWG.Wait()
 		m.dbMu.Lock()
 		defer m.dbMu.Unlock()
 		if m.db == nil {
