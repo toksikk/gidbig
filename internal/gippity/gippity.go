@@ -263,15 +263,17 @@ func onGippityInteractionCreate(s *discordgo.Session, i *discordgo.InteractionCr
 	if userID == "" {
 		return
 	}
+	if err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{Flags: discordgo.MessageFlagsEphemeral},
+	}); err != nil {
+		slog.Error("gippity: failed to defer privacy interaction", "error", err)
+		return
+	}
 	if err := setUserPrivacy(userID, enabled); err != nil {
 		slog.Error("gippity: failed to set user privacy", "error", err, "userID", userID)
-		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-			Type: discordgo.InteractionResponseChannelMessageWithSource,
-			Data: &discordgo.InteractionResponseData{
-				Content: "Fehler beim Speichern deiner Datenschutzeinstellung.",
-				Flags:   discordgo.MessageFlagsEphemeral,
-			},
-		})
+		msg := "Fehler beim Speichern deiner Datenschutzeinstellung."
+		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: &msg})
 		return
 	}
 
@@ -281,13 +283,7 @@ func onGippityInteractionCreate(s *discordgo.Session, i *discordgo.InteractionCr
 	} else {
 		msg = "Datenschutz deaktiviert: Deine vergangenen Nachrichten werden im KI-Kontext im Klartext verwendet."
 	}
-	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseChannelMessageWithSource,
-		Data: &discordgo.InteractionResponseData{
-			Content: msg,
-			Flags:   discordgo.MessageFlagsEphemeral,
-		},
-	})
+	_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: &msg})
 }
 
 func isMentioned(m *discordgo.MessageCreate) bool {

@@ -803,14 +803,14 @@ func (m *Module) brewResponder(s *discordgo.Session, i *discordgo.InteractionCre
 // drink menu (coffees + teas); otherwise it brews the chosen drink directly.
 func (m *Module) handleBrewInteraction(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	data := i.ApplicationCommandData()
-	if len(data.Options) == 0 {
-		m.openBrewMenu(s, i)
-		return
-	}
-	// Acknowledge immediately so the 3-second Discord deadline doesn't expire
-	// while generateInteractionMessage calls the LLM.
+	// Acknowledge immediately so neither menu translation nor brewing can miss
+	// Discord's three-second interaction deadline.
 	if err := m.deferInteraction(s, i, false); err != nil {
 		slog.Error("coffee: defer brew failed", "error", err)
+		return
+	}
+	if len(data.Options) == 0 {
+		m.openBrewMenu(s, i)
 		return
 	}
 	drinkKey := menu[0].key
@@ -834,7 +834,7 @@ func (m *Module) executeBrew(s *discordgo.Session, i *discordgo.InteractionCreat
 	out, err := m.dispense(i.GuildID, interactionUserID(i), drinkKey, addMilk, addSugar)
 	if err != nil {
 		slog.Error("coffee: dispense failed", "error", err)
-		r.blocked(m.localizeUI(s, i.ChannelID, "The machine sputtered and failed. Try again later."))
+		r.blocked(m.localizeUI(s, i.ChannelID, machineError))
 		return
 	}
 	if !out.ok {
@@ -890,6 +890,10 @@ func (m *Module) handleMachineInteraction(s *discordgo.Session, i *discordgo.Int
 		return
 	}
 	sub := data.Options[0]
+	if err := m.deferInteraction(s, i, true); err != nil {
+		slog.Error("coffee: defer machine interaction failed", "error", err)
+		return
+	}
 	userID := interactionUserID(i)
 
 	switch sub.Name {
@@ -905,64 +909,64 @@ func (m *Module) handleMachineInteraction(s *discordgo.Session, i *discordgo.Int
 			out, err := m.refillTeaBags(i.GuildID, userID, flavor)
 			if err != nil {
 				slog.Error("coffee: tea bag refill failed", "error", err)
-				m.respond(s, i, m.localizeUI(s, i.ChannelID, "The machine sputtered and failed. Try again later."), true)
+				m.finishMachineInteraction(s, i, m.localizeUI(s, i.ChannelID, machineError), true)
 				return
 			}
 			if out.alreadyFull {
 				msg := m.generateInteractionMessage(s, i.ChannelID,
 					fmt.Sprintf("The %s tea bag box is already full. Tell the user in one short sentence.", out.label),
 					fmt.Sprintf("%s tea bags are already full.", out.label))
-				m.respond(s, i, msg, true)
+				m.finishMachineInteraction(s, i, msg, true)
 				return
 			}
 			msg := m.generateInteractionMessage(s, i.ChannelID,
 				fmt.Sprintf("A user just restocked the %s tea bags to the top (added %d bags). Thank them in one short sentence.", out.label, out.added),
 				fmt.Sprintf("🍵 <@%s> restocked %s tea bags (+%d bags).", userID, out.label, out.added))
-			m.respond(s, i, msg, false)
+			m.finishMachineInteraction(s, i, msg, false)
 			return
 		}
 		out, err := m.refill(i.GuildID, userID, partKey)
 		if err != nil {
 			slog.Error("coffee: refill failed", "error", err)
-			m.respond(s, i, m.localizeUI(s, i.ChannelID, "The machine sputtered and failed. Try again later."), true)
+			m.finishMachineInteraction(s, i, m.localizeUI(s, i.ChannelID, machineError), true)
 			return
 		}
 		if out.alreadyFull {
 			msg := m.generateInteractionMessage(s, i.ChannelID,
 				fmt.Sprintf("The %s tank is already full. Tell the user in one short sentence.", out.part.label),
 				fmt.Sprintf("%s is already full.", out.part.label))
-			m.respond(s, i, msg, true)
+			m.finishMachineInteraction(s, i, msg, true)
 			return
 		}
 		msg := m.generateInteractionMessage(s, i.ChannelID,
 			fmt.Sprintf("A user just refilled the %s to the top (added %d%s). Thank them in one short sentence.", out.part.label, out.added, out.part.unit),
 			fmt.Sprintf("🛒 <@%s> refilled %s (+%d%s).", userID, out.part.label, out.added, out.part.unit))
-		m.respond(s, i, msg, false)
+		m.finishMachineInteraction(s, i, msg, false)
 
 	case "empty":
 		out, err := m.emptyGrounds(i.GuildID, userID)
 		if err != nil {
 			slog.Error("coffee: empty grounds failed", "error", err)
-			m.respond(s, i, m.localizeUI(s, i.ChannelID, "The machine sputtered and failed. Try again later."), true)
+			m.finishMachineInteraction(s, i, m.localizeUI(s, i.ChannelID, machineError), true)
 			return
 		}
 		if out.alreadyEmpty {
 			msg := m.generateInteractionMessage(s, i.ChannelID,
 				"The coffee grounds container is already empty. Tell the user in one short sentence.",
 				"The grounds container is already empty.")
-			m.respond(s, i, msg, true)
+			m.finishMachineInteraction(s, i, msg, true)
 			return
 		}
 		msg := m.generateInteractionMessage(s, i.ChannelID,
 			fmt.Sprintf("A user just emptied the coffee grounds container (%dg removed). Thank them in one short sentence.", out.removed),
 			fmt.Sprintf("🗑️ <@%s> emptied the grounds container (%dg removed).", userID, out.removed))
-		m.respond(s, i, msg, false)
+		m.finishMachineInteraction(s, i, msg, false)
 
 	case "status":
 		inv, err := m.getOrSeedInventory(i.GuildID)
 		if err != nil {
 			slog.Error("coffee: status failed", "error", err)
-			m.respond(s, i, m.localizeUI(s, i.ChannelID, "The machine sputtered and failed. Try again later."), true)
+			m.finishMachineInteraction(s, i, m.localizeUI(s, i.ChannelID, machineError), true)
 			return
 		}
 		drinkers, _ := m.topDrinkers(i.GuildID, 3)
@@ -970,7 +974,7 @@ func (m *Module) handleMachineInteraction(s *discordgo.Session, i *discordgo.Int
 		emptiers, _ := m.topGroundsEmptiers(i.GuildID, 3)
 		slackers, _ := m.topSlackers(i.GuildID, 3)
 		teaBags, _ := m.getTeaBagInventory(i.GuildID)
-		m.respond(s, i, formatStatus(inv, drinkers, refillers, emptiers, slackers, teaBags), true)
+		m.finishMachineInteraction(s, i, formatStatus(inv, drinkers, refillers, emptiers, slackers, teaBags), true)
 
 	case "stats":
 		targetID := userID
@@ -981,7 +985,22 @@ func (m *Module) handleMachineInteraction(s *discordgo.Session, i *discordgo.Int
 				}
 			}
 		}
-		m.respond(s, i, m.buildUserStats(i.GuildID, targetID), true)
+		m.finishMachineInteraction(s, i, m.buildUserStats(i.GuildID, targetID), true)
+	}
+}
+
+func (m *Module) finishMachineInteraction(s *discordgo.Session, i *discordgo.InteractionCreate, content string, ephemeral bool) {
+	if ephemeral {
+		m.editDeferredResponse(s, i, content)
+		return
+	}
+	if _, err := s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{Content: content}); err != nil {
+		slog.Error("coffee: failed to send machine follow-up", "error", err)
+		m.editDeferredResponse(s, i, content)
+		return
+	}
+	if err := s.InteractionResponseDelete(i.Interaction); err != nil {
+		slog.Error("coffee: failed to remove deferred machine response", "error", err)
 	}
 }
 
@@ -1005,7 +1024,11 @@ const (
 	takeCupPrefix = "coffee_take"
 )
 
-const brewMenuPrompt = "☕🍵 What can I get you? Pick a drink, toggle the extras, then hit **Brew**."
+const (
+	brewMenuPrompt  = "☕🍵 What can I get you? Pick a drink, toggle the extras, then hit **Brew**."
+	machineError    = "The machine sputtered and failed. Try again later."
+	notYourOrderMsg = "☕ That's not your order — run `/brew` to start your own."
+)
 
 // brewCfg is the full state of an in-progress interactive order, carried inside
 // every component custom ID so no server-side session state is needed. opener is
@@ -1047,7 +1070,7 @@ func (m *Module) ensureOpener(s *discordgo.Session, i *discordgo.InteractionCrea
 	if interactionUserID(i) == opener {
 		return true
 	}
-	m.respond(s, i, m.localizeUI(s, i.ChannelID, "☕ That's not your order — run `/brew` to start your own."), true)
+	m.respond(s, i, m.localizeUI(s, i.ChannelID, notYourOrderMsg), true)
 	return false
 }
 
@@ -1107,7 +1130,10 @@ func takeCupComponents(opener, drinkKey string) []discordgo.MessageComponent {
 // openBrewMenu shows the interactive unified brew menu, gated to its opener.
 func (m *Module) openBrewMenu(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	c := brewCfg{opener: interactionUserID(i), choice: menu[0].key}
-	m.openMenu(s, i, m.localizeUI(s, i.ChannelID, brewMenuPrompt), brewMenuComponents(c))
+	prompt := m.localizeUI(s, i.ChannelID, brewMenuPrompt)
+	_ = m.localizeUI(s, i.ChannelID, machineError)
+	_ = m.localizeUI(s, i.ChannelID, notYourOrderMsg)
+	m.openMenu(s, i, prompt, brewMenuComponents(c))
 }
 
 // handleBrewComponent processes clicks on the interactive brew menu: drink

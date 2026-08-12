@@ -3,6 +3,8 @@ package coffee
 import (
 	"context"
 	"fmt"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -294,11 +296,18 @@ func stubLLM(m *Module, t *testing.T, reply string, callErr error) func() []stri
 		return "English", nil
 	}
 	calls := []string{}
+	var callsMu sync.Mutex
 	m.generateLLMMessage = func(_ context.Context, _, userPrompt string) (string, error) {
+		callsMu.Lock()
+		defer callsMu.Unlock()
 		calls = append(calls, userPrompt)
 		return reply, callErr
 	}
-	return func() []string { return calls }
+	return func() []string {
+		callsMu.Lock()
+		defer callsMu.Unlock()
+		return append([]string(nil), calls...)
+	}
 }
 
 func TestGenerateInteractionMessage_ReturnsLLMText(t *testing.T) {
@@ -337,5 +346,53 @@ func TestGenerateInteractionMessage_UsedBySetbeverage(t *testing.T) {
 	got := m.generateInteractionMessage(nil, "ch1", "Confirm beverage.", "fallback")
 	if got != "Set!" {
 		t.Errorf("got %q, want LLM reply", got)
+	}
+}
+
+func TestLocalizeUIWarmsOncePerKey(t *testing.T) {
+	m := newTestModule(t)
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var calls atomic.Int32
+	m.generateLLMMessage = func(_ context.Context, _, _ string) (string, error) {
+		calls.Add(1)
+		close(started)
+		<-release
+		return "Uebersetzt", nil
+	}
+
+	if got := m.localizeUI(nil, "ch1", "English"); got != "English" {
+		t.Fatalf("cold cache returned %q, want English", got)
+	}
+	<-started
+	if got := m.localizeUI(nil, "ch1", "English"); got != "English" {
+		t.Fatalf("warming cache returned %q, want English", got)
+	}
+	close(release)
+	m.uiWarmWG.Wait()
+
+	if got := m.localizeUI(nil, "ch1", "English"); got != "Uebersetzt" {
+		t.Fatalf("warmed cache returned %q", got)
+	}
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("translation calls = %d, want 1", got)
+	}
+}
+
+func TestLocalizeUIDoesNotCacheFailures(t *testing.T) {
+	m := newTestModule(t)
+	var calls atomic.Int32
+	m.generateLLMMessage = func(_ context.Context, _, _ string) (string, error) {
+		calls.Add(1)
+		return "", fmt.Errorf("provider unavailable")
+	}
+
+	_ = m.localizeUI(nil, "ch1", "English")
+	m.uiWarmWG.Wait()
+	_ = m.localizeUI(nil, "ch1", "English")
+	m.uiWarmWG.Wait()
+
+	if got := calls.Load(); got != 2 {
+		t.Fatalf("translation calls = %d, want retry after failure", got)
 	}
 }

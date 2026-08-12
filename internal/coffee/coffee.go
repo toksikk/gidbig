@@ -47,10 +47,13 @@ type Module struct {
 	// machineMu serializes mutations to the per-guild machine inventory.
 	machineMu sync.Mutex
 
-	// uiCache holds LLM-translated fixed UI strings (menu prompts, rejection
-	// nudges, generic errors) keyed by channel+text, so menu re-renders and
-	// rejection clicks never trigger an LLM call on every interaction.
-	uiCache sync.Map
+	// UI translations are warmed asynchronously so interaction acknowledgements
+	// never wait for the LLM provider.
+	uiMu        sync.Mutex
+	uiCache     map[string]cachedUIText
+	uiWarming   map[string]struct{}
+	uiWarmSlots chan struct{}
+	uiWarmWG    sync.WaitGroup
 
 	// Test hooks
 	nowFunc              func() time.Time
@@ -73,7 +76,10 @@ type Module struct {
 // New returns a Module with production-default hook implementations.
 func New() *Module {
 	m := &Module{
-		nowFunc: time.Now,
+		nowFunc:     time.Now,
+		uiCache:     make(map[string]cachedUIText),
+		uiWarming:   make(map[string]struct{}),
+		uiWarmSlots: make(chan struct{}, 2),
 	}
 	m.isSpecialDay = util.IsSpecial
 	m.reactOnMessage = util.ReactOnMessage
@@ -227,6 +233,7 @@ func (m *Module) Background() []bot.BackgroundTask { return nil }
 
 // Shutdown closes the beverage-preference store.
 func (m *Module) Shutdown() error {
+	m.uiWarmWG.Wait()
 	return m.closeStore()
 }
 
@@ -281,28 +288,91 @@ func (m *Module) generateInteractionMessage(s *discordgo.Session, channelID, sce
 type cachedUIText struct {
 	text      string
 	expiresAt time.Time
+	createdAt time.Time
 }
 
-const uiTextCacheTTL = time.Hour
+const (
+	uiTextCacheTTL = 24 * time.Hour
+	uiTextCacheMax = 128
+)
 
-// localizeUI returns a fixed UI string rendered in the channel's language via the
-// LLM, cached per channel so menu re-renders and rejection nudges never trigger
-// an LLM call on every interaction. Button labels and select placeholders are
-// deliberately not routed through here — they stay short English. Falls back to
-// english on any error or empty reply.
+// localizeUI returns a cached translation or English immediately. A cache miss
+// starts one bounded background translation for the next interaction.
 func (m *Module) localizeUI(s *discordgo.Session, channelID, english string) string {
 	key := channelID + "\x00" + english
-	if v, ok := m.uiCache.Load(key); ok {
-		if e := v.(cachedUIText); m.nowFunc().Before(e.expiresAt) {
-			return e.text
+	now := m.nowFunc()
+	m.uiMu.Lock()
+	if entry, ok := m.uiCache[key]; ok {
+		if now.Before(entry.expiresAt) {
+			m.uiMu.Unlock()
+			return entry.text
 		}
-		m.uiCache.Delete(key)
+		delete(m.uiCache, key)
 	}
-	out := m.generateInteractionMessage(s, channelID,
-		"Translate this coffee-station line into the channel's language, keeping every `/slash-command`, **markdown** marker and emoji exactly as written. Reply with only the translated line:\n"+english,
-		english)
-	m.uiCache.Store(key, cachedUIText{text: out, expiresAt: m.nowFunc().Add(uiTextCacheTTL)})
-	return out
+	if _, warming := m.uiWarming[key]; warming {
+		m.uiMu.Unlock()
+		return english
+	}
+	m.uiWarming[key] = struct{}{}
+	select {
+	case m.uiWarmSlots <- struct{}{}:
+	default:
+		delete(m.uiWarming, key)
+		m.uiMu.Unlock()
+		return english
+	}
+	m.uiMu.Unlock()
+
+	detectLanguage := m.detectLanguage
+	generateMessage := m.generateLLMMessage
+	m.uiWarmWG.Add(1)
+	go m.warmUITranslation(s, channelID, key, english, detectLanguage, generateMessage)
+	return english
+}
+
+func (m *Module) warmUITranslation(
+	s *discordgo.Session,
+	channelID, key, english string,
+	detectLanguage func(*discordgo.Session, string) (string, error),
+	generateMessage func(context.Context, string, string) (string, error),
+) {
+	defer m.uiWarmWG.Done()
+	defer func() {
+		<-m.uiWarmSlots
+		m.uiMu.Lock()
+		delete(m.uiWarming, key)
+		m.uiMu.Unlock()
+	}()
+
+	lang, err := detectLanguage(s, channelID)
+	if err != nil {
+		return
+	}
+	if lang == "" {
+		lang = "English"
+	}
+	systemPrompt := "Discord bot running a coffee station in a community chat. " + llm.Personality() + " Respond in " + lang + "."
+	out, err := generateMessage(context.Background(), systemPrompt,
+		"Translate this coffee-station line into the channel's language, keeping every `/slash-command`, **markdown** marker and emoji exactly as written. Reply with only the translated line:\n"+english)
+	out = strings.TrimSpace(out)
+	if err != nil || out == "" {
+		return
+	}
+
+	now := m.nowFunc()
+	m.uiMu.Lock()
+	if len(m.uiCache) >= uiTextCacheMax {
+		oldestKey := ""
+		var oldest time.Time
+		for cacheKey, entry := range m.uiCache {
+			if oldestKey == "" || entry.createdAt.Before(oldest) {
+				oldestKey, oldest = cacheKey, entry.createdAt
+			}
+		}
+		delete(m.uiCache, oldestKey)
+	}
+	m.uiCache[key] = cachedUIText{text: out, expiresAt: now.Add(uiTextCacheTTL), createdAt: now}
+	m.uiMu.Unlock()
 }
 
 func (m *Module) beverageEmojiFor(userID string) string {
@@ -392,6 +462,10 @@ func (m *Module) onInteractionCreate(s *discordgo.Session, i *discordgo.Interact
 		})
 		return
 	}
+	if err := m.deferInteraction(s, i, true); err != nil {
+		slog.Error("coffee: failed to defer interaction", "error", err)
+		return
+	}
 
 	var userID string
 	if i.Member != nil {
@@ -404,18 +478,7 @@ func (m *Module) onInteractionCreate(s *discordgo.Session, i *discordgo.Interact
 
 	if err := m.setBeverageEmoji(userID, emoji); err != nil {
 		slog.Error("coffee: failed to set beverage emoji", "error", err, "userID", userID)
-		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-			Type: discordgo.InteractionResponseChannelMessageWithSource,
-			Data: &discordgo.InteractionResponseData{
-				Content: "Failed to save your preference. Please try again later.",
-				Flags:   discordgo.MessageFlagsEphemeral,
-			},
-		})
-		return
-	}
-
-	if err := m.deferInteraction(s, i, true); err != nil {
-		slog.Error("coffee: failed to defer interaction", "error", err)
+		m.editDeferredResponse(s, i, "Failed to save your preference. Please try again later.")
 		return
 	}
 	confirmMsg := m.generateInteractionMessage(s, i.ChannelID,
@@ -466,14 +529,9 @@ func (m *Module) respondUpdateImpl(s *discordgo.Session, i *discordgo.Interactio
 	}
 }
 
-// openMenuImpl sends a public message carrying interactive components. The menu
-// is public (so brewing/readiness stay visible to the channel) but gated to its
-// opener, who is encoded in every component custom ID.
+// openMenuImpl fills the public deferred response with interactive components.
 func (m *Module) openMenuImpl(s *discordgo.Session, i *discordgo.InteractionCreate, content string, comps []discordgo.MessageComponent) {
-	if err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseChannelMessageWithSource,
-		Data: &discordgo.InteractionResponseData{Content: content, Components: comps},
-	}); err != nil {
+	if _, err := s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: &content, Components: &comps}); err != nil {
 		slog.Error("coffee: open menu failed", "error", err)
 	}
 }

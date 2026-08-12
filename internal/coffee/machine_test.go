@@ -1,9 +1,11 @@
 package coffee
 
 import (
+	"context"
 	"fmt"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -501,7 +503,7 @@ func makeBrewInteraction(guildID string, opts ...*discordgo.ApplicationCommandIn
 			Type:      discordgo.InteractionApplicationCommand,
 			Member:    &discordgo.Member{User: &discordgo.User{ID: "u1"}},
 			Data: discordgo.ApplicationCommandInteractionData{
-				Name:    "coffee",
+				Name:    "brew",
 				Options: opts,
 			},
 		},
@@ -815,6 +817,29 @@ func TestCoffee_NoOptionsOpensMenu(t *testing.T) {
 	}
 }
 
+func TestCoffee_NoOptionsDefersBeforeTranslation(t *testing.T) {
+	m := newTestModule(t)
+	var deferred atomic.Bool
+	m.deferInteraction = func(_ *discordgo.Session, _ *discordgo.InteractionCreate, _ bool) error {
+		deferred.Store(true)
+		return nil
+	}
+	m.detectLanguage = func(_ *discordgo.Session, _ string) (string, error) {
+		if !deferred.Load() {
+			t.Error("translation started before the interaction was deferred")
+		}
+		return "English", nil
+	}
+	_, _ = captureMenuIO(m)
+
+	m.handleBrewInteraction(nil, makeBrewInteraction("g1"))
+	m.uiWarmWG.Wait()
+
+	if !deferred.Load() {
+		t.Error("no-options /brew was not deferred")
+	}
+}
+
 func TestTea_NoOptionsOpensMenu(t *testing.T) {
 	m := newTestModule(t)
 	stubLLM(m, t, "", nil)
@@ -864,28 +889,45 @@ func TestCoffeeComponent_TogglesAndSelect(t *testing.T) {
 
 func TestMenuPromptLocalizedAndCached(t *testing.T) {
 	m := newTestModule(t)
-	getCalls := stubLLM(m, t, "Was darf es sein?", nil)
-	opens, updates := captureMenuIO(m)
-
-	// Opening the menu translates the prompt once.
-	m.handleBrewInteraction(nil, makeBrewInteraction("g1")) // no options -> menu
-	if len(*opens) != 1 || (*opens)[0].content != "Was darf es sein?" {
-		t.Fatalf("menu prompt should be the localized text, got %+v", *opens)
+	warmed := make(chan struct{}, 2)
+	prevGenerate := m.generateLLMMessage
+	m.generateLLMMessage = func(_ context.Context, _, _ string) (string, error) {
+		warmed <- struct{}{}
+		return "Was darf es sein?", nil
 	}
+	t.Cleanup(func() { m.generateLLMMessage = prevGenerate })
+	opens, updates := captureMenuIO(m)
+	_, _, _ = captureBrewIO(m)
 
-	// A toggle re-renders the menu but must reuse the cached translation.
+	// A cold cache never blocks the interaction; all likely next-use strings are
+	// warmed in the background.
+	m.handleBrewInteraction(nil, makeBrewInteraction("g1")) // no options -> menu
+	if len(*opens) != 1 || (*opens)[0].content != brewMenuPrompt {
+		t.Fatalf("cold menu should use English immediately, got %+v", *opens)
+	}
+	for range 2 {
+		select {
+		case <-warmed:
+		case <-time.After(time.Second):
+			t.Fatal("timed out waiting for UI translation warm-up")
+		}
+	}
+	m.uiWarmWG.Wait()
+
+	// A toggle re-renders the menu from the warmed cache without another LLM call.
 	m.handleBrewComponent(nil, makeBrewComponent("g1", encodeBrewCfg(brewCfgPrefix, "milk", brewCfg{opener: "u1", choice: "coffee"})))
 	if len(*updates) != 1 || (*updates)[0].content != "Was darf es sein?" {
 		t.Fatalf("re-render should keep the localized prompt, got %+v", *updates)
-	}
-	if n := len(getCalls()); n != 1 {
-		t.Errorf("menu prompt should be translated once and cached, got %d LLM calls", n)
 	}
 }
 
 func TestEnsureOpenerNudgeLocalized(t *testing.T) {
 	m := newTestModule(t)
-	stubLLM(m, t, "Nicht deine Bestellung.", nil)
+	m.uiCache["ch1\x00"+notYourOrderMsg] = cachedUIText{
+		text:      "Nicht deine Bestellung.",
+		createdAt: m.nowFunc(),
+		expiresAt: m.nowFunc().Add(time.Hour),
+	}
 	resp, _, _ := captureBrewIO(m)
 	_, _ = captureMenuIO(m)
 

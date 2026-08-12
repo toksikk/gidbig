@@ -103,6 +103,19 @@ func ephemeral(s *discordgo.Session, i *discordgo.InteractionCreate, content str
 	}
 }
 
+func deferEphemeral(s *discordgo.Session, i *discordgo.InteractionCreate) error {
+	return s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{Flags: discordgo.MessageFlagsEphemeral},
+	})
+}
+
+func editEphemeral(s *discordgo.Session, i *discordgo.InteractionCreate, content string) {
+	if _, err := s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: &content}); err != nil {
+		slog.Error("admin: failed to edit interaction response", "error", err)
+	}
+}
+
 func onAdminInteractionCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	if i.Type != discordgo.InteractionApplicationCommand {
 		return
@@ -118,10 +131,14 @@ func onAdminInteractionCreate(s *discordgo.Session, i *discordgo.InteractionCrea
 	if len(data.Options) == 0 {
 		return
 	}
+	if err := deferEphemeral(s, i); err != nil {
+		slog.Error("admin: failed to defer interaction", "error", err)
+		return
+	}
 	top := data.Options[0]
 	switch top.Name {
 	case "info":
-		ephemeral(s, i, "```"+infoFn(s)+"```")
+		editEphemeral(s, i, "```"+infoFn(s)+"```")
 	case "gippity":
 		if len(top.Options) > 0 {
 			handleGippityAdmin(s, i, top.Options[0])
@@ -157,43 +174,43 @@ func handleGippityAdmin(s *discordgo.Session, i *discordgo.InteractionCreate, su
 		targetID := optUserID(s, sub.Options)
 		if targetID != "" {
 			privacy := gippity.AdminGetUserPrivacy(targetID)
-			ephemeral(s, i, fmt.Sprintf("<@%s> privacy: %v (true = messages anonymized in AI context)", targetID, privacy))
+			editEphemeral(s, i, fmt.Sprintf("<@%s> privacy: %v (true = messages anonymized in AI context)", targetID, privacy))
 			return
 		}
 		settings, err := gippity.AdminGetAllUserPrivacy()
 		if err != nil {
-			ephemeral(s, i, fmt.Sprintf("Error querying privacy settings: %v", err))
+			editEphemeral(s, i, fmt.Sprintf("Error querying privacy settings: %v", err))
 			return
 		}
 		if len(settings) == 0 {
-			ephemeral(s, i, "No explicit privacy settings stored (all users default to: on).")
+			editEphemeral(s, i, "No explicit privacy settings stored (all users default to: on).")
 			return
 		}
 		var sb strings.Builder
 		for uid, enabled := range settings {
 			fmt.Fprintf(&sb, "<@%s>: %v\n", uid, enabled)
 		}
-		ephemeral(s, i, sb.String())
+		editEphemeral(s, i, sb.String())
 	case "history":
 		targetID := optUserID(s, sub.Options)
 		if targetID != "" {
 			has := gippity.AdminHasConversationHistory(targetID)
-			ephemeral(s, i, fmt.Sprintf("<@%s> has history: %v", targetID, has))
+			editEphemeral(s, i, fmt.Sprintf("<@%s> has history: %v", targetID, has))
 			return
 		}
 		users, err := gippity.AdminGetUsersWithHistory()
 		if err != nil {
-			ephemeral(s, i, fmt.Sprintf("Error querying history: %v", err))
+			editEphemeral(s, i, fmt.Sprintf("Error querying history: %v", err))
 			return
 		}
 		if len(users) == 0 {
-			ephemeral(s, i, "No conversation history stored.")
+			editEphemeral(s, i, "No conversation history stored.")
 			return
 		}
 		var sb strings.Builder
 		for _, uid := range users {
 			fmt.Fprintf(&sb, "<@%s>\n", uid)
 		}
-		ephemeral(s, i, "Users with stored history:\n"+sb.String())
+		editEphemeral(s, i, "Users with stored history:\n"+sb.String())
 	}
 }
