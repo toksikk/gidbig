@@ -185,10 +185,11 @@ func TestRunOrderExpiryProcessesExistingOrderOnStartup(t *testing.T) {
 	}()
 	deadline := time.After(time.Second)
 	for {
-		if err := m.getDB().First(&order, order.ID).Error; err != nil {
+		err := m.getDB().First(&order, order.ID).Error
+		if err != nil && !strings.Contains(err.Error(), "table is locked") {
 			t.Fatalf("reload order: %v", err)
 		}
-		if order.Status == orderStatusExpired {
+		if err == nil && order.Status == orderStatusExpired {
 			break
 		}
 		select {
