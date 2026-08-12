@@ -350,9 +350,11 @@ func StartGidbig() {
 	llm.Initialize()
 	llm.ResolvePersonality(conf.LLM.Personality, conf.LLM.Preset)
 	coffeeMod := coffee.New()
+	coffeeReady := false
 	if err := coffeeMod.Init(bot.Deps{Session: discord, Config: conf}); err != nil {
 		slog.Error("coffee: init failed", "error", err)
 	} else {
+		coffeeReady = true
 		for _, l := range coffeeMod.Listeners() {
 			discord.AddHandler(l)
 		}
@@ -369,6 +371,9 @@ func StartGidbig() {
 	}
 	bgCtx, bgCancel := context.WithCancel(context.Background())
 	bgSupervisor := bot.NewSupervisor()
+	if coffeeReady {
+		bgSupervisor.Start(bgCtx, coffeeMod.Background()...)
+	}
 	gamerstatusMod := gamerstatus.New()
 	if err := gamerstatusMod.Init(bot.Deps{Session: discord, OwnerID: conf.Discord.OwnerID}); err != nil {
 		slog.Error("gamerstatus: init failed", "error", err)

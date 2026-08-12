@@ -230,8 +230,10 @@ func (m *Module) Listeners() []bot.EventListener {
 // Components returns no message-component handlers for this module.
 func (m *Module) Components() []bot.ComponentHandler { return nil }
 
-// Background returns no background tasks.
-func (m *Module) Background() []bot.BackgroundTask { return nil }
+// Background returns the persistent drink-expiry sweeper.
+func (m *Module) Background() []bot.BackgroundTask {
+	return []bot.BackgroundTask{{Name: "coffee-order-expiry", Run: m.runOrderExpiry}}
+}
 
 // Shutdown closes the beverage-preference store.
 func (m *Module) Shutdown() error {

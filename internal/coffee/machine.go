@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -265,12 +266,14 @@ func (m *Module) getOrSeedInventory(guildID string) (MachineInventory, error) {
 
 // dispenseOutcome is the result of attempting to brew one drink.
 type dispenseOutcome struct {
-	recipe     recipe
-	inventory  MachineInventory
-	ok         bool
-	failMsg    string // user-facing reason when ok is false
-	splashMilk bool   // an optional milk splash was added to a black drink
-	withSugar  bool
+	recipe       recipe
+	inventory    MachineInventory
+	ok           bool
+	failMsg      string // user-facing reason when ok is false
+	splashMilk   bool   // an optional milk splash was added to a black drink
+	withSugar    bool
+	order        DrinkOrder
+	blockedUntil time.Time
 
 	// serviceNeeded lists parts this (successful) brew left low/full enough that
 	// the next brew could be blocked; the brewer is nudged to refill/empty them.
@@ -315,6 +318,36 @@ func (m *Module) dispense(guildID, userID, drinkKey string, addMilk, addSugar bo
 	defer m.machineMu.Unlock()
 
 	err := d.Transaction(func(tx *gorm.DB) error {
+		now := m.nowFunc().UTC()
+		var dueOrders []DrinkOrder
+		if e := tx.Where("user_id = ? AND status = ?", userID, orderStatusReady).
+			Find(&dueOrders).Error; e != nil {
+			return e
+		}
+		for idx := range dueOrders {
+			if _, e := expireOrderTx(tx, &dueOrders[idx], now); e != nil {
+				return e
+			}
+		}
+		status, e := restrictionStatusTx(tx, userID, now)
+		if e != nil {
+			return e
+		}
+		if status.blocked(now) {
+			out.blockedUntil = status.BlockedUntil
+			out.failMsg = formatRestriction(status.BlockedUntil, now)
+			return nil
+		}
+		var openOrders int64
+		if e = tx.Model(&DrinkOrder{}).
+			Where("guild_id = ? AND user_id = ? AND status IN ?", guildID, userID, []string{orderStatusBrewing, orderStatusReady}).
+			Count(&openOrders).Error; e != nil {
+			return e
+		}
+		if openOrders > 0 {
+			out.failMsg = "You already have a drink waiting. Pick it up before using `/brew` again."
+			return nil
+		}
 		inv, e := seedInventoryTx(tx, guildID)
 		if e != nil {
 			return e
@@ -388,6 +421,13 @@ func (m *Module) dispense(guildID, userID, drinkKey string, addMilk, addSugar bo
 			WithMilk:  withMilk,
 			WithSugar: addSugar,
 		}).Error; e != nil {
+			return e
+		}
+		out.order = DrinkOrder{
+			GuildID: guildID, UserID: userID, Drink: r.key, Status: orderStatusBrewing,
+			ReadyAt: now.Add(brewTime(r)),
+		}
+		if e = tx.Create(&out.order).Error; e != nil {
 			return e
 		}
 		// Record which parts this brew left needing service and pin the brewer as
@@ -802,6 +842,9 @@ func (m *Module) brewResponder(s *discordgo.Session, i *discordgo.InteractionCre
 // handleBrewInteraction serves /brew. With no options it opens the interactive
 // drink menu (coffees + teas); otherwise it brews the chosen drink directly.
 func (m *Module) handleBrewInteraction(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	if m.rejectRestrictedBrew(s, i) {
+		return
+	}
 	data := i.ApplicationCommandData()
 	// Acknowledge immediately so neither menu translation nor brewing can miss
 	// Discord's three-second interaction deadline.
@@ -826,6 +869,20 @@ func (m *Module) handleBrewInteraction(s *discordgo.Session, i *discordgo.Intera
 		}
 	}
 	m.executeBrew(s, i, drinkKey, addMilk, addSugar, m.brewResponder(s, i))
+}
+
+func (m *Module) rejectRestrictedBrew(s *discordgo.Session, i *discordgo.InteractionCreate) bool {
+	now := m.nowFunc().UTC()
+	status, err := m.restrictionForUser(interactionUserID(i), now)
+	if err != nil {
+		slog.Error("coffee: restriction check failed", "error", err)
+		return false
+	}
+	if !status.blocked(now) {
+		return false
+	}
+	m.respond(s, i, formatRestriction(status.BlockedUntil, now), true)
+	return true
 }
 
 // executeBrew dispenses one drink and drives the brewing animation through the
@@ -880,7 +937,13 @@ func (m *Module) executeBrew(s *discordgo.Session, i *discordgo.InteractionCreat
 		scenario += " Also add a brief heads-up that the machine is running low: " + strings.TrimSpace(hint) + " Keep any `/coffeemachine` command and emoji exactly as written."
 	}
 	final := m.generateInteractionMessage(s, i.ChannelID, scenario, readyFallback+hint)
-	r.final(final, takeCupComponents(userID, out.recipe.key))
+	order, err := m.markOrderReady(out.order.ID, m.nowFunc().UTC())
+	if err != nil {
+		slog.Error("coffee: failed to mark order ready", "error", err, "orderID", out.order.ID)
+		r.blocked(m.localizeUI(s, i.ChannelID, machineError))
+		return
+	}
+	r.final(final, takeCupComponents(order.ID))
 }
 
 // handleMachineInteraction handles /coffeemachine refill|empty|status.
@@ -1118,8 +1181,8 @@ func brewMenuComponents(c brewCfg) []discordgo.MessageComponent {
 // takeCupComponents builds the single-button row offering to grab a finished
 // drink out of the machine. The custom ID carries the orderer (only they may
 // take it) and the drink key so the confirmation can name it.
-func takeCupComponents(opener, drinkKey string) []discordgo.MessageComponent {
-	id := strings.Join([]string{takeCupPrefix, opener, drinkKey}, ":")
+func takeCupComponents(orderID uint) []discordgo.MessageComponent {
+	id := fmt.Sprintf("%s:%d", takeCupPrefix, orderID)
 	return []discordgo.MessageComponent{
 		discordgo.ActionsRow{Components: []discordgo.MessageComponent{
 			discordgo.Button{Label: "Take cup", Emoji: &discordgo.ComponentEmoji{Name: "🫴"}, Style: discordgo.SuccessButton, CustomID: id},
@@ -1144,6 +1207,9 @@ func (m *Module) handleBrewComponent(s *discordgo.Session, i *discordgo.Interact
 		return
 	}
 	if action == "go" {
+		if m.rejectRestrictedBrew(s, i) {
+			return
+		}
 		if err := m.deferUpdate(s, i); err != nil {
 			slog.Error("coffee: defer brew component failed", "error", err)
 			return
@@ -1171,28 +1237,51 @@ func (m *Module) handleBrewComponent(s *discordgo.Session, i *discordgo.Interact
 // take it. It edits the public drink message into a personal "grabbed it"
 // confirmation and drops the button.
 func (m *Module) handleTakeCupComponent(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	parts := strings.SplitN(i.MessageComponentData().CustomID, ":", 3)
-	opener, drinkKey := "", ""
-	if len(parts) >= 2 {
-		opener = parts[1]
-	}
-	if len(parts) >= 3 {
-		drinkKey = parts[2]
-	}
-	if !m.ensureOpener(s, i, opener) {
+	parts := strings.SplitN(i.MessageComponentData().CustomID, ":", 2)
+	if len(parts) != 2 {
+		m.respond(s, i, "This order is no longer tracked. Please use `/brew` again.", true)
 		return
 	}
-	label := "drink"
-	if r, ok := recipeByKey(drinkKey); ok {
-		label = drinkLabel(r)
+	orderID, err := strconv.ParseUint(parts[1], 10, 64)
+	if err != nil {
+		m.respond(s, i, "This order is no longer tracked. Please use `/brew` again.", true)
+		return
 	}
-	if err := m.deferUpdate(s, i); err != nil {
+	userID := interactionUserID(i)
+	var order DrinkOrder
+	if err = m.getDB().First(&order, uint(orderID)).Error; err != nil {
+		m.respond(s, i, "This order is no longer tracked. Please use `/brew` again.", true)
+		return
+	}
+	if order.UserID != userID {
+		m.respond(s, i, m.localizeUI(s, i.ChannelID, notYourOrderMsg), true)
+		return
+	}
+	if err = m.deferUpdate(s, i); err != nil {
 		slog.Error("coffee: defer take-cup failed", "error", err)
 		return
 	}
+	result, err := m.pickupOrder(uint(orderID), userID, m.nowFunc().UTC())
+	if err != nil {
+		slog.Error("coffee: take-cup failed", "error", err, "orderID", orderID)
+		m.respond(s, i, machineError, true)
+		return
+	}
+	label := "drink"
+	if r, ok := recipeByKey(result.order.Drink); ok {
+		label = drinkLabel(r)
+	}
+	if result.expired {
+		m.editWithComponents(s, i, "This drink expired because it was not picked up within 20 minutes.", []discordgo.MessageComponent{})
+		return
+	}
+	if !result.picked {
+		m.editWithComponents(s, i, "This drink is no longer waiting in the machine.", []discordgo.MessageComponent{})
+		return
+	}
 	msg := m.generateInteractionMessage(s, i.ChannelID,
-		fmt.Sprintf("User <@%s> just grabbed their %s out of the coffee machine. Tell the channel to enjoy it, in one short sentence, keeping the <@%s> mention.", opener, label, opener),
-		fmt.Sprintf("%s <@%s> grabbed their %s out of the machine. Enjoy!", drinkEmojiForKey(drinkKey), opener, label))
+		fmt.Sprintf("User <@%s> just grabbed their %s out of the coffee machine. Tell the channel to enjoy it, in one short sentence, keeping the <@%s> mention.", userID, label, userID),
+		fmt.Sprintf("%s <@%s> grabbed their %s out of the machine. Enjoy!", drinkEmojiForKey(result.order.Drink), userID, label))
 	m.editWithComponents(s, i, msg, []discordgo.MessageComponent{})
 }
 

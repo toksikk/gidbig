@@ -74,6 +74,46 @@ type DrinkEvent struct {
 // TableName returns the database table name.
 func (DrinkEvent) TableName() string { return "coffee_drink_events" }
 
+// DrinkOrder tracks a dispensed drink until the user picks it up or it expires.
+type DrinkOrder struct {
+	gorm.Model
+	GuildID    string `gorm:"not null;index:idx_coffee_order_user_status"`
+	UserID     string `gorm:"not null;index:idx_coffee_order_user_status"`
+	Drink      string `gorm:"not null"`
+	Status     string `gorm:"not null;index:idx_coffee_order_user_status;index:idx_coffee_order_expiry"`
+	ReadyAt    time.Time
+	ExpiresAt  time.Time `gorm:"index:idx_coffee_order_expiry"`
+	PickedUpAt *time.Time
+	ExpiredAt  *time.Time
+}
+
+// TableName returns the database table name.
+func (DrinkOrder) TableName() string { return "coffee_drink_orders" }
+
+// PickupViolation records one drink that expired before being picked up.
+type PickupViolation struct {
+	gorm.Model
+	UserID     string    `gorm:"not null;index"`
+	OrderID    uint      `gorm:"not null;uniqueIndex"`
+	OccurredAt time.Time `gorm:"not null;index"`
+}
+
+// TableName returns the database table name.
+func (PickupViolation) TableName() string { return "coffee_pickup_violations" }
+
+// BrewRestriction stores a Discord-wide user's current escalation cycle.
+type BrewRestriction struct {
+	gorm.Model
+	UserID         string    `gorm:"not null;uniqueIndex"`
+	Stage          int       `gorm:"not null"`
+	CycleStartedAt time.Time `gorm:"not null"`
+	BlockedUntil   time.Time `gorm:"index"`
+	ProbationUntil time.Time `gorm:"index"`
+}
+
+// TableName returns the database table name.
+func (BrewRestriction) TableName() string { return "coffee_brew_restrictions" }
+
 // PendingService tracks, per guild and part, the user who last brewed and left
 // that part low enough that the next brew could be blocked. Exactly one row per
 // (guild, part). It is set after a brew leaves the part needing service, blamed
@@ -129,9 +169,13 @@ func (m *Module) openStore(path string) error {
 	if err != nil {
 		return err
 	}
-	return m.db.AutoMigrate(&UserBeveragePreference{}, &UserGreeting{},
+	if err = m.db.AutoMigrate(&UserBeveragePreference{}, &UserGreeting{},
 		&MachineInventory{}, &RefillEvent{}, &DrinkEvent{},
-		&PendingService{}, &SlackerEvent{}, &TeaBagInventory{})
+		&DrinkOrder{}, &PickupViolation{}, &BrewRestriction{},
+		&PendingService{}, &SlackerEvent{}, &TeaBagInventory{}); err != nil {
+		return err
+	}
+	return m.db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_coffee_open_order ON coffee_drink_orders(guild_id, user_id) WHERE deleted_at IS NULL AND status IN ('brewing', 'ready')").Error
 }
 
 func (m *Module) closeStore() error {
