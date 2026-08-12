@@ -174,6 +174,34 @@ func TestDispenseTea_NoBeansNoGrounds(t *testing.T) {
 	if out.inventory.BeansMildGrams != maxBeansMildG || out.inventory.BeansEspressoGrams != maxBeansEspressoG {
 		t.Error("tea should use no beans")
 	}
+	var teaBags TeaBagInventory
+	if err := m.getDB().Where("guild_id = ? AND flavor = ?", "g1", "black").First(&teaBags).Error; err != nil {
+		t.Fatalf("load tea bags: %v", err)
+	}
+	if teaBags.Count != seedTeaBagsPerFlavor-1 {
+		t.Errorf("black tea bags = %d, want %d", teaBags.Count, seedTeaBagsPerFlavor-1)
+	}
+}
+
+func TestDispenseTea_BlockedAtZeroBagsDoesNotDecrement(t *testing.T) {
+	m := newTestModule(t)
+	if err := m.getDB().Create(&TeaBagInventory{GuildID: "g1", Flavor: "green", Count: 0}).Error; err != nil {
+		t.Fatalf("create tea bag inventory: %v", err)
+	}
+	out, err := m.dispense("g1", "u", "tea_green", false, false)
+	if err != nil {
+		t.Fatalf("dispense: %v", err)
+	}
+	if out.ok || !strings.Contains(out.failMsg, "tea bags") {
+		t.Fatalf("dispense = %+v, want tea-bag block", out)
+	}
+	var teaBags TeaBagInventory
+	if err = m.getDB().Where("guild_id = ? AND flavor = ?", "g1", "green").First(&teaBags).Error; err != nil {
+		t.Fatalf("reload tea bags: %v", err)
+	}
+	if teaBags.Count != 0 {
+		t.Errorf("green tea bags = %d, want 0", teaBags.Count)
+	}
 }
 
 func TestDispenseBlockedOnLowWater(t *testing.T) {
@@ -1379,12 +1407,14 @@ func TestUserStatsBreakdowns(t *testing.T) {
 }
 
 func TestFormatUserStats(t *testing.T) {
+	now := time.Date(2026, 8, 12, 12, 0, 0, 0, time.UTC)
 	got := formatUserStats("A",
 		[]labelCount{{Key: "coffee", Count: 2}, {Key: "espresso", Count: 1}},
 		[]labelCount{{Key: "water", Count: 2, Amount: 800}},
 		1, 250,
-		[]labelCount{{Key: "milk", Count: 3}})
-	for _, want := range []string{"<@A>", "Coffee: 2", "Espresso: 1", "Water: 2× (800 total)", "1× · 250g total · 250g avg", "Milk: 3"} {
+		[]labelCount{{Key: "milk", Count: 3}},
+		[]pickupPenaltyStat{{UserID: "B", Strikes: 2, Stage: 1, BlockedUntil: now.Add(3 * time.Hour), ProbationUntil: now.Add(7 * 24 * time.Hour)}}, now)
+	for _, want := range []string{"<@A>", "Coffee: 2", "Espresso: 1", "Water: 2× (800 total)", "1× · 250g total · 250g avg", "Milk: 3", "<@B>: 2 strikes", "stage 1 timeout"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("stats missing %q:\n%s", want, got)
 		}
@@ -1392,7 +1422,7 @@ func TestFormatUserStats(t *testing.T) {
 }
 
 func TestFormatUserStats_Empty(t *testing.T) {
-	got := formatUserStats("A", nil, nil, 0, 0, nil)
+	got := formatUserStats("A", nil, nil, 0, 0, nil, nil, time.Time{})
 	if !strings.Contains(got, "Grounds emptied:** never") {
 		t.Errorf("empty grounds should read 'never': %q", got)
 	}
