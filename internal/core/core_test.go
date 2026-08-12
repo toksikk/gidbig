@@ -176,6 +176,17 @@ func TestStatusInteractionResponse_Owner(t *testing.T) {
 	}
 }
 
+func TestBuildBotStatsMessageIncludesVersion(t *testing.T) {
+	originalVersion := version
+	version = "v1.2.3"
+	t.Cleanup(func() { version = originalVersion })
+
+	got := buildBotStatsMessage(&discordgo.Session{})
+	if !strings.Contains(got, "Version:         v1.2.3") {
+		t.Fatalf("status missing bot version:\n%s", got)
+	}
+}
+
 func TestStatusInteractionResponse_NonOwner(t *testing.T) {
 	ownerID := "owner123"
 	callerID := "rando456"

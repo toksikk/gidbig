@@ -12,18 +12,27 @@ import (
 var version = ""
 var builddate = ""
 
+func currentVersion() string {
+	if version != "" {
+		return version
+	}
+	if build, ok := debug.ReadBuildInfo(); ok && build.Main.Version != "" {
+		version = build.Main.Version
+	}
+	if version == "" {
+		version = "(devel)"
+	}
+	return version
+}
+
 // LogVersion print version to log
 func LogVersion() {
-	slog.Info("Gidbig", "version", version, "built", builddate)
+	slog.Info("Gidbig", "version", currentVersion(), "built", builddate)
 }
 
 // Banner Print Version on stdout
 func Banner(w io.Writer) {
-	if version == "" {
-		if build, ok := debug.ReadBuildInfo(); ok {
-			version = build.Main.Version
-		}
-	}
+	currentVersion()
 	banner := []string{
 		"\n       _     _ _     _       \n",
 		"      (_)   | | |   (_)      \n",
