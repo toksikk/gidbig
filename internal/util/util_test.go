@@ -1,6 +1,9 @@
 package util
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestRandomRange_normal(t *testing.T) {
 	for i := 0; i < 100; i++ {
@@ -26,5 +29,14 @@ func TestRandomRange_maxLessThanMin(t *testing.T) {
 func TestRandomRange_zeroRange(t *testing.T) {
 	if v := RandomRange(0, 0); v != 0 {
 		t.Errorf("RandomRange(0,0) = %d, want 0", v)
+	}
+}
+
+func TestIsHalloween(t *testing.T) {
+	if !isHalloween(time.Date(2026, time.October, 31, 12, 0, 0, 0, time.UTC)) {
+		t.Fatal("October 31 should be Halloween")
+	}
+	if isHalloween(time.Date(2026, time.October, 30, 12, 0, 0, 0, time.UTC)) {
+		t.Fatal("October 30 should not be Halloween")
 	}
 }

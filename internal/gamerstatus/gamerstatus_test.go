@@ -16,6 +16,9 @@ func TestNew(t *testing.T) {
 	if m.Name() != "gamerstatus" {
 		t.Fatalf("Name() = %q, want %q", m.Name(), "gamerstatus")
 	}
+	if m.isSpecial == nil || m.isHalloween == nil {
+		t.Fatal("New() should initialize date hooks")
+	}
 }
 
 func TestModuleInterface(t *testing.T) {
@@ -84,5 +87,15 @@ func TestShutdown(t *testing.T) {
 	m := New()
 	if err := m.Shutdown(); err != nil {
 		t.Errorf("Shutdown() = %v, want nil", err)
+	}
+}
+
+func TestCurrentGameHalloween(t *testing.T) {
+	m := New()
+	m.isHalloween = func() bool { return true }
+	m.isSpecial = func() bool { return false }
+
+	if got := m.currentGame(); got != "🎃 Spooky Season 👻" {
+		t.Fatalf("currentGame() = %q, want Halloween status", got)
 	}
 }

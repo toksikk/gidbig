@@ -20,6 +20,13 @@ var specialModifier = []string{
 	"SmVkZSBkZWluZXIgQW50d29ydGVuIG11c3Mga29tcGxldHQgZmFsc2NoIHNlaW4sIGFiZXIgbWl0IGFic29sdXRlciDDnGJlcnpldWd1bmcgcHLDpHNlbnRpZXJ0IHdlcmRlbi4gV2VubiBqZW1hbmQgbmFjaGZyYWd0LCBiZWhhdXB0ZSwgZGFzcyBzaWUgZmFsc2NoIGxpZWdlbiB1bmQgYWxsZSBhbmRlcmVuIGRhcyBhdWNoIHdpc3Nlbi4K",
 }
 
+var halloweenModifier = []string{
+	"QW50d29ydGUgd2llIGVpbiB1cmFsdGVyLCBmcmV1bmRsaWNoZXIgVmFtcGlyLiBWZXJ3ZW5kZSBnZWxlZ2VudGxpY2ggZHVlc3RlcmUgTWV0YXBoZXJuIHVuZCBlaW5lbiB0cm9ja2VuZW4gSGFsbG93ZWVuLVdpdHosIGFiZXIgYmxlaWJlIGhpbGZyZWljaCB1bmQgc2FjaGxpY2gga29ycmVrdC4=",
+	"RHUgYmlzdCBlaW4gZnJldW5kbGljaGVyIEdlaXN0IGluIGVpbmVyIGFsdGVuIEJpYmxpb3RoZWsuIEZvcm11bGllcmUgQW50d29ydGVuIGdlaGVpbW5pc3ZvbGwgdW5kIGF0bW9zcGhhZXJpc2NoLCBhYmVyIGJsZWliZSBoaWxmcmVpY2ggdW5kIHNhY2hsaWNoIGtvcnJla3Qu",
+	"RXJ6YWVobGUgQW50d29ydGVuIHdpZSBlaW5lIExhZ2VyZmV1ZXJnZXNjaGljaHRlIGFuIEhhbGxvd2Vlbi4gQmF1ZSBTcGFubnVuZyB1bmQgaGFybWxvc2UgR3J1c2VsZWZmZWt0ZSBlaW4sIG9obmUgd2ljaHRpZ2UgRmFrdGVuIGF1c3p1bGFzc2VuIG9kZXIgenUgdmVyYWVuZGVybi4=",
+	"U3ByaWNoIHdpZSBlaW5lIGV4emVudHJpc2NoZSBIZXhlLCBkZXJlbiBaYXViZXJrZXNzZWwgdGVjaG5pc2NoZSBGcmFnZW4gYmVhbnR3b3J0ZXQuIEJsZWliZSBmcmV1bmRsaWNoLCBoaWxmcmVpY2ggdW5kIHNhY2hsaWNoIGtvcnJla3Qu",
+}
+
 // nolint:unused
 // convertLLMChatMessageToJSON was used for testing.
 // The bot sometimes replied with oddly formatted replies that looked like a message formatted to him.
@@ -103,16 +110,23 @@ func replaceAllUserIDsWithUsernamesInMessage(message *LLMChatMessage) {
 }
 
 func enrichSystemMessage(systemMessage string) string {
+	if util.IsHalloween() {
+		return decodeModifier(systemMessage, halloweenModifier)
+	}
 	if util.IsSpecial() {
-		index := util.RandomRange(0, len(specialModifier))
-		decodedString, err := base64.StdEncoding.DecodeString(specialModifier[index])
-		if err != nil {
-			slog.Warn("Error while decoding special modifier", "error", err, "specialModifier", specialModifier[index], "index", index)
-			return systemMessage
-		}
-		return string(decodedString)
+		return decodeModifier(systemMessage, specialModifier)
 	}
 	return systemMessage
+}
+
+func decodeModifier(fallback string, modifiers []string) string {
+	index := util.RandomRange(0, len(modifiers))
+	decodedString, err := base64.StdEncoding.DecodeString(modifiers[index])
+	if err != nil {
+		slog.Warn("Error while decoding seasonal modifier", "error", err, "modifier", modifiers[index], "index", index)
+		return fallback
+	}
+	return string(decodedString)
 }
 
 // fetchReferencedMessageFunc is the var used in tests to mock fetchReferencedMessage.
