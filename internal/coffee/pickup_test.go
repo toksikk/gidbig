@@ -175,31 +175,15 @@ func TestRestrictedBrewIsRejectedEphemerallyAcrossGuilds(t *testing.T) {
 func TestRunOrderExpiryProcessesExistingOrderOnStartup(t *testing.T) {
 	m := newTestModule(t)
 	now := time.Date(2026, 8, 12, 12, 0, 0, 0, time.UTC)
-	useNow(m, t, now)
 	order := createReadyOrder(t, m, "g1", "u1", now.Add(-pickupWindow-time.Minute))
 	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		m.runOrderExpiry(ctx)
-	}()
-	deadline := time.After(time.Second)
-	for {
-		err := m.getDB().First(&order, order.ID).Error
-		if err != nil && !strings.Contains(err.Error(), "table is locked") {
-			t.Fatalf("reload order: %v", err)
-		}
-		if err == nil && order.Status == orderStatusExpired {
-			break
-		}
-		select {
-		case <-deadline:
-			t.Fatal("startup sweep did not expire order")
-		case <-time.After(time.Millisecond):
-		}
+	previousNow := m.nowFunc
+	m.nowFunc = func() time.Time {
+		cancel()
+		return now
 	}
-	cancel()
-	<-done
+	t.Cleanup(func() { m.nowFunc = previousNow })
+	m.runOrderExpiry(ctx)
 	if err := m.getDB().First(&order, order.ID).Error; err != nil {
 		t.Fatalf("reload order: %v", err)
 	}
