@@ -813,12 +813,12 @@ func formatUserStats(userID string, drinks, refills []labelCount, groundsCount, 
 	return strings.TrimRight(sb.String(), "\n")
 }
 
-// drinkKeyLabel maps a drink key to its menu label, falling back to the key.
+// drinkKeyLabel maps a drink key to its menu label and formats historical keys.
 func drinkKeyLabel(key string) string {
 	if r, ok := recipeByKey(key); ok {
 		return r.label
 	}
-	return key
+	return titleCase(strings.ReplaceAll(key, "_", " "))
 }
 
 // titleCase upper-cases the first rune of s.

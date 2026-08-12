@@ -1431,6 +1431,12 @@ func TestFormatUserStats_Empty(t *testing.T) {
 	}
 }
 
+func TestDrinkKeyLabelFormatsHistoricalKeys(t *testing.T) {
+	if got := drinkKeyLabel("hot_water"); got != "Hot water" {
+		t.Fatalf("drinkKeyLabel(hot_water) = %q, want %q", got, "Hot water")
+	}
+}
+
 func TestTopSlackers(t *testing.T) {
 	m := newTestModule(t)
 	d := m.getDB()
