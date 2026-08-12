@@ -25,8 +25,12 @@ func newTestModule(t *testing.T) *Module {
 	}
 	if err := gormDB.AutoMigrate(&UserBeveragePreference{}, &UserGreeting{},
 		&MachineInventory{}, &RefillEvent{}, &DrinkEvent{},
+		&DrinkOrder{}, &PickupViolation{}, &BrewRestriction{},
 		&PendingService{}, &SlackerEvent{}, &TeaBagInventory{}); err != nil {
 		t.Fatalf("failed to migrate: %v", err)
+	}
+	if err := gormDB.Exec("CREATE UNIQUE INDEX idx_coffee_open_order ON coffee_drink_orders(guild_id, user_id) WHERE deleted_at IS NULL AND status IN ('brewing', 'ready')").Error; err != nil {
+		t.Fatalf("failed to create open-order index: %v", err)
 	}
 	m.dbMu.Lock()
 	m.db = gormDB

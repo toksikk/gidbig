@@ -999,10 +999,16 @@ func TestTeaComponent_GoBrews(t *testing.T) {
 
 func TestTakeCup_Confirms(t *testing.T) {
 	m := newTestModule(t)
+	now := time.Date(2026, 8, 12, 12, 0, 0, 0, time.UTC)
+	useNow(m, t, now)
 	stubLLM(m, t, "", nil) // empty reply -> English fallback confirmation
 	_, edits, _ := captureBrewIO(m)
+	order := DrinkOrder{GuildID: "g1", UserID: "u1", Drink: "espresso", Status: orderStatusReady, ReadyAt: now, ExpiresAt: now.Add(pickupWindow)}
+	if err := m.getDB().Create(&order).Error; err != nil {
+		t.Fatalf("create order: %v", err)
+	}
 
-	id := strings.Join([]string{takeCupPrefix, "u1", "espresso"}, ":")
+	id := fmt.Sprintf("%s:%d", takeCupPrefix, order.ID)
 	m.handleTakeCupComponent(nil, makeBrewComponent("g1", id))
 
 	if len(*edits) != 1 {
@@ -1015,13 +1021,19 @@ func TestTakeCup_Confirms(t *testing.T) {
 
 func TestTakeCup_RejectsNonOwner(t *testing.T) {
 	m := newTestModule(t)
+	now := time.Date(2026, 8, 12, 12, 0, 0, 0, time.UTC)
+	useNow(m, t, now)
 	stubLLM(m, t, "", nil) // empty reply -> English fallback nudge
 	resp, _, _ := captureBrewIO(m)
 	var updates int
 	m.respondUpdate = func(_ *discordgo.Session, _ *discordgo.InteractionCreate, _ string) { updates++ }
 
+	order := DrinkOrder{GuildID: "g1", UserID: "alice", Drink: "espresso", Status: orderStatusReady, ReadyAt: now, ExpiresAt: now.Add(pickupWindow)}
+	if err := m.getDB().Create(&order).Error; err != nil {
+		t.Fatalf("create order: %v", err)
+	}
 	// orderer is "alice", but the interaction comes from "u1"
-	id := strings.Join([]string{takeCupPrefix, "alice", "espresso"}, ":")
+	id := fmt.Sprintf("%s:%d", takeCupPrefix, order.ID)
 	m.handleTakeCupComponent(nil, makeBrewComponent("g1", id))
 
 	if updates != 0 {
