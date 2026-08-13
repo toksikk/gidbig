@@ -61,12 +61,28 @@ gippity:
         - "YOUR_DISCORD_GUILD_ID"
     ignored_users: []
 llm:
+    provider: "openai"
+    model: "gpt-4o-mini"
+    vision_model: ""
     personality: ""
     personality_preset: ""
 dev_mode: true
 ```
 
-Set `OPENAI_API_KEY` in the bot environment to enable LLM-backed behavior. Keep API credentials out of `config.yaml`.
+Set `OPENAI_API_KEY` in the bot environment for the default OpenAI provider. Keep API credentials out of `config.yaml`.
+
+OpenRouter is also supported through its OpenAI-compatible API:
+
+```yaml
+llm:
+    provider: "openrouter"
+    model: "anthropic/claude-sonnet-4"
+    vision_model: "google/gemini-2.5-flash" # optional; defaults to model
+    http_referer: "https://your-deployment.example" # optional attribution
+    title: "Gidbig" # optional attribution
+```
+
+Set `OPENROUTER_API_KEY` when using OpenRouter. `llm.provider` defaults to `openai`, the OpenAI model defaults to `gpt-4o-mini`, and `llm.vision_model` defaults to `llm.model`. `llm.base_url` can optionally override either provider's API endpoint for an OpenAI-compatible gateway.
 
 The web server starts only when `web.port`, `web.session_secret`, `web.oauth.client_id`, `web.oauth.client_secret`, and `web.oauth.redirect_uri` are set. `gippity.allowed_guilds` restricts guilds where mention-driven AI chat runs.
 

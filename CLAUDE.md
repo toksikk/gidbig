@@ -120,6 +120,9 @@ gippity:
         - "YOUR_DISCORD_GUILD_ID"
     ignored_users: []
 llm:
+    provider: "openai"
+    model: "gpt-4o-mini"
+    vision_model: ""
     personality: ""
     personality_preset: ""
 dev_mode: true

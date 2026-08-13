@@ -2,13 +2,18 @@ package llm
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log/slog"
+	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
 	openai "github.com/openai/openai-go/v3"
+	"github.com/openai/openai-go/v3/option"
 )
 
 // defaultPersonality is the built-in fallback persona, used when the config sets
@@ -59,10 +64,18 @@ func Personality() string { return activePersonality }
 
 const llmTimeout = 30 * time.Second
 const langCacheTTL = 1 * time.Hour
-const llmModel = openai.ChatModelGPT4oMini
 const llmMaxTokens = int64(150)
 
+const (
+	defaultProvider      = "openai"
+	defaultModel         = openai.ChatModelGPT4oMini
+	defaultOpenAIBaseURL = "https://api.openai.com/v1"
+	openRouterBaseURL    = "https://openrouter.ai/api/v1"
+)
+
 var client openai.Client
+var textModel = defaultModel
+var visionModel = defaultModel
 
 // generateMessageFn is the underlying completion call, swappable in tests.
 var generateMessageFn = func(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
@@ -71,14 +84,14 @@ var generateMessageFn = func(ctx context.Context, systemPrompt, userPrompt strin
 			openai.SystemMessage(systemPrompt),
 			openai.UserMessage(userPrompt),
 		},
-		Model:     llmModel,
+		Model:     textModel,
 		N:         openai.Int(1),
 		MaxTokens: openai.Int(llmMaxTokens),
 	})
 	if err != nil {
 		return "", err
 	}
-	return completion.Choices[0].Message.Content, nil
+	return CompletionContent(completion)
 }
 
 type cachedLang struct {
@@ -88,15 +101,90 @@ type cachedLang struct {
 
 var langCache sync.Map // channelID -> cachedLang
 
-// Initialize creates the shared OpenAI client. Must be called before any plugin uses LLM features.
-func Initialize() {
-	client = openai.NewClient()
-	slog.Info("llm: shared OpenAI client initialized")
+// Initialize creates the shared OpenAI-compatible client. API keys are read from
+// OPENAI_API_KEY or OPENROUTER_API_KEY according to the selected provider.
+func Initialize(provider, model, configuredVisionModel, baseURL, httpReferer, title string) error {
+	provider = strings.ToLower(strings.TrimSpace(provider))
+	model = strings.TrimSpace(model)
+	configuredVisionModel = strings.TrimSpace(configuredVisionModel)
+	baseURL = strings.TrimSpace(baseURL)
+	if provider == "" {
+		provider = defaultProvider
+	}
+
+	var keyEnv string
+	switch provider {
+	case "openai":
+		keyEnv = "OPENAI_API_KEY"
+		if model == "" {
+			model = defaultModel
+		}
+		if baseURL == "" {
+			baseURL = defaultOpenAIBaseURL
+		}
+	case "openrouter":
+		keyEnv = "OPENROUTER_API_KEY"
+		if strings.TrimSpace(model) == "" {
+			return errors.New("llm.model is required when llm.provider is openrouter")
+		}
+		if baseURL == "" {
+			baseURL = openRouterBaseURL
+		}
+	default:
+		return fmt.Errorf("unsupported llm.provider %q (supported: openai, openrouter)", provider)
+	}
+
+	apiKey := strings.TrimSpace(os.Getenv(keyEnv))
+	if apiKey == "" {
+		return fmt.Errorf("%s is required when llm.provider is %s", keyEnv, provider)
+	}
+	parsedBaseURL, err := url.ParseRequestURI(baseURL)
+	if err != nil || parsedBaseURL.Scheme == "" || parsedBaseURL.Host == "" ||
+		(parsedBaseURL.Scheme != "http" && parsedBaseURL.Scheme != "https") {
+		return fmt.Errorf("llm.base_url must be a valid HTTP(S) URL: %q", baseURL)
+	}
+
+	opts := []option.RequestOption{
+		option.WithAPIKey(apiKey),
+		option.WithBaseURL(strings.TrimRight(baseURL, "/")),
+		option.WithRequestTimeout(llmTimeout),
+	}
+	if provider == "openrouter" {
+		if httpReferer != "" {
+			opts = append(opts, option.WithHeader("HTTP-Referer", httpReferer))
+		}
+		if title != "" {
+			opts = append(opts, option.WithHeader("X-Title", title))
+		}
+	}
+
+	if configuredVisionModel == "" {
+		configuredVisionModel = model
+	}
+	client = openai.NewClient(opts...)
+	textModel = model
+	visionModel = configuredVisionModel
+	slog.Info("llm: client initialized", "provider", provider, "model", textModel, "vision_model", visionModel)
+	return nil
 }
 
 // GetClient returns a pointer to the shared OpenAI client for packages that need direct access (e.g. gippity).
 func GetClient() *openai.Client {
 	return &client
+}
+
+// Model returns the configured model for text completions.
+func Model() string { return textModel }
+
+// VisionModel returns the configured model for image-aware completions.
+func VisionModel() string { return visionModel }
+
+// CompletionContent returns the first response choice, or an error for an empty response.
+func CompletionContent(completion *openai.ChatCompletion) (string, error) {
+	if completion == nil || len(completion.Choices) == 0 {
+		return "", errors.New("llm provider returned no completion choices")
+	}
+	return completion.Choices[0].Message.Content, nil
 }
 
 // GenerateMessage sends a single-turn completion and returns the response text.
@@ -117,14 +205,14 @@ func GenerateMessageWith(ctx context.Context, c *openai.Client, systemPrompt, us
 			openai.SystemMessage(systemPrompt),
 			openai.UserMessage(userPrompt),
 		},
-		Model:     llmModel,
+		Model:     textModel,
 		N:         openai.Int(1),
 		MaxTokens: openai.Int(llmMaxTokens),
 	})
 	if err != nil {
 		return "", err
 	}
-	return completion.Choices[0].Message.Content, nil
+	return CompletionContent(completion)
 }
 
 // DetectChannelLanguage fetches recent messages from a Discord channel and asks the LLM

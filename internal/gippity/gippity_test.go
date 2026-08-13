@@ -9,6 +9,7 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	openai "github.com/openai/openai-go/v3"
+	"github.com/toksikk/gidbig/internal/llm"
 )
 
 var previousDescribeImagesFunc func([]string) (string, error)
@@ -25,6 +26,7 @@ func setupGippityTest(t *testing.T) *discordgo.Session {
 	previousGenerateAnswerFunc := generateAnswerFunc
 	previousDescribeImagesFunc = describeImagesFunc
 	previousChatCompletionFunc := chatCompletionFunc
+	previousVisionCompletionFunc := visionCompletionFunc
 	previousChannelTypingFunc := channelTypingFunc
 
 	testDB, err := sql.Open("sqlite3", ":memory:")
@@ -70,10 +72,33 @@ func setupGippityTest(t *testing.T) *discordgo.Session {
 		generateAnswerFunc = previousGenerateAnswerFunc
 		describeImagesFunc = previousDescribeImagesFunc
 		chatCompletionFunc = previousChatCompletionFunc
+		visionCompletionFunc = previousVisionCompletionFunc
 		channelTypingFunc = previousChannelTypingFunc
 	})
 
 	return session
+}
+
+func TestDescribeImagesUsesConfiguredVisionModel(t *testing.T) {
+	setupGippityTest(t)
+	var model string
+	visionCompletionFunc = func(_ context.Context, params openai.ChatCompletionNewParams) (*openai.ChatCompletion, error) {
+		model = params.Model
+		return &openai.ChatCompletion{
+			Choices: []openai.ChatCompletionChoice{{Message: openai.ChatCompletionMessage{Content: "description"}}},
+		}, nil
+	}
+
+	got, err := describeImages([]string{"https://example.com/image.png"})
+	if err != nil {
+		t.Fatalf("describeImages: %v", err)
+	}
+	if got != "description" {
+		t.Errorf("describeImages = %q", got)
+	}
+	if model != llm.VisionModel() {
+		t.Errorf("model = %q, want configured vision model %q", model, llm.VisionModel())
+	}
 }
 
 func gippityTestMessage(content string, mentions ...*discordgo.User) *discordgo.MessageCreate {
@@ -310,8 +335,10 @@ func TestGenerateAnswer_NoReference_NoSystemNoteInjected(t *testing.T) {
 	}
 
 	var capturedMessages []openai.ChatCompletionMessageParamUnion
+	var capturedModel string
 	chatCompletionFunc = func(_ context.Context, params openai.ChatCompletionNewParams) (*openai.ChatCompletion, error) {
 		capturedMessages = params.Messages
+		capturedModel = params.Model
 		return &openai.ChatCompletion{
 			Choices: []openai.ChatCompletionChoice{{Message: openai.ChatCompletionMessage{Content: "ok"}}},
 		}, nil
@@ -334,6 +361,9 @@ func TestGenerateAnswer_NoReference_NoSystemNoteInjected(t *testing.T) {
 
 	if fetchCalled {
 		t.Error("fetchReferencedMessageFunc must not be called when MessageReference is nil")
+	}
+	if capturedModel != llm.Model() {
+		t.Errorf("model = %q, want configured model %q", capturedModel, llm.Model())
 	}
 	for _, msg := range capturedMessages {
 		if msg.OfSystem != nil {

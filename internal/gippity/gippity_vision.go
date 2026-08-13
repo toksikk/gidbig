@@ -10,6 +10,9 @@ import (
 )
 
 var describeImagesFunc = describeImages
+var visionCompletionFunc = func(ctx context.Context, params openai.ChatCompletionNewParams) (*openai.ChatCompletion, error) {
+	return llm.GetClient().Chat.Completions.New(ctx, params)
+}
 
 func describeImages(imageURLs []string) (string, error) {
 	parts := []openai.ChatCompletionContentPartUnionParam{
@@ -23,11 +26,11 @@ func describeImages(imageURLs []string) (string, error) {
 			OfArrayOfContentParts: parts,
 		},
 	}
-	completion, err := llm.GetClient().Chat.Completions.New(context.Background(), openai.ChatCompletionNewParams{
+	completion, err := visionCompletionFunc(context.Background(), openai.ChatCompletionNewParams{
 		Messages: []openai.ChatCompletionMessageParamUnion{
 			{OfUser: &userMsg},
 		},
-		Model:     openai.ChatModelGPT4oMini,
+		Model:     llm.VisionModel(),
 		N:         openai.Int(1),
 		MaxTokens: openai.Int(150),
 	})
@@ -35,5 +38,5 @@ func describeImages(imageURLs []string) (string, error) {
 		slog.Error("Error describing image", "error", err)
 		return "", err
 	}
-	return completion.Choices[0].Message.Content, nil
+	return llm.CompletionContent(completion)
 }

@@ -34,6 +34,12 @@ type Config struct {
 		IgnoredUsers  []string `yaml:"ignored_users"`
 	} `yaml:"gippity"`
 	LLM struct {
+		Provider    string `yaml:"provider,omitempty"`
+		Model       string `yaml:"model,omitempty"`
+		VisionModel string `yaml:"vision_model,omitempty"`
+		BaseURL     string `yaml:"base_url,omitempty"`
+		HTTPReferer string `yaml:"http_referer,omitempty"`
+		Title       string `yaml:"title,omitempty"`
 		// Personality is a custom persona string. When set it takes precedence
 		// over Preset and the built-in default.
 		Personality string `yaml:"personality,omitempty"`

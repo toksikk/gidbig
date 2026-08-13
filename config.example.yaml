@@ -15,6 +15,17 @@ gippity:
         - "YOUR_DISCORD_GUILD_ID"
     ignored_users: []
 llm:
+    # Optional provider and model settings. Provider defaults to openai and its
+    # model defaults to gpt-4o-mini. OpenRouter requires an explicit model.
+    provider: "openai" # openai or openrouter
+    model: "gpt-4o-mini"
+    # Optional separate model for image descriptions; defaults to model.
+    vision_model: ""
+    # Optional OpenAI-compatible endpoint override. Normally leave empty.
+    base_url: ""
+    # Optional OpenRouter app attribution headers.
+    http_referer: ""
+    title: "Gidbig"
     # Bot personality. Optional — if omitted, a built-in default persona is used.
     # Set a custom persona string here; it takes precedence over personality_preset.
     personality: ""
