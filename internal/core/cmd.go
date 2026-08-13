@@ -49,11 +49,29 @@ func onReady(s *discordgo.Session, event *discordgo.Ready) {
 }
 
 func onConnect(s *discordgo.Session, event *discordgo.Connect) {
-	slog.Info("Discord WebSocket connected")
+	slog.Info("Discord WebSocket connected",
+		"shard_id", s.ShardID,
+		"shard_count", s.ShardCount,
+		"reconnect_enabled", s.ShouldReconnectOnError,
+	)
 }
 
 func onDisconnect(s *discordgo.Session, event *discordgo.Disconnect) {
-	slog.Error("Discord WebSocket disconnected — bot is offline until reconnect")
+	s.RLock()
+	lastHeartbeatSent := s.LastHeartbeatSent
+	lastHeartbeatAck := s.LastHeartbeatAck
+	dataReady := s.DataReady
+	s.RUnlock()
+
+	slog.Error("Discord WebSocket disconnected; bot is offline until reconnect",
+		"shard_id", s.ShardID,
+		"shard_count", s.ShardCount,
+		"reconnect_enabled", s.ShouldReconnectOnError,
+		"data_ready", dataReady,
+		"last_heartbeat_sent", lastHeartbeatSent,
+		"last_heartbeat_ack", lastHeartbeatAck,
+		"heartbeat_ack_age", time.Since(lastHeartbeatAck).Round(time.Millisecond),
+	)
 }
 
 func onResumed(s *discordgo.Session, event *discordgo.Resumed) {
@@ -318,12 +336,10 @@ func StartGidbig() {
 	// errors and discordgo reconnects on its own. See wsdeadline.go.
 	discord.Dialer = newDeadlineDialer()
 
-	// Surface the discordgo voice-protocol logs so #113 can be diagnosed from
-	// production: encryption mode negotiated, DAVE handshake progress, UDP
-	// errors, etc. Only on dev mode — LogDebug is very verbose.
-	if conf.DevMode {
-		discord.LogLevel = discordgo.LogDebug
-	}
+	// Capture gateway reconnect attempts and failures in the same structured
+	// log stream as the application. Dev mode additionally enables payload and
+	// heartbeat-level diagnostics.
+	configureDiscordgoLogging(discord, conf.DevMode)
 
 	// Set sharding info
 	discord.ShardID = conf.Discord.ShardID
