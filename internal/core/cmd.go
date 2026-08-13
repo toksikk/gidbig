@@ -273,10 +273,14 @@ func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 }
 
 func setStartedStatus() {
-	err := discord.UpdateCustomStatus("I just started! " + version + " (" + builddate + ")")
+	err := discord.UpdateCustomStatus(startedStatus())
 	if err != nil {
 		slog.Warn("Failed to set custom status", "error", err)
 	}
+}
+
+func startedStatus() string {
+	return "I just started! " + currentVersion() + " (" + builddate + ")"
 }
 
 // Delete the message after a delay so the channel does not get cluttered

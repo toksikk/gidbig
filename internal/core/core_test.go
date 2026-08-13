@@ -201,6 +201,26 @@ func TestVersionFromBuildInfoIncludesRevisionForDevelopmentBuild(t *testing.T) {
 	}
 }
 
+func TestCurrentVersionUsesLinkedVersion(t *testing.T) {
+	originalVersion := version
+	version = "v1.2.3-4-g0123456"
+	t.Cleanup(func() { version = originalVersion })
+
+	if got := currentVersion(); got != "v1.2.3-4-g0123456" {
+		t.Fatalf("currentVersion() = %q", got)
+	}
+}
+
+func TestStartedStatusUsesCurrentVersion(t *testing.T) {
+	originalVersion, originalBuilddate := version, builddate
+	version, builddate = "v1.2.3-4-g0123456", "2026-08-13T12:00:00Z"
+	t.Cleanup(func() { version, builddate = originalVersion, originalBuilddate })
+
+	if got := startedStatus(); got != "I just started! v1.2.3-4-g0123456 (2026-08-13T12:00:00Z)" {
+		t.Fatalf("startedStatus() = %q", got)
+	}
+}
+
 func TestStatusInteractionResponse_NonOwner(t *testing.T) {
 	ownerID := "owner123"
 	callerID := "rando456"
