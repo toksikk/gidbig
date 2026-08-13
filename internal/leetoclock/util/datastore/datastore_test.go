@@ -1,12 +1,33 @@
 package datastore
 
 import (
+	"path/filepath"
 	"testing"
 	"time"
 
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
+
+func TestOpenCreatesPrefixedTables(t *testing.T) {
+	store, err := Open(filepath.Join(t.TempDir(), "gidbig.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = store.Close() }()
+
+	for _, table := range []string{
+		"leetoclock_players",
+		"leetoclock_seasons",
+		"leetoclock_games",
+		"leetoclock_scores",
+		"leetoclock_highscores",
+	} {
+		if !store.db.Migrator().HasTable(table) {
+			t.Errorf("missing table %q", table)
+		}
+	}
+}
 
 func TestGetSeasonEndDateForDate(t *testing.T) {
 	tests := []struct {

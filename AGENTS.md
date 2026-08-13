@@ -10,10 +10,10 @@
 ## Architecture And Runtime
 
 - `cmd/gidbig/main.go` only calls `internal/core.StartGidbig`; `internal/core/cmd.go` is the composition root for Discord, modules, slash-command registration, sound loading, and the optional web server.
-- Module migration is incomplete. New-style modules implement `internal/bot.Module`, but `gippity` and `leetoclock` still expose `Start`; wire changes according to the package's current pattern rather than assuming the interface is universal.
+- Module migration is incomplete. New-style modules implement `internal/bot.Module`, but `gippity` still exposes `Start`; wire changes according to the package's current pattern rather than assuming the interface is universal.
 - Slash commands are assembled centrally and replaced globally with `ApplicationCommandBulkOverwrite`. Adding a command to a module is insufficient unless that module's `Commands()` is included in `internal/core/cmd.go`.
 - The process reads `config.yaml`, `audio/`, web assets, and SQLite paths relative to the working directory. Copy `config.example.yaml`; config validation requires `discord.token`, a non-empty `gippity.allowed_guilds`, and `web.session_secret` whenever `web.port` is nonzero.
-- Sound files are preloaded from `audio/{prefix}_{soundname}.dca`. `leetoclock` writes `plugins/leetoclock.sqlite`; coffee defaults to `gidbig.db` unless `database.path` is configured.
+- Sound files are preloaded from `audio/{prefix}_{soundname}.dca`. Coffee and `leetoclock` default to `gidbig.db` unless `database.path` is configured.
 - Prefer Discord slash commands for new or touched bot commands. Owner/admin responses should be ephemeral when they may expose private data.
 
 ## Dependency Constraint
