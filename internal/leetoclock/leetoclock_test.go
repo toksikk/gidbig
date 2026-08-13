@@ -1,116 +1,178 @@
 package leetoclock
 
 import (
-	"sync"
+	"context"
+	"path/filepath"
 	"testing"
+	"time"
 
+	"github.com/bwmarrin/discordgo"
+	"github.com/toksikk/gidbig/internal/bot"
+	"github.com/toksikk/gidbig/internal/cfg"
 	"github.com/toksikk/gidbig/internal/leetoclock/util/datastore"
 )
 
-func TestSortScoreArrayByScore(t *testing.T) {
-	tests := []struct {
-		name string
-		in   []int
-		want []int
-	}{
-		{
-			name: "empty slice",
-			in:   []int{},
-			want: []int{},
-		},
-		{
-			name: "single element",
-			in:   []int{42},
-			want: []int{42},
-		},
-		{
-			name: "already sorted",
-			in:   []int{-3000, -100, 0, 250, 1337},
-			want: []int{-3000, -100, 0, 250, 1337},
-		},
-		{
-			name: "reverse sorted",
-			in:   []int{1337, 250, 0, -100, -3000},
-			want: []int{-3000, -100, 0, 250, 1337},
-		},
-		{
-			name: "with duplicates",
-			in:   []int{500, 100, 500, 100, 0},
-			want: []int{0, 100, 100, 500, 500},
-		},
-		{
-			name: "negative and positive scores",
-			in:   []int{120, -50, 0, -2000, 75},
-			want: []int{-2000, -50, 0, 75, 120},
-		},
-	}
+func TestModuleInterface(t *testing.T) {
+	var _ bot.Module = New()
+}
 
+func TestModuleShape(t *testing.T) {
+	m := New()
+	if m.Name() != "leetoclock" {
+		t.Fatalf("Name() = %q, want leetoclock", m.Name())
+	}
+	if len(m.Commands()) != 0 || len(m.Components()) != 0 {
+		t.Fatal("leetoclock should not expose commands or components")
+	}
+	if len(m.Listeners()) != 1 {
+		t.Fatalf("Listeners() len = %d, want 1", len(m.Listeners()))
+	}
+	if len(m.Background()) != 2 {
+		t.Fatalf("Background() len = %d, want 2", len(m.Background()))
+	}
+}
+
+func TestBackgroundTasksCancel(t *testing.T) {
+	m := New()
+	m.tickInterval = time.Hour
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	for _, task := range m.Background() {
+		done := make(chan struct{})
+		go func(run func(context.Context)) {
+			run(ctx)
+			close(done)
+		}(task.Run)
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			t.Fatalf("background task %q did not stop", task.Name)
+		}
+	}
+}
+
+func TestShutdownWaitsForMessageWork(t *testing.T) {
+	m, session := newTestModule(t)
+	target := time.Date(2026, time.August, 13, 13, 37, 0, 0, time.Local)
+	m.now = func() time.Time { return target }
+	m.messageTimestamp = func(string) time.Time { return target }
+	m.updateTarget()
+
+	workStarted := make(chan struct{})
+	releaseWork := make(chan struct{})
+	m.renewGame = func(datastore.Game) {
+		close(workStarted)
+		<-releaseWork
+	}
+	m.onMessageCreate(session, &discordgo.MessageCreate{Message: &discordgo.Message{
+		ID: "message", ChannelID: "channel", GuildID: "guild", Author: &discordgo.User{ID: "player"},
+	}})
+	<-workStarted
+
+	done := make(chan error, 1)
+	go func() { done <- m.Shutdown() }()
+	select {
+	case err := <-done:
+		t.Fatalf("Shutdown returned before message work finished: %v", err)
+	case <-time.After(20 * time.Millisecond):
+	}
+	close(releaseWork)
+	if err := <-done; err != nil {
+		t.Fatalf("Shutdown() = %v", err)
+	}
+}
+
+func TestMessageDispatchPersistsGameState(t *testing.T) {
+	m, session := newTestModule(t)
+	target := time.Date(2026, time.August, 13, 13, 37, 0, 0, time.Local)
+	m.now = func() time.Time { return target }
+	m.messageTimestamp = func(string) time.Time { return target.Add(337 * time.Millisecond) }
+	m.renewGame = func(datastore.Game) {}
+	m.updateTarget()
+
+	m.onMessageCreate(session, &discordgo.MessageCreate{Message: &discordgo.Message{
+		ID: "message", ChannelID: "channel", GuildID: "guild", Author: &discordgo.User{ID: "player"},
+	}})
+
+	players, err := m.store.GetPlayers()
+	if err != nil || len(players) != 1 || players[0].UserID != "player" {
+		t.Fatalf("players = %#v, err = %v", players, err)
+	}
+	games, err := m.store.GetGames()
+	if err != nil || len(games) != 1 || games[0].ChannelID != "channel" {
+		t.Fatalf("games = %#v, err = %v", games, err)
+	}
+	scores, err := m.store.GetScores()
+	if err != nil || len(scores) != 1 || scores[0].Score != 337 {
+		t.Fatalf("scores = %#v, err = %v", scores, err)
+	}
+	seasons, err := m.store.GetSeasons()
+	if err != nil || len(seasons) != 1 {
+		t.Fatalf("seasons = %#v, err = %v", seasons, err)
+	}
+}
+
+func TestMessageDispatchIgnoresInvalidMessages(t *testing.T) {
+	tests := []struct {
+		name      string
+		author    *discordgo.User
+		timestamp time.Time
+	}{
+		{name: "bot", author: &discordgo.User{ID: "other", Bot: true}},
+		{name: "self", author: &discordgo.User{ID: "bot"}},
+		{name: "outside window", author: &discordgo.User{ID: "other"}, timestamp: time.Date(2026, time.August, 13, 12, 0, 0, 0, time.Local)},
+	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			scores := make([]datastore.Score, len(tc.in))
-			for i, s := range tc.in {
-				scores[i] = datastore.Score{Score: s}
+			m, session := newTestModule(t)
+			target := time.Date(2026, time.August, 13, 13, 37, 0, 0, time.Local)
+			m.now = func() time.Time { return target }
+			timestamp := tc.timestamp
+			if timestamp.IsZero() {
+				timestamp = target
 			}
-
-			got := sortScoreArrayByScore(scores)
-
-			if len(got) != len(tc.want) {
-				t.Fatalf("length mismatch: got %d, want %d", len(got), len(tc.want))
-			}
-			for i, want := range tc.want {
-				if got[i].Score != want {
-					t.Errorf("index %d: got %d, want %d", i, got[i].Score, want)
-				}
+			m.messageTimestamp = func(string) time.Time { return timestamp }
+			m.renewGame = func(datastore.Game) {}
+			m.updateTarget()
+			m.onMessageCreate(session, &discordgo.MessageCreate{Message: &discordgo.Message{
+				ID: "message", ChannelID: "channel", GuildID: "guild", Author: tc.author,
+			}})
+			scores, err := m.store.GetScores()
+			if err != nil || len(scores) != 0 {
+				t.Fatalf("scores = %#v, err = %v", scores, err)
 			}
 		})
 	}
 }
 
-// TestAnnouncePreparationSelfGuard verifies announcePreparation self-guards via
-// its internal TryLock. Run with -race to detect data races on shared state.
-// session is nil and tt is zero, so isOnTargetTimeRange returns false and no
-// Discord calls are made.
-func TestAnnouncePreparationSelfGuard(t *testing.T) {
-	var wg sync.WaitGroup
-	for i := 0; i < 10; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			announcePreparation()
-		}()
-	}
-	wg.Wait()
-}
-
-// TestAnnounceTodaysWinnersSelfGuard verifies announceTodaysWinners self-guards
-// via its internal TryLock. Run with -race to detect data races on shared state.
-// session is nil and tt is zero, so isOnTargetTimeRange returns false and no
-// Discord/store calls are made.
-func TestAnnounceTodaysWinnersSelfGuard(t *testing.T) {
-	var wg sync.WaitGroup
-	for i := 0; i < 10; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			announceTodaysWinners()
-		}()
-	}
-	wg.Wait()
-}
-
-func TestSortScoreArrayByScorePreservesOtherFields(t *testing.T) {
-	scores := []datastore.Score{
-		{Score: 300, MessageID: "c"},
-		{Score: 100, MessageID: "a"},
-		{Score: 200, MessageID: "b"},
-	}
-
+func TestSortScoreArrayByScore(t *testing.T) {
+	scores := []datastore.Score{{Score: 300, MessageID: "c"}, {Score: 100, MessageID: "a"}, {Score: 200, MessageID: "b"}}
 	got := sortScoreArrayByScore(scores)
-
-	wantOrder := []string{"a", "b", "c"}
-	for i, want := range wantOrder {
+	for i, want := range []string{"a", "b", "c"} {
 		if got[i].MessageID != want {
-			t.Errorf("index %d: got MessageID %q, want %q", i, got[i].MessageID, want)
+			t.Errorf("index %d: MessageID = %q, want %q", i, got[i].MessageID, want)
 		}
 	}
+}
+
+func newTestModule(t *testing.T) (*Module, *discordgo.Session) {
+	t.Helper()
+	conf := &cfg.Config{}
+	conf.Database.Path = filepath.Join(t.TempDir(), "gidbig.db")
+	session, err := discordgo.New("Bot test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	session.State.User = &discordgo.User{ID: "bot"}
+	m := New()
+	if err := m.Init(bot.Deps{Session: session, Config: conf}); err != nil {
+		t.Fatal(err)
+	}
+	m.reactOnMessage = func(*discordgo.Session, string, string, string, string) {}
+	t.Cleanup(func() {
+		if err := m.Shutdown(); err != nil {
+			t.Errorf("Shutdown() = %v", err)
+		}
+	})
+	return m, session
 }

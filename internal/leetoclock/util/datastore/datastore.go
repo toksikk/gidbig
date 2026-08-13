@@ -2,8 +2,6 @@ package datastore
 
 import (
 	"errors"
-	"log/slog"
-	"os"
 	"sync"
 	"time"
 
@@ -17,12 +15,18 @@ type Player struct {
 	UserID string `gorm:"not null;unique"`
 }
 
+// TableName returns the database table name.
+func (Player) TableName() string { return "leetoclock_players" }
+
 // Season represents a season in the game.
 type Season struct {
 	gorm.Model
 	StartDate time.Time `gorm:"not null"`
 	EndDate   time.Time `gorm:"not null"`
 }
+
+// TableName returns the database table name.
+func (Season) TableName() string { return "leetoclock_seasons" }
 
 // Game represents a game session.
 type Game struct {
@@ -33,6 +37,9 @@ type Game struct {
 	SeasonID  uint      `gorm:"not null"`
 	Season    Season    `gorm:"foreignKey:SeasonID"`
 }
+
+// TableName returns the database table name.
+func (Game) TableName() string { return "leetoclock_games" }
 
 // Score represents a player's score in a game.
 type Score struct {
@@ -45,6 +52,9 @@ type Score struct {
 	Player    Player `gorm:"foreignKey:PlayerID"`
 }
 
+// TableName returns the database table name.
+func (Score) TableName() string { return "leetoclock_scores" }
+
 // Highscore represents a player's highscore in a season.
 type Highscore struct {
 	gorm.Model
@@ -56,28 +66,31 @@ type Highscore struct {
 	Season   Season `gorm:"foreignKey:SeasonID"`
 }
 
+// TableName returns the database table name.
+func (Highscore) TableName() string { return "leetoclock_highscores" }
+
 // Store represents the data store.
 type Store struct {
 	db *gorm.DB
 	mu sync.Mutex
 }
 
-// InitDB initializes the database connection and performs migrations.
-func InitDB() *gorm.DB {
-	db, err := gorm.Open(sqlite.Open("plugins/leetoclock.sqlite"), &gorm.Config{})
-
+// Open initializes a store at path and performs schema migrations.
+func Open(path string) (*Store, error) {
+	db, err := gorm.Open(sqlite.Open(path), &gorm.Config{})
 	if err != nil {
-		slog.Error("failed to connect database", "Error", err)
-		os.Exit(1)
+		return nil, err
 	}
 
-	err = db.AutoMigrate(&Player{}, &Season{}, &Game{}, &Score{}, &Highscore{})
-	if err != nil {
-		slog.Error("failed to migrate database", "Error", err)
-		os.Exit(1)
+	if err := db.AutoMigrate(&Player{}, &Season{}, &Game{}, &Score{}, &Highscore{}); err != nil {
+		sqlDB, dbErr := db.DB()
+		if dbErr == nil {
+			_ = sqlDB.Close()
+		}
+		return nil, err
 	}
 
-	return db
+	return NewStore(db), nil
 }
 
 // NewStore creates a new Store instance.
@@ -349,11 +362,6 @@ func (s *Store) GetGameBySpecificDateTimeAndChannelID(gameDate time.Time, channe
 	var game Game
 	result := s.db.Where("game_date = ? AND channel_id = ?", gameDate, channelID).First(&game)
 	if result.Error != nil {
-		slog.Error("AN ERROR OCCURED", "Error", result.Error)
-		games, _ := s.GetGames()
-		for _, g := range games {
-			slog.Info("GAME", "Game", g)
-		}
 		return nil, result.Error
 	}
 	return &game, nil

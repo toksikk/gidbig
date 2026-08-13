@@ -413,7 +413,17 @@ func StartGidbig() {
 		bgSupervisor.Start(bgCtx, gamerstatusMod.Background()...)
 	}
 	gippity.Start(discord)
-	leetoclock.Start(discord)
+	leetoMod := leetoclock.New()
+	leetoReady := false
+	if err := leetoMod.Init(bot.Deps{Session: discord, Config: conf}); err != nil {
+		slog.Error("leetoclock: init failed", "error", err)
+	} else {
+		leetoReady = true
+		for _, l := range leetoMod.Listeners() {
+			discord.AddHandler(l)
+		}
+		bgSupervisor.Start(bgCtx, leetoMod.Background()...)
+	}
 	stollMod := stoll.New()
 	if err := stollMod.Init(bot.Deps{Session: discord, OwnerID: conf.Discord.OwnerID}); err != nil {
 		slog.Error("stoll: init failed", "error", err)
@@ -473,7 +483,11 @@ func StartGidbig() {
 		}
 		gippity.Shutdown()
 		gippity.CloseDB()
-		leetoclock.Shutdown()
+		if leetoReady {
+			if err := leetoMod.Shutdown(); err != nil {
+				slog.Error("leetoclock: shutdown failed", "error", err)
+			}
+		}
 		if err := coffeeMod.Shutdown(); err != nil {
 			slog.Error("coffee: shutdown failed", "error", err)
 		}

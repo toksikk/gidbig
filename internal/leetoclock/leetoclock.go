@@ -1,6 +1,7 @@
 package leetoclock
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"os"
@@ -9,401 +10,420 @@ import (
 	"time"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/toksikk/gidbig/internal/bot"
 	"github.com/toksikk/gidbig/internal/leetoclock/util/datastore"
 	"github.com/toksikk/gidbig/internal/util"
 )
 
-var tt time.Time
+const (
+	firstPlace    = "🥇"
+	secondPlace   = "🥈"
+	thirdPlace    = "🥉"
+	otherPlace    = "🏅"
+	zonk          = ":zonk:750630908372975636"
+	lol           = ":louisdefunes_lol:357611625102180373"
+	notamused     = ":louisdefunes_notamused:357611625521479680"
+	wat           = ":gustaff:721122751145967679"
+	defaultHour   = 13
+	defaultMinute = 37
+)
 
-var tHourInt, tMinuteInt = 13, 37
+// Module implements bot.Module for the daily Leet o'Clock game.
+type Module struct {
+	session *discordgo.Session
+	store   *datastore.Store
 
-var session *discordgo.Session
+	stateMu                   sync.RWMutex
+	target                    time.Time
+	targetHour                int
+	targetMinute              int
+	playersWithClockReactions map[string]struct{}
+	announcementChannels      []string
+	renewReactionsMu          sync.Mutex
+	lifecycleMu               sync.Mutex
+	accepting                 bool
+	handlerWG                 sync.WaitGroup
+	workWG                    sync.WaitGroup
 
-var preparationAnnounceMu sync.Mutex
-var winnerAnnounceMu sync.Mutex
-var renewReactionsMu sync.Mutex
-
-var playersWithClockReactions []string = []string{}
-
-const firstPlace string = "🥇"
-const secondPlace string = "🥈"
-const thirdPlace string = "🥉"
-const otherPlace string = "🏅"
-const zonk string = ":zonk:750630908372975636"
-const lol string = ":louisdefunes_lol:357611625102180373"
-const notamused string = ":louisdefunes_notamused:357611625521479680"
-const wat string = ":gustaff:721122751145967679"
-
-var announcementChannels = []string{}
-
-var store *datastore.Store
-
-// Shutdown closes the leetoclock database connection.
-func Shutdown() {
-	if store != nil {
-		if err := store.Close(); err != nil {
-			slog.Error("error closing leetoclock database", "error", err)
-		}
-	}
+	now              func() time.Time
+	messageTimestamp func(string) time.Time
+	reactOnMessage   func(*discordgo.Session, string, string, string, string)
+	renewGame        func(datastore.Game)
+	tickInterval     time.Duration
 }
 
-// Start the plugin
-func Start(discord *discordgo.Session) {
-	session = discord
-	store = datastore.NewStore(datastore.InitDB())
-	session.AddHandler(onMessageCreate)
+// New returns a Module with production defaults.
+func New() *Module {
+	m := &Module{
+		targetHour:                defaultHour,
+		targetMinute:              defaultMinute,
+		playersWithClockReactions: make(map[string]struct{}),
+		now:                       time.Now,
+		messageTimestamp:          util.GetTimestampOfMessage,
+		reactOnMessage:            util.ReactOnMessage,
+		tickInterval:              time.Minute,
+	}
+	m.renewGame = m.renewReactions
+	return m
+}
+
+// Name returns the module identifier.
+func (m *Module) Name() string { return "leetoclock" }
+
+// Init opens the shared database and captures runtime dependencies.
+func (m *Module) Init(d bot.Deps) error {
+	dbPath := "gidbig.db"
+	if d.Config != nil && d.Config.Database.Path != "" {
+		dbPath = d.Config.Database.Path
+	}
+
+	store, err := datastore.Open(dbPath)
+	if err != nil {
+		return fmt.Errorf("leetoclock: open store: %w", err)
+	}
+	m.store = store
+	m.session = d.Session
+	m.accepting = true
 
 	if os.Getenv("LEETOCLOCK_DEBUG") != "" {
-		t := time.Now()
-		target := t.Add(time.Minute * 1)
-		tHourInt, tMinuteInt = target.Hour(), target.Minute()
-		slog.Debug("Updated target time", "Hour", tHourInt, "Minute", tMinuteInt)
+		target := m.now().Add(time.Minute)
+		m.targetHour, m.targetMinute = target.Hour(), target.Minute()
+		m.tickInterval = time.Second
 	}
-	if os.Getenv("LEETOCLOCK_DEBUG_CHANNEL") != "" {
-		announcementChannels = append(announcementChannels, os.Getenv("LEETOCLOCK_DEBUG_CHANNEL"))
+	if channel := os.Getenv("LEETOCLOCK_DEBUG_CHANNEL"); channel != "" {
+		m.announcementChannels = append(m.announcementChannels, channel)
 	}
-	go gameTick()
-	slog.Info("leetoclock function registered")
+	m.updateTarget()
+	slog.Info("leetoclock: initialized")
+	return nil
 }
 
-func calculateScore(messageTimestamp time.Time) int {
-	return int(messageTimestamp.Sub(tt).Milliseconds())
+func (m *Module) Commands() []*discordgo.ApplicationCommand { return nil }
+
+// Listeners returns the Discord listeners owned by this module.
+func (m *Module) Listeners() []bot.EventListener {
+	return []bot.EventListener{m.onMessageCreate}
 }
 
-func isOnTargetTimeRange(messageTimestamp time.Time, onlyOnTarget bool) bool {
-	oneMinuteBefore := tt.Add(-time.Minute * 1)
-	if messageTimestamp.Hour() == tt.Hour() && messageTimestamp.Minute() == tt.Minute() {
-		return true
+func (m *Module) Components() []bot.ComponentHandler { return nil }
+
+// Background returns independently supervised announcement loops.
+func (m *Module) Background() []bot.BackgroundTask {
+	return []bot.BackgroundTask{
+		{Name: "leetoclock/preparation", Run: m.runPreparationLoop},
+		{Name: "leetoclock/winners", Run: m.runWinnerLoop},
 	}
-	if !onlyOnTarget {
-		if messageTimestamp.Hour() == oneMinuteBefore.Hour() && messageTimestamp.Minute() == oneMinuteBefore.Minute() {
-			return true
-		}
-	}
-	return false
 }
 
-func announcePreparation() {
-	if !preparationAnnounceMu.TryLock() {
-		return
+// Shutdown closes the database after supervised tasks have stopped.
+func (m *Module) Shutdown() error {
+	m.lifecycleMu.Lock()
+	if !m.accepting {
+		m.lifecycleMu.Unlock()
+		return nil
 	}
-	defer preparationAnnounceMu.Unlock()
-	if isOnTargetTimeRange(time.Now(), false) {
-		for _, v := range announcementChannels {
-			_, err := session.ChannelMessageSend(v, fmt.Sprintf("## Leet o'Clock scheduled:\n<t:%d:R>", tt.Unix()))
-			if err != nil {
-				slog.Error("Error while sending preparation announcement", "Error", err)
+	m.accepting = false
+	m.lifecycleMu.Unlock()
+
+	m.handlerWG.Wait()
+	m.workWG.Wait()
+	return m.store.Close()
+}
+
+func (m *Module) runPreparationLoop(ctx context.Context) {
+	for {
+		m.updateTarget()
+		if m.isOnTargetTimeRange(m.now(), false) {
+			m.announcePreparation()
+			if !wait(ctx, 2*time.Minute) {
+				return
 			}
+		} else if !wait(ctx, m.tickInterval) {
+			return
 		}
-		time.Sleep(2 * time.Minute)
 	}
 }
 
-func isScoreInScoreArray(s datastore.Score, a []datastore.Score) bool {
-	for _, v := range a {
-		if v.PlayerID == s.PlayerID {
+func (m *Module) runWinnerLoop(ctx context.Context) {
+	for {
+		m.updateTarget()
+		if m.isOnTargetTimeRange(m.now(), true) {
+			if !wait(ctx, 62*time.Second) {
+				return
+			}
+			m.announceTodaysWinners()
+			m.resetGameVars()
+			if !wait(ctx, time.Minute) {
+				return
+			}
+		} else if !wait(ctx, m.tickInterval) {
+			return
+		}
+	}
+}
+
+func wait(ctx context.Context, duration time.Duration) bool {
+	timer := time.NewTimer(duration)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return true
+	case <-ctx.Done():
+		return false
+	}
+}
+
+func (m *Module) announcePreparation() {
+	target := m.currentTarget()
+	for _, channelID := range m.announcementChannels {
+		if _, err := m.session.ChannelMessageSend(channelID, fmt.Sprintf("## Leet o'Clock scheduled:\n<t:%d:R>", target.Unix())); err != nil {
+			slog.Error("leetoclock: send preparation announcement", "error", err)
+		}
+	}
+}
+
+func isScoreInScoreArray(score datastore.Score, scores []datastore.Score) bool {
+	for _, candidate := range scores {
+		if candidate.PlayerID == score.PlayerID {
 			return true
 		}
 	}
 	return false
 }
 
-func sortScoreArrayByScore(a []datastore.Score) []datastore.Score {
-	sort.Slice(a, func(i, j int) bool {
-		return a[i].Score < a[j].Score
-	})
-	return a
+func sortScoreArrayByScore(scores []datastore.Score) []datastore.Score {
+	sort.Slice(scores, func(i, j int) bool { return scores[i].Score < scores[j].Score })
+	return scores
 }
 
-func buildScoreboardForGame(game datastore.Game) (string, []datastore.Score, []datastore.Score, []datastore.Score, error) {
-	scores, err := store.GetScoresForGameID(game.ID)
+func (m *Module) buildScoreboardForGame(game datastore.Game) (string, []datastore.Score, []datastore.Score, []datastore.Score, error) {
+	scores, err := m.store.GetScoresForGameID(game.ID)
 	if err != nil {
-		slog.Error("Error while getting scores for game", "Game", game, "Error", err)
-		return "", []datastore.Score{}, []datastore.Score{}, []datastore.Score{}, err
+		return "", nil, nil, nil, err
+	}
+	scores = sortScoreArrayByScore(scores)
+	channel, err := m.session.Channel(game.ChannelID)
+	if err != nil {
+		return "", nil, nil, nil, err
 	}
 
-	scores = sortScoreArrayByScore(scores)
-	channel, _ := session.Channel(game.ChannelID)
-
-	scoreboard := fmt.Sprintf("## 1337erboard for <t:%d>\n", tt.Unix())
-
+	scoreboard := fmt.Sprintf("## 1337erboard for <t:%d>\n", m.currentTarget().Unix())
 	earlyBirds := make([]datastore.Score, 0)
 	winners := make([]datastore.Score, 0)
 	zonks := make([]datastore.Score, 0)
 
-	printHeader := true
 	for _, score := range scores {
-		if isScoreInScoreArray(score, winners) || len(winners) >= 3 {
-			continue
-		} else {
-			if score.Score >= 0 {
-				if printHeader {
-					scoreboard += "### Top scorers\n"
-					printHeader = false
-				}
-				winners = append(winners, score)
-
-			}
+		if score.Score >= 0 && !isScoreInScoreArray(score, winners) && len(winners) < 3 {
+			winners = append(winners, score)
 		}
 	}
-
+	if len(winners) > 0 {
+		scoreboard += "### Top scorers\n"
+	}
 	for i, winner := range winners {
-		var award string
-		switch i {
-		case 0:
-			award = firstPlace
-		case 1:
-			award = secondPlace
-		case 2:
-			award = thirdPlace
-		default:
-			award = otherPlace
+		awards := []string{firstPlace, secondPlace, thirdPlace}
+		award := otherPlace
+		if i < len(awards) {
+			award = awards[i]
 		}
-
-		player, err := store.GetPlayerByID(winner.PlayerID)
+		player, err := m.store.GetPlayerByID(winner.PlayerID)
 		if err != nil {
-			return "", []datastore.Score{}, []datastore.Score{}, []datastore.Score{}, err
+			return "", nil, nil, nil, err
 		}
-
 		scoreboard += fmt.Sprintf("%s <@%s> with %d ms (https://discord.com/channels/%s/%s/%s)\n", award, player.UserID, winner.Score, channel.GuildID, game.ChannelID, winner.MessageID)
 	}
 
-	printHeader = true
 	for _, score := range scores {
-		if isScoreInScoreArray(score, zonks) || isScoreInScoreArray(score, winners) {
-			continue
-		} else {
-			if score.Score > 0 {
-				if printHeader {
-					scoreboard += "### Zonks\n"
-					printHeader = false
-				}
-				zonks = append(zonks, score)
-			}
+		if score.Score > 0 && !isScoreInScoreArray(score, zonks) && !isScoreInScoreArray(score, winners) {
+			zonks = append(zonks, score)
 		}
 	}
-
-	for _, z := range zonks {
-		player, err := store.GetPlayerByID(z.PlayerID)
+	if len(zonks) > 0 {
+		scoreboard += "### Zonks\n"
+	}
+	for _, score := range zonks {
+		player, err := m.store.GetPlayerByID(score.PlayerID)
 		if err != nil {
-			return "", []datastore.Score{}, []datastore.Score{}, []datastore.Score{}, err
+			return "", nil, nil, nil, err
 		}
-		scoreboard += fmt.Sprintf("%s <@%s> with %d ms (https://discord.com/channels/%s/%s/%s)\n", "😭", player.UserID, z.Score, channel.GuildID, game.ChannelID, z.MessageID)
+		scoreboard += fmt.Sprintf("😭 <@%s> with %d ms (https://discord.com/channels/%s/%s/%s)\n", player.UserID, score.Score, channel.GuildID, game.ChannelID, score.MessageID)
 	}
 
-	printHeader = true
 	for _, score := range scores {
-		if isScoreInScoreArray(score, earlyBirds) {
-			continue
-		} else {
-			if score.Score >= -5000 && score.Score < 0 {
-				if printHeader {
-					scoreboard += "### Honorlolable mentions\n"
-					printHeader = false
-				}
-				earlyBirds = append(earlyBirds, score)
-			}
+		if score.Score >= -5000 && score.Score < 0 && !isScoreInScoreArray(score, earlyBirds) {
+			earlyBirds = append(earlyBirds, score)
 		}
 	}
-
-	for _, earlyBird := range earlyBirds {
-		player, err := store.GetPlayerByID(earlyBird.PlayerID)
+	if len(earlyBirds) > 0 {
+		scoreboard += "### Honorlolable mentions\n"
+	}
+	for _, score := range earlyBirds {
+		player, err := m.store.GetPlayerByID(score.PlayerID)
 		if err != nil {
-			return "", []datastore.Score{}, []datastore.Score{}, []datastore.Score{}, err
+			return "", nil, nil, nil, err
 		}
-		var award string
-		if isScoreInScoreArray(earlyBird, zonks) {
+		award := "🤨"
+		if isScoreInScoreArray(score, zonks) {
 			award = "🫠"
-		} else if isScoreInScoreArray(earlyBird, winners) {
+		} else if isScoreInScoreArray(score, winners) {
 			award = "😐"
-		} else {
-			award = "🤨"
 		}
-
-		scoreboard += fmt.Sprintf("%s <@%s> with %d ms (https://discord.com/channels/%s/%s/%s)\n", award, player.UserID, earlyBird.Score, channel.GuildID, game.ChannelID, earlyBird.MessageID)
+		scoreboard += fmt.Sprintf("%s <@%s> with %d ms (https://discord.com/channels/%s/%s/%s)\n", award, player.UserID, score.Score, channel.GuildID, game.ChannelID, score.MessageID)
 	}
-
-	// TODO: this "find highest score for current season" should be a function in datastore
-	// var memScore datastore.Score = datastore.Score{Score: 999999999999999999}
-	// season, err := store.GetSeasonByDate(time.Now())
-	// if err != nil {
-	// 	logrus.Errorln(err)
-	// }
-	// games, err := store.GetGames()
-	// if err != nil {
-	// 	logrus.Errorln(err)
-	// }
-	// for _, g := range games {
-	// 	if g.SeasonID == season.ID {
-	// 		scores, err := store.GetScoresForGameID(g.ID)
-	// 		if err != nil {
-	// 			logrus.Errorln(err)
-	// 		}
-	// 		for _, s := range scores {
-	// 			if s.Score >= 0 && s.Score < memScore.Score {
-	// 				memScore = s
-	// 			}
-	// 		}
-	// 	}
-	// }
-	// player, err := store.GetPlayerByID(memScore.PlayerID)
-	// if err != nil {
-	// 	logrus.Errorln(err)
-	// }
-
-	// memScoreChannel, err := session.ChannelMessage(memScore.ChannelID, memScore.MessageID)
-	// if err != nil {
-	// 	logrus.Errorln(err)
-	// }
-
-	// scoreboard += fmt.Sprintf("### Current season highscore\n<@%s> with %d ms on <t:%d> (https://discord.com/channels/%s/%s/%s)\n", player.UserID, memScore.Score, memScore.CreatedAt.Unix(), channel.GuildID, ChannelID, memScore.MessageID)
-	// scoreboard += fmt.Sprintf("\nCurrent season ends on <t:%d> (<t:%d:R>)\n", season.EndDate.Unix(), season.EndDate.Unix())
 
 	return scoreboard, earlyBirds, winners, zonks, nil
 }
 
-func renewReactions(game datastore.Game) {
-	renewReactionsMu.Lock()
-	defer renewReactionsMu.Unlock()
+func (m *Module) renewReactions(game datastore.Game) {
+	m.renewReactionsMu.Lock()
+	defer m.renewReactionsMu.Unlock()
 
-	_, earlybirds, winners, zonks, err := buildScoreboardForGame(game)
+	_, earlyBirds, winners, zonks, err := m.buildScoreboardForGame(game)
 	if err != nil {
-		slog.Error("Error while building scoreboard", "Error", err)
+		slog.Error("leetoclock: build scoreboard", "error", err)
 		return
 	}
-
-	for _, v := range earlybirds {
-		util.ReactOnMessage(session, game.ChannelID, v.MessageID, lol, "remove")
-		util.ReactOnMessage(session, game.ChannelID, v.MessageID, notamused, "remove")
-		util.ReactOnMessage(session, game.ChannelID, v.MessageID, wat, "remove")
-		if isScoreInScoreArray(v, zonks) {
-			util.ReactOnMessage(session, game.ChannelID, v.MessageID, lol, "add")
-		} else if isScoreInScoreArray(v, winners) {
-			util.ReactOnMessage(session, game.ChannelID, v.MessageID, notamused, "add")
+	for _, score := range earlyBirds {
+		m.reactOnMessage(m.session, game.ChannelID, score.MessageID, lol, "remove")
+		m.reactOnMessage(m.session, game.ChannelID, score.MessageID, notamused, "remove")
+		m.reactOnMessage(m.session, game.ChannelID, score.MessageID, wat, "remove")
+		if isScoreInScoreArray(score, zonks) {
+			m.reactOnMessage(m.session, game.ChannelID, score.MessageID, lol, "add")
+		} else if isScoreInScoreArray(score, winners) {
+			m.reactOnMessage(m.session, game.ChannelID, score.MessageID, notamused, "add")
 		} else {
-			util.ReactOnMessage(session, game.ChannelID, v.MessageID, wat, "add")
+			m.reactOnMessage(m.session, game.ChannelID, score.MessageID, wat, "add")
 		}
 	}
-
-	for i, v := range winners {
-		util.ReactOnMessage(session, game.ChannelID, v.MessageID, firstPlace, "remove")
-		util.ReactOnMessage(session, game.ChannelID, v.MessageID, secondPlace, "remove")
-		util.ReactOnMessage(session, game.ChannelID, v.MessageID, thirdPlace, "remove")
-		switch i {
-		case 0:
-			util.ReactOnMessage(session, game.ChannelID, v.MessageID, firstPlace, "add")
-		case 1:
-			util.ReactOnMessage(session, game.ChannelID, v.MessageID, secondPlace, "add")
-		case 2:
-			util.ReactOnMessage(session, game.ChannelID, v.MessageID, thirdPlace, "add")
+	for i, score := range winners {
+		for _, award := range []string{firstPlace, secondPlace, thirdPlace} {
+			m.reactOnMessage(m.session, game.ChannelID, score.MessageID, award, "remove")
 		}
+		m.reactOnMessage(m.session, game.ChannelID, score.MessageID, []string{firstPlace, secondPlace, thirdPlace}[i], "add")
 	}
-
-	for _, v := range zonks {
-		util.ReactOnMessage(session, game.ChannelID, v.MessageID, zonk, "remove")
-		util.ReactOnMessage(session, game.ChannelID, v.MessageID, zonk, "add")
+	for _, score := range zonks {
+		m.reactOnMessage(m.session, game.ChannelID, score.MessageID, zonk, "remove")
+		m.reactOnMessage(m.session, game.ChannelID, score.MessageID, zonk, "add")
 	}
-
 }
 
-func announceTodaysWinners() {
-	if !winnerAnnounceMu.TryLock() {
+func (m *Module) announceTodaysWinners() {
+	games, err := m.store.GetGamesByDate(m.now())
+	if err != nil {
+		slog.Error("leetoclock: get today's games", "error", err)
 		return
 	}
-	defer winnerAnnounceMu.Unlock()
-	if isOnTargetTimeRange(time.Now(), true) {
-		slog.Info("Announcing winners")
-		time.Sleep(62 * time.Second)
-		games, err := store.GetGamesByDate(time.Now())
+	for _, game := range games {
+		scoreboard, _, _, _, err := m.buildScoreboardForGame(game)
 		if err != nil {
-			slog.Error("Error while getting games by date", "Error", err)
-			return
+			slog.Error("leetoclock: build scoreboard", "error", err)
+			continue
 		}
-		for _, game := range games {
-			scoreboard, _, _, _, err := buildScoreboardForGame(game)
-			if err != nil {
-				slog.Error("Error while building scoreboard", "Error", err)
-				return
-			}
-			_, err = session.ChannelMessageSend(game.ChannelID, scoreboard)
-			if err != nil {
-				slog.Error("Error while sending scoreboard", "Error", err)
-			}
+		if _, err := m.session.ChannelMessageSend(game.ChannelID, scoreboard); err != nil {
+			slog.Error("leetoclock: send scoreboard", "error", err)
 		}
 	}
-	resetGameVars()
 }
 
-func resetGameVars() {
-	playersWithClockReactions = []string{}
+func (m *Module) resetGameVars() {
+	m.stateMu.Lock()
+	defer m.stateMu.Unlock()
+	m.playersWithClockReactions = make(map[string]struct{})
 }
 
-func gameTick() {
-	for {
-		if isOnTargetTimeRange(time.Now(), false) {
-			time.Sleep(1 * time.Second)
-		} else {
-			if os.Getenv("LEETOCLOCK_DEBUG") != "" {
-				time.Sleep(1 * time.Second)
-			} else {
-				time.Sleep(1 * time.Minute)
-			}
-			updateTTHelper()
-		}
-		go announcePreparation()
-		go announceTodaysWinners()
+func (m *Module) updateTarget() {
+	now := m.now()
+	target := time.Date(now.Year(), now.Month(), now.Day(), m.targetHour, m.targetMinute, 0, 0, now.Location())
+	m.stateMu.Lock()
+	m.target = target
+	m.stateMu.Unlock()
+}
+
+func (m *Module) currentTarget() time.Time {
+	m.stateMu.RLock()
+	defer m.stateMu.RUnlock()
+	return m.target
+}
+
+func (m *Module) isOnTargetTimeRange(timestamp time.Time, onlyOnTarget bool) bool {
+	target := m.currentTarget()
+	if timestamp.Hour() == target.Hour() && timestamp.Minute() == target.Minute() {
+		return true
 	}
+	if !onlyOnTarget {
+		oneMinuteBefore := target.Add(-time.Minute)
+		return timestamp.Hour() == oneMinuteBefore.Hour() && timestamp.Minute() == oneMinuteBefore.Minute()
+	}
+	return false
 }
 
-func updateTTHelper() {
-	t := time.Now()
-	tt = time.Date(t.Year(), t.Month(), t.Day(), tHourInt, tMinuteInt, 0, 0, t.Location())
+func (m *Module) calculateScore(timestamp time.Time) int {
+	return int(timestamp.Sub(m.currentTarget()).Milliseconds())
 }
 
-func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
-	if m.Author.ID == s.State.User.ID {
+func (m *Module) addClockReaction(userID string) bool {
+	m.stateMu.Lock()
+	defer m.stateMu.Unlock()
+	if _, exists := m.playersWithClockReactions[userID]; exists {
+		return false
+	}
+	m.playersWithClockReactions[userID] = struct{}{}
+	return true
+}
+
+func (m *Module) onMessageCreate(s *discordgo.Session, event *discordgo.MessageCreate) {
+	if !m.beginHandler() {
+		return
+	}
+	defer m.handlerWG.Done()
+
+	if event == nil || event.Message == nil || event.Author == nil || s == nil || s.State == nil || s.State.User == nil {
+		return
+	}
+	if event.Author.ID == s.State.User.ID || event.Author.Bot || m.store == nil {
 		return
 	}
 
-	if m.Author.Bot {
+	messageTimestamp := m.messageTimestamp(event.ID)
+	if !m.isOnTargetTimeRange(messageTimestamp, false) {
+		return
+	}
+	season, err := m.store.EnsureSeason(m.now())
+	if err != nil {
+		slog.Error("leetoclock: ensure season", "error", err)
+		return
+	}
+	game, err := m.store.EnsureGame(event.ChannelID, event.GuildID, m.currentTarget(), season.ID)
+	if err != nil {
+		slog.Error("leetoclock: ensure game", "error", err)
+		return
+	}
+	player, err := m.store.EnsurePlayer(event.Author.ID)
+	if err != nil {
+		slog.Error("leetoclock: ensure player", "error", err)
+		return
+	}
+	if err := m.store.CreateScore(event.ID, player.ID, m.calculateScore(messageTimestamp), game.ID); err != nil {
+		slog.Error("leetoclock: create score", "error", err)
 		return
 	}
 
-	message := m.Message
-	messageTimestamp := util.GetTimestampOfMessage(message.ID)
-
-	if isOnTargetTimeRange(messageTimestamp, false) {
-		season, err := store.EnsureSeason(time.Now())
-		if err != nil {
-			slog.Error("Error while ensuring season", "Error", err)
-		}
-		game, err := store.EnsureGame(message.ChannelID, message.GuildID, tt, season.ID)
-		if err != nil {
-			slog.Error("Error while ensuring game", "Error", err)
-		}
-		player, err := store.EnsurePlayer(message.Author.ID)
-		if err != nil {
-			slog.Error("Error while ensuring player", "Error", err)
-		}
-		err = store.CreateScore(message.ID, player.ID, calculateScore(messageTimestamp), game.ID)
-		if err != nil {
-			slog.Error("Error while creating score", "Error", err)
-		}
-
-		if isOnTargetTimeRange(messageTimestamp, true) {
-			hasPlayerClockReaction := func() bool {
-				for _, v := range playersWithClockReactions {
-					if v == message.Author.ID {
-						return true
-					}
-				}
-				return false
-			}
-			if !hasPlayerClockReaction() {
-				util.ReactOnMessage(s, m.ChannelID, m.ID, "⏰", "add")
-				playersWithClockReactions = append(playersWithClockReactions, message.Author.ID)
-			}
-		}
-		go renewReactions(*game)
+	if m.isOnTargetTimeRange(messageTimestamp, true) && m.addClockReaction(event.Author.ID) {
+		m.reactOnMessage(s, event.ChannelID, event.ID, "⏰", "add")
 	}
+	m.workWG.Add(1)
+	go func() {
+		defer m.workWG.Done()
+		m.renewGame(*game)
+	}()
+}
+
+func (m *Module) beginHandler() bool {
+	m.lifecycleMu.Lock()
+	defer m.lifecycleMu.Unlock()
+	if !m.accepting {
+		return false
+	}
+	m.handlerWG.Add(1)
+	return true
 }
