@@ -413,7 +413,7 @@ Manche Namen sind Pseudonyme (Benutzer 1, 2, …) für anonyme Teilnehmer. Echte
 
 	chatCompletion, err := chatCompletionFunc(context.Background(), openai.ChatCompletionNewParams{
 		Messages:  messages,
-		Model:     openai.ChatModelGPT4oMini,
+		Model:     llm.Model(),
 		N:         openai.Int(1),
 		MaxTokens: openai.Int(300),
 	})
@@ -425,5 +425,5 @@ Manche Namen sind Pseudonyme (Benutzer 1, 2, …) für anonyme Teilnehmer. Echte
 		return "", err
 	}
 
-	return chatCompletion.Choices[0].Message.Content, nil
+	return llm.CompletionContent(chatCompletion)
 }

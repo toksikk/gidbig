@@ -39,6 +39,12 @@ discord:
 gippity:
   allowed_guilds: ["456"]
 llm:
+  provider: "openrouter"
+  model: "anthropic/claude-sonnet-4"
+  vision_model: "google/gemini-2.5-flash"
+  base_url: "https://openrouter.example/api/v1"
+  http_referer: "https://gidbig.example"
+  title: "Gidbig"
   personality: "be a pirate"
   personality_preset: "hal"
 `
@@ -51,6 +57,18 @@ llm:
 	}
 	if cfg.LLM.Preset != "hal" {
 		t.Errorf("llm.personality_preset = %q, want %q", cfg.LLM.Preset, "hal")
+	}
+	if cfg.LLM.Provider != "openrouter" || cfg.LLM.Model != "anthropic/claude-sonnet-4" {
+		t.Errorf("llm provider/model = %q/%q", cfg.LLM.Provider, cfg.LLM.Model)
+	}
+	if cfg.LLM.VisionModel != "google/gemini-2.5-flash" {
+		t.Errorf("llm.vision_model = %q", cfg.LLM.VisionModel)
+	}
+	if cfg.LLM.BaseURL != "https://openrouter.example/api/v1" {
+		t.Errorf("llm.base_url = %q", cfg.LLM.BaseURL)
+	}
+	if cfg.LLM.HTTPReferer != "https://gidbig.example" || cfg.LLM.Title != "Gidbig" {
+		t.Errorf("llm attribution = %q/%q", cfg.LLM.HTTPReferer, cfg.LLM.Title)
 	}
 }
 
@@ -65,8 +83,9 @@ gippity:
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if cfg.LLM.Personality != "" || cfg.LLM.Preset != "" {
-		t.Errorf("llm fields should be empty when omitted, got %q / %q", cfg.LLM.Personality, cfg.LLM.Preset)
+	if cfg.LLM.Provider != "" || cfg.LLM.Model != "" || cfg.LLM.VisionModel != "" ||
+		cfg.LLM.Personality != "" || cfg.LLM.Preset != "" {
+		t.Errorf("llm fields should be empty when omitted, got %+v", cfg.LLM)
 	}
 }
 
