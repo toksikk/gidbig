@@ -63,6 +63,7 @@ var coffeeRecipes = []recipe{
 	{key: "milk_coffee", label: "Milk coffee", bean: beanMild, beanGrams: 11, waterMl: 80, milkMl: 120, groundsG: 20, brewSecs: 32},
 	{key: "latte_macchiato", label: "Latte macchiato", bean: beanEspresso, beanGrams: 9, waterMl: 40, milkMl: 180, groundsG: 18, brewSecs: 36},
 	{key: "flat_white", label: "Flat white", bean: beanEspresso, beanGrams: 18, waterMl: 60, milkMl: 120, groundsG: 36, brewSecs: 40},
+	{key: "cappuccino", label: "Cappuccino", bean: beanEspresso, beanGrams: 9, waterMl: 40, milkMl: 120, groundsG: 18, brewSecs: 34},
 }
 
 // teaFlavor describes a tracked tea variety. Each consumes 1 tea bag and 200 ml
@@ -80,6 +81,7 @@ var teaFlavors = []teaFlavor{
 	{key: "chamomile", label: "Chamomile"},
 	{key: "rooibos", label: "Rooibos"},
 	{key: "fennel", label: "Fennel"},
+	{key: "assam", label: "Assam"},
 }
 
 // teaFlavorLabel returns the display label for a tea flavor key, or the key

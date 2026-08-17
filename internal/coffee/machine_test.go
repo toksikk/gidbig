@@ -50,6 +50,16 @@ func TestMenuDefaultIsCoffee(t *testing.T) {
 	if _, ok := recipeByKey("latte_macchiato"); !ok {
 		t.Error("expected latte_macchiato in menu")
 	}
+	if cappuccino, ok := recipeByKey("cappuccino"); !ok {
+		t.Error("expected cappuccino in menu")
+	} else if cappuccino.milkMl == 0 || cappuccino.bean != beanEspresso {
+		t.Errorf("cappuccino recipe = %+v, want espresso-based milk drink", cappuccino)
+	}
+	if assam, ok := recipeByKey("tea_assam"); !ok {
+		t.Error("expected tea_assam in menu")
+	} else if assam.label != "Assam tea" {
+		t.Errorf("Assam label = %q, want Assam tea", assam.label)
+	}
 	if _, ok := recipeByKey("nope"); ok {
 		t.Error("expected unknown key to be absent")
 	}
@@ -795,10 +805,23 @@ func TestBrewCfgRoundTrip(t *testing.T) {
 
 func TestCoffeeMenuExcludesHotWater(t *testing.T) {
 	// hot_water is gone; /brew now offers teas as first-class drinks.
+	want := map[string]string{
+		"cappuccino": "Cappuccino",
+		"tea_assam":  "Assam tea",
+	}
 	for _, ch := range brewChoices() {
 		if ch.Value == "hot_water" {
 			t.Fatal("brew choices must not include hot_water")
 		}
+		if key, ok := ch.Value.(string); ok {
+			if label, found := want[key]; found && ch.Name != label {
+				t.Errorf("brew choice %q label = %q, want %q", key, ch.Name, label)
+			}
+			delete(want, key)
+		}
+	}
+	if len(want) != 0 {
+		t.Errorf("brew choices missing new beverages: %v", want)
 	}
 	// At least one tea must be present in the unified menu.
 	foundTea := false
