@@ -6,7 +6,7 @@ require (
 	github.com/bwmarrin/discordgo v0.29.0
 	github.com/dustin/go-humanize v1.0.1
 	github.com/gorilla/websocket v1.5.3
-	github.com/mattn/go-sqlite3 v1.14.49
+	github.com/mattn/go-sqlite3 v1.14.50
 	github.com/openai/openai-go/v3 v3.51.0
 	github.com/simplesurance/go-ip-anonymizer v0.0.0-20200429124537-35a880f8e87d
 	golang.org/x/oauth2 v0.36.0
