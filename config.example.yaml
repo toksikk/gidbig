@@ -16,6 +16,14 @@ gippity:
     allowed_guilds:
         - "YOUR_DISCORD_GUILD_ID"
     ignored_users: []
+leetoclock:
+    # Channels that receive the daily "Leet o'Clock scheduled" announcement.
+    announcement_channels:
+        - "YOUR_DISCORD_CHANNEL_ID"
+    # Extra announcement channel, used only when debug is enabled.
+    debug_channel: ""
+    # Runs the game one minute after startup with a fast tick loop.
+    debug: false
 llm:
     # Optional provider and model settings. Provider defaults to openai and its
     # model defaults to gpt-4o-mini. OpenRouter requires an explicit model.
