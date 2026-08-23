@@ -9,6 +9,17 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// LeetoclockConfig configures the daily Leet o'Clock game module.
+type LeetoclockConfig struct {
+	// AnnouncementChannels receives the daily preparation announcement.
+	AnnouncementChannels []string `yaml:"announcement_channels,omitempty"`
+	// DebugChannel is an extra channel that receives announcements while
+	// Debug is enabled. Empty in production.
+	DebugChannel string `yaml:"debug_channel,omitempty"`
+	// Debug runs the game one minute after start with a fast tick loop.
+	Debug bool `yaml:"debug,omitempty"`
+}
+
 // Config struct with all parameters
 type Config struct {
 	Discord struct {
@@ -33,7 +44,8 @@ type Config struct {
 		AllowedGuilds []string `yaml:"allowed_guilds"`
 		IgnoredUsers  []string `yaml:"ignored_users"`
 	} `yaml:"gippity"`
-	LLM struct {
+	Leetoclock LeetoclockConfig `yaml:"leetoclock,omitempty"`
+	LLM        struct {
 		Provider    string `yaml:"provider,omitempty"`
 		Model       string `yaml:"model,omitempty"`
 		VisionModel string `yaml:"vision_model,omitempty"`

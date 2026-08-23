@@ -155,6 +155,74 @@ func TestSortScoreArrayByScore(t *testing.T) {
 	}
 }
 
+func TestInitAppliesLeetoclockConfig(t *testing.T) {
+	newInitModule := func(t *testing.T, lec cfg.LeetoclockConfig) *Module {
+		t.Helper()
+		conf := &cfg.Config{}
+		conf.Database.Path = filepath.Join(t.TempDir(), "gidbig.db")
+		conf.Leetoclock = lec
+		session, err := discordgo.New("Bot test")
+		if err != nil {
+			t.Fatal(err)
+		}
+		m := New()
+		if err := m.Init(bot.Deps{Session: session, Config: conf}); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() {
+			if err := m.Shutdown(); err != nil {
+				t.Errorf("Shutdown() = %v", err)
+			}
+		})
+		return m
+	}
+
+	t.Run("announcement channels", func(t *testing.T) {
+		m := newInitModule(t, cfg.LeetoclockConfig{AnnouncementChannels: []string{"chan1", "chan2"}})
+		got := m.announcementChannels
+		want := []string{"chan1", "chan2"}
+		if len(got) != len(want) {
+			t.Fatalf("announcementChannels = %v, want %v", got, want)
+		}
+		for i := range want {
+			if got[i] != want[i] {
+				t.Errorf("announcementChannels[%d] = %q, want %q", i, got[i], want[i])
+			}
+		}
+	})
+
+	t.Run("debug mode sets fast tick interval and debug channel", func(t *testing.T) {
+		m := newInitModule(t, cfg.LeetoclockConfig{Debug: true, DebugChannel: "debugchan"})
+		if m.tickInterval != time.Second {
+			t.Errorf("tickInterval = %v, want %v", m.tickInterval, time.Second)
+		}
+		if len(m.announcementChannels) != 1 || m.announcementChannels[0] != "debugchan" {
+			t.Errorf("announcementChannels = %v, want [debugchan]", m.announcementChannels)
+		}
+	})
+
+	t.Run("debug channel ignored when debug disabled", func(t *testing.T) {
+		m := newInitModule(t, cfg.LeetoclockConfig{DebugChannel: "debugchan"})
+		if len(m.announcementChannels) != 0 {
+			t.Errorf("announcementChannels = %v, want empty", m.announcementChannels)
+		}
+	})
+
+	t.Run("debug mode skips announcement channels", func(t *testing.T) {
+		m := newInitModule(t, cfg.LeetoclockConfig{Debug: true, DebugChannel: "debugchan", AnnouncementChannels: []string{"prodchan"}})
+		if len(m.announcementChannels) != 1 || m.announcementChannels[0] != "debugchan" {
+			t.Errorf("announcementChannels = %v, want [debugchan]", m.announcementChannels)
+		}
+	})
+
+	t.Run("omitted config leaves no channels", func(t *testing.T) {
+		m := newInitModule(t, cfg.LeetoclockConfig{})
+		if len(m.announcementChannels) != 0 {
+			t.Errorf("announcementChannels = %v, want empty", m.announcementChannels)
+		}
+	})
+}
+
 func newTestModule(t *testing.T) (*Module, *discordgo.Session) {
 	t.Helper()
 	conf := &cfg.Config{}

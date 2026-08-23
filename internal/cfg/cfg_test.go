@@ -89,6 +89,54 @@ gippity:
 	}
 }
 
+func TestDecodeConfig_leetoclockFields(t *testing.T) {
+	yaml := `
+discord:
+  token: "tok"
+gippity:
+  allowed_guilds: ["456"]
+leetoclock:
+  announcement_channels: ["chan1", "chan2"]
+  debug_channel: "debugchan"
+  debug: true
+`
+	cfg, err := decodeConfig(strings.NewReader(yaml))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := []string{"chan1", "chan2"}
+	if len(cfg.Leetoclock.AnnouncementChannels) != len(want) {
+		t.Fatalf("announcement_channels = %v, want %v", cfg.Leetoclock.AnnouncementChannels, want)
+	}
+	for i, c := range want {
+		if cfg.Leetoclock.AnnouncementChannels[i] != c {
+			t.Errorf("announcement_channels[%d] = %q, want %q", i, cfg.Leetoclock.AnnouncementChannels[i], c)
+		}
+	}
+	if cfg.Leetoclock.DebugChannel != "debugchan" {
+		t.Errorf("debug_channel = %q, want %q", cfg.Leetoclock.DebugChannel, "debugchan")
+	}
+	if !cfg.Leetoclock.Debug {
+		t.Error("debug should be true")
+	}
+}
+
+func TestDecodeConfig_leetoclockOmitted(t *testing.T) {
+	yaml := `
+discord:
+  token: "tok"
+gippity:
+  allowed_guilds: ["456"]
+`
+	cfg, err := decodeConfig(strings.NewReader(yaml))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(cfg.Leetoclock.AnnouncementChannels) != 0 || cfg.Leetoclock.DebugChannel != "" || cfg.Leetoclock.Debug {
+		t.Errorf("leetoclock fields should be empty when omitted, got %+v", cfg.Leetoclock)
+	}
+}
+
 func TestDecodeConfig_missingToken(t *testing.T) {
 	yaml := `
 discord:

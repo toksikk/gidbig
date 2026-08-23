@@ -4,13 +4,13 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"os"
 	"sort"
 	"sync"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/toksikk/gidbig/internal/bot"
+	"github.com/toksikk/gidbig/internal/cfg"
 	"github.com/toksikk/gidbig/internal/leetoclock/util/datastore"
 	"github.com/toksikk/gidbig/internal/util"
 )
@@ -85,16 +85,24 @@ func (m *Module) Init(d bot.Deps) error {
 	m.session = d.Session
 	m.accepting = true
 
-	if os.Getenv("LEETOCLOCK_DEBUG") != "" {
+	var lec cfg.LeetoclockConfig
+	if d.Config != nil {
+		lec = d.Config.Leetoclock
+	}
+	if lec.Debug {
 		target := m.now().Add(time.Minute)
 		m.targetHour, m.targetMinute = target.Hour(), target.Minute()
 		m.tickInterval = time.Second
 	}
-	if channel := os.Getenv("LEETOCLOCK_DEBUG_CHANNEL"); channel != "" {
-		m.announcementChannels = append(m.announcementChannels, channel)
+	if lec.Debug {
+		if lec.DebugChannel != "" {
+			m.announcementChannels = append(m.announcementChannels, lec.DebugChannel)
+		}
+	} else {
+		m.announcementChannels = append(m.announcementChannels, lec.AnnouncementChannels...)
 	}
 	m.updateTarget()
-	slog.Info("leetoclock: initialized")
+	slog.Info("leetoclock: initialized", "debug", lec.Debug, "announcement_channels", m.announcementChannels, "target", m.currentTarget().String())
 	return nil
 }
 
