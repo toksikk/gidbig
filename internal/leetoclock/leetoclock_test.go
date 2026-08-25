@@ -10,6 +10,7 @@ import (
 	"github.com/toksikk/gidbig/internal/bot"
 	"github.com/toksikk/gidbig/internal/cfg"
 	"github.com/toksikk/gidbig/internal/leetoclock/util/datastore"
+	"github.com/toksikk/gidbig/internal/util"
 )
 
 func TestModuleInterface(t *testing.T) {
@@ -219,6 +220,24 @@ func TestInitAppliesLeetoclockConfig(t *testing.T) {
 		m := newInitModule(t, cfg.LeetoclockConfig{})
 		if len(m.announcementChannels) != 0 {
 			t.Errorf("announcementChannels = %v, want empty", m.announcementChannels)
+		}
+	})
+}
+
+func TestAnnouncementTitle(t *testing.T) {
+	t.Run("default", func(t *testing.T) {
+		m := New()
+		m.season = func() util.Season { return util.SeasonNone }
+		if got := m.announcementTitle(); got != "## Leet o'Clock scheduled:" {
+			t.Fatalf("announcementTitle() = %q, want default title", got)
+		}
+	})
+
+	t.Run("easter", func(t *testing.T) {
+		m := New()
+		m.season = func() util.Season { return util.SeasonEaster }
+		if got := m.announcementTitle(); got != "## 🐣 Leet o'Clock Osterei-Jagd scheduled:" {
+			t.Fatalf("announcementTitle() = %q, want Easter title", got)
 		}
 	})
 }

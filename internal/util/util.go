@@ -1,9 +1,6 @@
 package util
 
-import (
-	"math/rand/v2"
-	"time"
-)
+import "math/rand/v2"
 
 // Cl is a byte slice containing the bytes for something special
 var Cl []byte = []byte{0xF0, 0x9F, 0xA4, 0xA1}
@@ -18,28 +15,10 @@ var Ae = [][]byte{
 	{0xF0, 0x9F, 0xA5, 0x83},
 }
 
-var da byte = byte(0b00100101) ^ byte(0x13) ^ byte(0x37)
-var mo byte = byte(0b00100000) ^ byte(0x13) ^ byte(0x37)
-
 // RandomRange returns a random integer in [min, max). Returns min when max <= min.
 func RandomRange(min, max int) int {
 	if max <= min {
 		return min
 	}
 	return rand.IntN(max-min) + min
-}
-
-// IsSpecial returns true if today is a special day
-func IsSpecial() bool {
-	today := time.Now()
-	return today.Day() == int(da) && today.Month() == time.Month(int(mo))
-}
-
-// IsHalloween returns true on October 31.
-func IsHalloween() bool {
-	return isHalloween(time.Now())
-}
-
-func isHalloween(today time.Time) bool {
-	return today.Day() == 31 && today.Month() == time.October
 }

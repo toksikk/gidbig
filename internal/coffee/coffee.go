@@ -57,8 +57,7 @@ type Module struct {
 
 	// Test hooks
 	nowFunc              func() time.Time
-	isSpecialDay         func() bool
-	isHalloween          func() bool
+	season               func() util.Season
 	reactOnMessage       func(*discordgo.Session, string, string, string, string)
 	sendIntroDM          func(*discordgo.Session, string, string)
 	detectLanguage       func(*discordgo.Session, string) (string, error)
@@ -82,8 +81,7 @@ func New() *Module {
 		uiWarming:   make(map[string]struct{}),
 		uiWarmSlots: make(chan struct{}, 2),
 	}
-	m.isSpecialDay = util.IsSpecial
-	m.isHalloween = util.IsHalloween
+	m.season = util.CurrentSeason
 	m.reactOnMessage = util.ReactOnMessage
 	m.sendIntroDM = m.sendIntroDMImpl
 	m.detectLanguage = llm.DetectChannelLanguage
@@ -398,13 +396,21 @@ func (m *Module) onMessageCreate(s *discordgo.Session, mc *discordgo.MessageCrea
 			}
 
 			emoji := m.beverageEmojiFor(mc.Author.ID)
-			if m.isHalloween() {
+			switch m.season() {
+			case util.SeasonHalloween:
 				m.reactOnMessage(s, mc.ChannelID, mc.ID, "🎃", "add")
 				m.reactOnMessage(s, mc.ChannelID, mc.ID, "👻", "add")
-			} else if m.isSpecialDay() {
+			case util.SeasonAprilFools:
 				m.reactOnMessage(s, mc.ChannelID, mc.ID, string(util.Ae[util.RandomRange(0, len(util.Ae))]), "add")
 				m.reactOnMessage(s, mc.ChannelID, mc.ID, string(util.Cl), "add")
-			} else {
+			case util.SeasonNewYear:
+				m.reactOnMessage(s, mc.ChannelID, mc.ID, "🥂", "add")
+				m.reactOnMessage(s, mc.ChannelID, mc.ID, "🎉", "add")
+			case util.SeasonEaster:
+				m.reactOnMessage(s, mc.ChannelID, mc.ID, "🐣", "add")
+			case util.SeasonChristmas:
+				m.reactOnMessage(s, mc.ChannelID, mc.ID, "🎄", "add")
+			default:
 				m.reactOnMessage(s, mc.ChannelID, mc.ID, emoji, "add")
 				if mc.Author.ID == "269898849714307073" {
 					m.reactOnMessage(s, mc.ChannelID, mc.ID, ":sidus:576309032789475328", "add")

@@ -39,25 +39,12 @@ func captureReactions(m *Module, t *testing.T) func() []capturedReaction {
 	}
 }
 
-func useSpecialDay(m *Module, t *testing.T, special bool) {
+func useSeason(m *Module, t *testing.T, s util.Season) {
 	t.Helper()
-	previous := m.isSpecialDay
-	m.isSpecialDay = func() bool {
-		return special
-	}
+	previous := m.season
+	m.season = func() util.Season { return s }
 	t.Cleanup(func() {
-		m.isSpecialDay = previous
-	})
-}
-
-func useHalloween(m *Module, t *testing.T, halloween bool) {
-	t.Helper()
-	previous := m.isHalloween
-	m.isHalloween = func() bool {
-		return halloween
-	}
-	t.Cleanup(func() {
-		m.isHalloween = previous
+		m.season = previous
 	})
 }
 
@@ -110,7 +97,7 @@ func captureIntroDMs(m *Module, t *testing.T) func() []capturedDM {
 func TestOnMessageCreate_TriggersIntroDMOnFirstGreeting(t *testing.T) {
 	m := newTestModule(t)
 	useNow(m, t, time.Date(2026, 5, 3, 9, 0, 0, 0, time.Local))
-	useSpecialDay(m, t, false)
+	useSeason(m, t, util.SeasonNone)
 	_ = captureReactions(m, t)
 	getDMs := captureIntroDMs(m, t)
 
@@ -135,7 +122,7 @@ func TestOnMessageCreate_TriggersIntroDMOnFirstGreeting(t *testing.T) {
 func TestOnMessageCreate_DoesNotTriggerIntroDMIfAlreadyIntroduced(t *testing.T) {
 	m := newTestModule(t)
 	useNow(m, t, time.Date(2026, 5, 3, 9, 0, 0, 0, time.Local))
-	useSpecialDay(m, t, false)
+	useSeason(m, t, util.SeasonNone)
 	_ = captureReactions(m, t)
 	getDMs := captureIntroDMs(m, t)
 
@@ -205,7 +192,7 @@ func TestBeverageEmojiFor(t *testing.T) {
 func TestOnMessageCreate_FirstGreetingReactsAndRecordsGreeting(t *testing.T) {
 	m := newTestModule(t)
 	useNow(m, t, time.Date(2026, 5, 3, 9, 0, 0, 0, time.Local))
-	useSpecialDay(m, t, false)
+	useSeason(m, t, util.SeasonNone)
 	getReactions := captureReactions(m, t)
 	_ = captureIntroDMs(m, t)
 
@@ -229,7 +216,7 @@ func TestOnMessageCreate_FirstGreetingReactsAndRecordsGreeting(t *testing.T) {
 func TestOnMessageCreate_DuplicateSameDayGreetingIsSuppressed(t *testing.T) {
 	m := newTestModule(t)
 	useNow(m, t, time.Date(2026, 5, 3, 9, 0, 0, 0, time.Local))
-	useSpecialDay(m, t, false)
+	useSeason(m, t, util.SeasonNone)
 	getReactions := captureReactions(m, t)
 	_ = captureIntroDMs(m, t)
 
@@ -248,7 +235,7 @@ func TestOnMessageCreate_DuplicateSameDayGreetingIsSuppressed(t *testing.T) {
 func TestOnMessageCreate_PriorDayGreetingAllowsNextDayReaction(t *testing.T) {
 	m := newTestModule(t)
 	useNow(m, t, time.Date(2026, 5, 3, 9, 0, 0, 0, time.Local))
-	useSpecialDay(m, t, false)
+	useSeason(m, t, util.SeasonNone)
 	getReactions := captureReactions(m, t)
 	_ = captureIntroDMs(m, t)
 
@@ -274,8 +261,7 @@ func TestOnMessageCreate_PriorDayGreetingAllowsNextDayReaction(t *testing.T) {
 func TestOnMessageCreate_SpecialDayFirstGreetingReactsAndRecordsGreeting(t *testing.T) {
 	m := newTestModule(t)
 	useNow(m, t, time.Date(2026, 5, 3, 9, 0, 0, 0, time.Local))
-	useSpecialDay(m, t, true)
-	useHalloween(m, t, false)
+	useSeason(m, t, util.SeasonAprilFools)
 	getReactions := captureReactions(m, t)
 	_ = captureIntroDMs(m, t)
 
@@ -299,8 +285,7 @@ func TestOnMessageCreate_SpecialDayFirstGreetingReactsAndRecordsGreeting(t *test
 func TestOnMessageCreate_HalloweenGreeting(t *testing.T) {
 	m := newTestModule(t)
 	useNow(m, t, time.Date(2026, time.October, 31, 9, 0, 0, 0, time.Local))
-	useSpecialDay(m, t, false)
-	useHalloween(m, t, true)
+	useSeason(m, t, util.SeasonHalloween)
 	getReactions := captureReactions(m, t)
 	_ = captureIntroDMs(m, t)
 
@@ -309,6 +294,51 @@ func TestOnMessageCreate_HalloweenGreeting(t *testing.T) {
 	reactions := getReactions()
 	if len(reactions) != 2 || reactions[0].emoji != "🎃" || reactions[1].emoji != "👻" {
 		t.Fatalf("Halloween reactions = %#v, want pumpkin and ghost", reactions)
+	}
+}
+
+func TestOnMessageCreate_NewYearGreeting(t *testing.T) {
+	m := newTestModule(t)
+	useNow(m, t, time.Date(2026, 12, 31, 9, 0, 0, 0, time.Local))
+	useSeason(m, t, util.SeasonNewYear)
+	getReactions := captureReactions(m, t)
+	_ = captureIntroDMs(m, t)
+
+	m.onMessageCreate(nil, greetingMessage("user1", "moin"))
+
+	reactions := getReactions()
+	if len(reactions) != 2 || reactions[0].emoji != "🥂" || reactions[1].emoji != "🎉" {
+		t.Fatalf("NewYear reactions = %#v, want glass and party", reactions)
+	}
+}
+
+func TestOnMessageCreate_EasterGreeting(t *testing.T) {
+	m := newTestModule(t)
+	useNow(m, t, time.Date(2026, 4, 5, 9, 0, 0, 0, time.Local))
+	useSeason(m, t, util.SeasonEaster)
+	getReactions := captureReactions(m, t)
+	_ = captureIntroDMs(m, t)
+
+	m.onMessageCreate(nil, greetingMessage("user1", "moin"))
+
+	reactions := getReactions()
+	if len(reactions) != 1 || reactions[0].emoji != "🐣" {
+		t.Fatalf("Easter reactions = %#v, want chick", reactions)
+	}
+}
+
+func TestOnMessageCreate_ChristmasGreeting(t *testing.T) {
+	m := newTestModule(t)
+	useNow(m, t, time.Date(2026, 12, 25, 9, 0, 0, 0, time.Local))
+	useSeason(m, t, util.SeasonChristmas)
+	getReactions := captureReactions(m, t)
+	_ = captureIntroDMs(m, t)
+
+	m.onMessageCreate(nil, greetingMessage("user1", "moin"))
+
+	reactions := getReactions()
+	if len(reactions) != 1 || reactions[0].emoji != "🎄" {
+		t.Fatalf("Christmas reactions = %#v, want tree", reactions)
 	}
 }
 

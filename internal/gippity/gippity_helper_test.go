@@ -5,9 +5,14 @@ import (
 	"testing"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/toksikk/gidbig/internal/util"
 )
 
 func TestEnrichSystemMessage_returnsInputUnchanged(t *testing.T) {
+	prev := seasonFunc
+	t.Cleanup(func() { seasonFunc = prev })
+	seasonFunc = func() util.Season { return util.SeasonNone }
+
 	cases := []string{
 		"",
 		"hello world",
@@ -19,6 +24,39 @@ func TestEnrichSystemMessage_returnsInputUnchanged(t *testing.T) {
 		if got != input {
 			t.Errorf("enrichSystemMessage(%q) = %q, want %q", input, got, input)
 		}
+	}
+}
+
+func TestEnrichSystemMessage_seasonal(t *testing.T) {
+	prev := seasonFunc
+	t.Cleanup(func() { seasonFunc = prev })
+
+	const input = "Du bist ein Discord Chatbot."
+	cases := []struct {
+		name   string
+		season util.Season
+	}{
+		{"Halloween", util.SeasonHalloween},
+		{"AprilFools", util.SeasonAprilFools},
+		{"NewYear", util.SeasonNewYear},
+		{"Easter", util.SeasonEaster},
+		{"Christmas", util.SeasonChristmas},
+		{"None", util.SeasonNone},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			seasonFunc = func() util.Season { return tc.season }
+			got := enrichSystemMessage(input)
+			if tc.season == util.SeasonNone {
+				if got != input {
+					t.Errorf("enrichSystemMessage(%q) = %q, want %q", input, got, input)
+				}
+				return
+			}
+			if got == input {
+				t.Errorf("enrichSystemMessage(%q) returned input unchanged for %s", input, tc.name)
+			}
+		})
 	}
 }
 
