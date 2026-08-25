@@ -56,8 +56,7 @@ type Module struct {
 	initialDelay time.Duration
 	rotationMin  time.Duration
 	rotationMax  time.Duration
-	isSpecial    func() bool
-	isHalloween  func() bool
+	season       func() util.Season
 }
 
 // New returns a new gamerstatus Module with production timing defaults.
@@ -66,8 +65,7 @@ func New() *Module {
 		initialDelay: 5 * time.Minute,
 		rotationMin:  5 * time.Minute,
 		rotationMax:  15 * time.Minute,
-		isSpecial:    util.IsSpecial,
-		isHalloween:  util.IsHalloween,
+		season:       util.CurrentSeason,
 	}
 }
 
@@ -117,11 +115,18 @@ func (m *Module) runStatusLoop(ctx context.Context) {
 }
 
 func (m *Module) currentGame() string {
-	if m.isHalloween() {
+	switch m.season() {
+	case util.SeasonHalloween:
 		return "🎃 Spooky Season 👻"
-	}
-	if m.isSpecial() {
+	case util.SeasonAprilFools:
 		return string(util.Cl)
+	case util.SeasonNewYear:
+		return "🥂 Prost, frohes neues Jahr!"
+	case util.SeasonEaster:
+		return "🐣 Jagd nach Ostereiern"
+	case util.SeasonChristmas:
+		return "🎅 Frohe Weihnachten"
+	default:
+		return games[rand.Intn(len(games))]
 	}
-	return games[rand.Intn(len(games))]
 }
