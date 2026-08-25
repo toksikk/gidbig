@@ -90,7 +90,7 @@ jobs:
                   if [ "${{ github.ref_name }}" = "master" ]; then
                       echo "deploy=true" >> $GITHUB_OUTPUT
                   else
-                      PR_COUNT=$(gh pr list --repo "${{ github.repository }}" --head "${{ github.ref_name }}" --state open --json number -q 'length')
+                      PR_COUNT=$(gh pr list --repo "${{ github.repository }}" --head "${{ github.ref_name }}" --state open --json number,isDraft -q '[.[] | select(.isDraft == false)] | length')
                       echo "deploy=$([ "${PR_COUNT:-0}" -gt 0 ] && echo true || echo false)" >> $GITHUB_OUTPUT
                   fi
 
