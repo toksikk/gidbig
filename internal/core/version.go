@@ -14,7 +14,7 @@ var builddate = ""
 
 func currentVersion() string {
 	if version != "" {
-		return version
+		return normalizeVersion(version)
 	}
 	if build, ok := debug.ReadBuildInfo(); ok {
 		version = versionFromBuildInfo(build)
@@ -23,6 +23,32 @@ func currentVersion() string {
 		version = "(devel)"
 	}
 	return version
+}
+
+// normalizeVersion makes sure a bare commit hash (for example the fallback of
+// `git describe --always` when a shallow clone has no tags) is never presented
+// as the whole version. A hash alone carries no release context, so it is
+// wrapped in a "(devel <hash>)" form, matching the development-build output.
+func normalizeVersion(v string) string {
+	if v == "" || strings.HasPrefix(v, "v") || strings.HasPrefix(v, "(") {
+		return v
+	}
+	if isCommitHash(v) {
+		return "(devel " + v + ")"
+	}
+	return v
+}
+
+func isCommitHash(s string) bool {
+	if len(s) < 7 || len(s) > 64 {
+		return false
+	}
+	for _, r := range s {
+		if !(r >= '0' && r <= '9') && !(r >= 'a' && r <= 'f') {
+			return false
+		}
+	}
+	return true
 }
 
 func versionFromBuildInfo(build *debug.BuildInfo) string {
