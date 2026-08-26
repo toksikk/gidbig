@@ -1,4 +1,4 @@
-VERSION=`git describe --tags --always --dirty`
+VERSION=`git describe --tags --always --dirty 2>/dev/null || echo "(devel)"`
 BUILDDATE=`date +%FT%T%z`
 LDFLAGS=-ldflags="-X 'github.com/toksikk/gidbig/internal/core.version=${VERSION}' -X 'github.com/toksikk/gidbig/internal/core.builddate=${BUILDDATE}'"
 
