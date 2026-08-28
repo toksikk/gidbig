@@ -9,6 +9,13 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// Defaults applied to optional operational tuning fields when absent from
+// config.yaml, preserving legacy behavior.
+const (
+	defaultSoundboardQueueMaxDepth = 6
+	defaultGippityRateLimitPerHour = 30
+)
+
 // LeetoclockConfig configures the daily Leet o'Clock game module.
 type LeetoclockConfig struct {
 	// AnnouncementChannels receives the daily preparation announcement.
@@ -41,9 +48,13 @@ type Config struct {
 		Path string `yaml:"path,omitempty"`
 	} `yaml:"database,omitempty"`
 	Gippity struct {
-		AllowedGuilds []string `yaml:"allowed_guilds"`
-		IgnoredUsers  []string `yaml:"ignored_users"`
+		AllowedGuilds            []string `yaml:"allowed_guilds"`
+		IgnoredUsers             []string `yaml:"ignored_users"`
+		RateLimitMessagesPerHour int      `yaml:"rate_limit_messages_per_hour,omitempty"`
 	} `yaml:"gippity"`
+	Soundboard struct {
+		QueueMaxDepth int `yaml:"queue_max_depth,omitempty"`
+	} `yaml:"soundboard,omitempty"`
 	Leetoclock LeetoclockConfig `yaml:"leetoclock,omitempty"`
 	LLM        struct {
 		Provider    string `yaml:"provider,omitempty"`
@@ -103,6 +114,12 @@ func decodeConfig(r io.Reader) (*Config, error) {
 	}
 	if len(cfg.Gippity.AllowedGuilds) == 0 {
 		return nil, errors.New("gippity.allowed_guilds is required and cannot be empty")
+	}
+	if cfg.Gippity.RateLimitMessagesPerHour <= 0 {
+		cfg.Gippity.RateLimitMessagesPerHour = defaultGippityRateLimitPerHour
+	}
+	if cfg.Soundboard.QueueMaxDepth <= 0 {
+		cfg.Soundboard.QueueMaxDepth = defaultSoundboardQueueMaxDepth
 	}
 	return &cfg, nil
 }
