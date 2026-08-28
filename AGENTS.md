@@ -2,7 +2,7 @@
 
 ## Verify Changes
 
-- Use Go 1.25 (from `go.mod`). CI runs `golangci-lint` before `go test ./...`; match it with `make lint && make test` for Go changes.
+- Use Go 1.26 (from `go.mod`). CI runs `golangci-lint` before `go test ./...`; match it with `make lint && make test` for Go changes.
 - Run one package with `go test ./internal/<package>` and one test with `go test ./internal/<package> -run '^TestName$'` before the full suite.
 - Tests use in-memory or temporary SQLite databases and HTTP recorders; they do not require Discord, OAuth, OpenAI, or other services.
 - Add or update tests in the affected package for behavior changes. Most packages already have local `*_test.go` coverage.
