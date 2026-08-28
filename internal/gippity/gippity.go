@@ -34,13 +34,17 @@ var (
 
 var userMessageCount map[string]int
 
-const userMessageLimit = 30
+var userMessageLimit = 30
 
 var userMessageCountLastReset map[string]time.Time
 
 // Start the plugin
-func Start(discord *discordgo.Session) {
+func Start(discord *discordgo.Session, rateLimitPerHour int) {
 	initDB()
+
+	if rateLimitPerHour > 0 {
+		userMessageLimit = rateLimitPerHour
+	}
 
 	go idToNameCacheResetLoop()
 

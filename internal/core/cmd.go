@@ -316,6 +316,7 @@ func StartGidbig() {
 
 	// create SoundCollections by scanning the audio folder
 	createCollections()
+	SetMaxQueueSize(conf.Soundboard.QueueMaxDepth)
 
 	// Preload all the sounds
 	slog.Info("Preloading sounds...")
@@ -412,7 +413,7 @@ func StartGidbig() {
 	} else {
 		bgSupervisor.Start(bgCtx, gamerstatusMod.Background()...)
 	}
-	gippity.Start(discord)
+	gippity.Start(discord, conf.Gippity.RateLimitMessagesPerHour)
 	leetoMod := leetoclock.New()
 	leetoReady := false
 	if err := leetoMod.Init(bot.Deps{Session: discord, Config: conf}); err != nil {

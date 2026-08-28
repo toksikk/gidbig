@@ -27,6 +27,14 @@ var (
 	maxQueueSize = 6
 )
 
+// SetMaxQueueSize overrides the per-guild sound queue depth. Non-positive
+// values keep the default.
+func SetMaxQueueSize(size int) {
+	if size > 0 {
+		maxQueueSize = size
+	}
+}
+
 // Random select sound
 func (sc *soundCollection) Random() *soundClip {
 	if len(sc.Sounds) == 0 {
