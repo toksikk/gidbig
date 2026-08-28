@@ -16,6 +16,12 @@ gippity:
     allowed_guilds:
         - "YOUR_DISCORD_GUILD_ID"
     ignored_users: []
+    # Optional. Max AI replies per user per hour; defaults to 30 when omitted.
+    rate_limit_messages_per_hour: 30
+soundboard:
+    # Optional. Max sounds queued per guild before new requests are dropped;
+    # defaults to 6 when omitted.
+    queue_max_depth: 6
 leetoclock:
     # Channels that receive the daily "Leet o'Clock scheduled" announcement.
     announcement_channels:

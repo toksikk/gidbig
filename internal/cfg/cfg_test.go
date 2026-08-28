@@ -268,3 +268,44 @@ discord:
 		t.Errorf("error should mention gippity.allowed_guilds, got: %v", err)
 	}
 }
+
+func TestDecodeConfig_tuningDefaultsApplied(t *testing.T) {
+	yaml := `
+discord:
+  token: "tok"
+gippity:
+  allowed_guilds: ["456"]
+`
+	cfg, err := decodeConfig(strings.NewReader(yaml))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Gippity.RateLimitMessagesPerHour != defaultGippityRateLimitPerHour {
+		t.Errorf("rate_limit_messages_per_hour = %d, want default %d", cfg.Gippity.RateLimitMessagesPerHour, defaultGippityRateLimitPerHour)
+	}
+	if cfg.Soundboard.QueueMaxDepth != defaultSoundboardQueueMaxDepth {
+		t.Errorf("queue_max_depth = %d, want default %d", cfg.Soundboard.QueueMaxDepth, defaultSoundboardQueueMaxDepth)
+	}
+}
+
+func TestDecodeConfig_tuningOverrides(t *testing.T) {
+	yaml := `
+discord:
+  token: "tok"
+gippity:
+  allowed_guilds: ["456"]
+  rate_limit_messages_per_hour: 5
+soundboard:
+  queue_max_depth: 12
+`
+	cfg, err := decodeConfig(strings.NewReader(yaml))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Gippity.RateLimitMessagesPerHour != 5 {
+		t.Errorf("rate_limit_messages_per_hour = %d, want 5", cfg.Gippity.RateLimitMessagesPerHour)
+	}
+	if cfg.Soundboard.QueueMaxDepth != 12 {
+		t.Errorf("queue_max_depth = %d, want 12", cfg.Soundboard.QueueMaxDepth)
+	}
+}
