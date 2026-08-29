@@ -30,9 +30,7 @@ func TestBuildLLMWeatherOutro_ReturnsOnSuccess(t *testing.T) {
 		return "Das Wetter heute ist angenehm.", nil
 	}
 
-	outro := m.buildLLMWeatherOutro(nil, &discordgo.MessageCreate{
-		Message: &discordgo.Message{ChannelID: "ch1"},
-	}, "Berlin", "15°C sunny")
+	outro := m.buildLLMWeatherOutro(nil, "ch1", "Berlin", "15°C sunny")
 
 	if outro != "Das Wetter heute ist angenehm." {
 		t.Errorf("unexpected outro: %q", outro)
@@ -45,9 +43,7 @@ func TestBuildLLMWeatherOutro_EmptyOnLLMError(t *testing.T) {
 		return "", errors.New("api error")
 	}
 
-	outro := m.buildLLMWeatherOutro(nil, &discordgo.MessageCreate{
-		Message: &discordgo.Message{ChannelID: "ch1"},
-	}, "London", "10°C rain")
+	outro := m.buildLLMWeatherOutro(nil, "ch1", "London", "10°C rain")
 
 	if outro != "" {
 		t.Errorf("expected empty outro on LLM error, got %q", outro)
@@ -60,9 +56,7 @@ func TestBuildLLMWeatherOutro_TrimsWhitespace(t *testing.T) {
 		return "  Nice weather!  ", nil
 	}
 
-	outro := m.buildLLMWeatherOutro(nil, &discordgo.MessageCreate{
-		Message: &discordgo.Message{ChannelID: "ch1"},
-	}, "London", "data")
+	outro := m.buildLLMWeatherOutro(nil, "ch1", "London", "data")
 
 	if outro != "Nice weather!" {
 		t.Errorf("expected trimmed outro, got %q", outro)
@@ -356,14 +350,15 @@ func TestGetWeatherCached_CoalescesConcurrentRequests(t *testing.T) {
 	}
 }
 
-func TestConstructDiscordMessage_StructuredBeforeLLMOutro(t *testing.T) {
+func TestComposeWeather_StructuredBeforeLLMOutro(t *testing.T) {
 	m := newTestModule()
 	m.generateFn = func(_ context.Context, _, _ string) (string, error) { return "Lovely day ahead!", nil }
 	m.getWeatherFn = func(_ string) (wttrinResponse, error) { return minimalWeatherResponse(), nil }
 
-	msg := m.constructDiscordMessage(nil, &discordgo.MessageCreate{
-		Message: &discordgo.Message{ChannelID: "ch1"},
-	}, []string{"!wttr", "Berlin"}, &discordgo.Guild{}, false)
+	msg, err := m.composeWeather(nil, "ch1", "Berlin", false)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	outroIdx := strings.Index(msg, "Lovely day ahead!")
 	if outroIdx == -1 {
@@ -378,14 +373,15 @@ func TestConstructDiscordMessage_StructuredBeforeLLMOutro(t *testing.T) {
 	}
 }
 
-func TestConstructDiscordMessage_ForecastStructuredBeforeLLMOutro(t *testing.T) {
+func TestComposeWeather_ForecastStructuredBeforeLLMOutro(t *testing.T) {
 	m := newTestModule()
 	m.generateFn = func(_ context.Context, _, _ string) (string, error) { return "Pack an umbrella!", nil }
 	m.getWeatherFn = func(_ string) (wttrinResponse, error) { return minimalWeatherResponse(), nil }
 
-	msg := m.constructDiscordMessage(nil, &discordgo.MessageCreate{
-		Message: &discordgo.Message{ChannelID: "ch1"},
-	}, []string{"!wttrf", "Berlin"}, &discordgo.Guild{}, true)
+	msg, err := m.composeWeather(nil, "ch1", "Berlin", true)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	outroIdx := strings.Index(msg, "Pack an umbrella!")
 	if outroIdx == -1 {
@@ -400,19 +396,29 @@ func TestConstructDiscordMessage_ForecastStructuredBeforeLLMOutro(t *testing.T) 
 	}
 }
 
-func TestConstructDiscordMessage_LLMFailureReturnsOnlyStructured(t *testing.T) {
+func TestComposeWeather_LLMFailureReturnsOnlyStructured(t *testing.T) {
 	m := newTestModule()
 	m.generateFn = func(_ context.Context, _, _ string) (string, error) { return "", errors.New("llm down") }
 	m.getWeatherFn = func(_ string) (wttrinResponse, error) { return minimalWeatherResponse(), nil }
 
-	msg := m.constructDiscordMessage(nil, &discordgo.MessageCreate{
-		Message: &discordgo.Message{ChannelID: "ch1"},
-	}, []string{"!wttr", "Berlin"}, &discordgo.Guild{}, false)
+	msg, err := m.composeWeather(nil, "ch1", "Berlin", false)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	if msg == "" {
 		t.Fatal("expected structured weather, got empty string")
 	}
 	if strings.Contains(msg, "llm down") {
 		t.Error("error message must not leak into output")
+	}
+}
+
+func TestComposeWeather_WeatherFetchError(t *testing.T) {
+	m := newTestModule()
+	m.getWeatherFn = func(_ string) (wttrinResponse, error) { return wttrinResponse{}, errors.New("no network") }
+
+	if _, err := m.composeWeather(nil, "ch1", "Berlin", false); err == nil {
+		t.Fatal("expected error when weather fetch fails")
 	}
 }

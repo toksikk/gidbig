@@ -293,59 +293,72 @@ func (m *Module) Init(d bot.Deps) error {
 	return nil
 }
 
-func (m *Module) Commands() []*discordgo.ApplicationCommand { return nil }
+func (m *Module) Commands() []*discordgo.ApplicationCommand {
+	locationOpt := []*discordgo.ApplicationCommandOption{
+		{
+			Type:        discordgo.ApplicationCommandOptionString,
+			Name:        "location",
+			Description: "City or place name",
+			Required:    true,
+			MaxLength:   100,
+		},
+	}
+	return []*discordgo.ApplicationCommand{
+		{Name: "wttr", Description: "Current weather for a location", Options: locationOpt},
+		{Name: "wttrf", Description: "Multi-day forecast for a location", Options: locationOpt},
+	}
+}
 
 func (m *Module) Listeners() []bot.EventListener {
-	return []bot.EventListener{m.onMessageCreate}
+	return []bot.EventListener{m.onInteractionCreate}
 }
 
 func (m *Module) Components() []bot.ComponentHandler { return nil }
 func (m *Module) Background() []bot.BackgroundTask   { return nil }
 func (m *Module) Shutdown() error                    { return nil }
 
-func (m *Module) onMessageCreate(s *discordgo.Session, mc *discordgo.MessageCreate) {
-	msg := strings.Replace(mc.ContentWithMentionsReplaced(), s.State.User.Username, "username", 1)
-	parts := strings.Split(msg, " ")
-	channel, err := s.State.Channel(mc.ChannelID)
-	if channel == nil {
-		slog.Error("Failed to grab channel", "MessageID", mc.ID, "ChannelID", mc.ChannelID, "Error", err)
+func (m *Module) onInteractionCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	if i.Type != discordgo.InteractionApplicationCommand {
 		return
 	}
-	guild, err := s.State.Guild(channel.GuildID)
-	if guild == nil {
-		slog.Error("Failed to grab guild", "MessageID", mc.ID, "Channel", channel, "GuildID", channel.GuildID, "Error", err)
+	forecast := false
+	switch i.ApplicationCommandData().Name {
+	case "wttr":
+	case "wttrf":
+		forecast = true
+	default:
 		return
 	}
-	switch strings.ToLower(parts[0]) {
-	case "!wttr":
-		m.sendMessage(s, mc, m.constructDiscordMessage(s, mc, parts, guild, false))
-	case "!wttrf":
-		m.sendMessage(s, mc, m.constructDiscordMessage(s, mc, parts, guild, true))
+	opt := i.ApplicationCommandData().GetOption("location")
+	if opt == nil {
+		return
 	}
+	location, ok := opt.Value.(string)
+	if !ok || location == "" {
+		return
+	}
+	if err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
+	}); err != nil {
+		slog.Error("wttrin: failed to respond to interaction", "error", err)
+		return
+	}
+	go func() {
+		body, err := m.composeWeather(s, i.ChannelID, location, forecast)
+		if err != nil {
+			slog.Error("Failed to get weather", "ChannelID", i.ChannelID, "Location", location, "Error", err)
+			body = "Failed to get weather for `" + location + "`"
+		}
+		if _, errEdit := s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: &body}); errEdit != nil {
+			slog.Error("Failed to edit interaction response", "ChannelID", i.ChannelID, "Error", errEdit)
+		}
+	}()
 }
 
-func (m *Module) sendMessage(s *discordgo.Session, mc *discordgo.MessageCreate, message string) {
-	// Empty string means the caller already handled the error (logged + notified user).
-	if message == "" {
-		return
-	}
-	if _, err := s.ChannelMessageSend(mc.ChannelID, message); err != nil {
-		slog.Error("Failed to send message", "ChannelID", mc.ChannelID, "Error", err)
-	}
-}
-
-func (m *Module) constructDiscordMessage(s *discordgo.Session, mc *discordgo.MessageCreate, parts []string, g *discordgo.Guild, forecast bool) string {
-	if len(parts) <= 1 {
-		return ""
-	}
-	location := strings.Join(parts[1:], "+")
+func (m *Module) composeWeather(s *discordgo.Session, channelID, location string, forecast bool) (string, error) {
 	weatherResult, err := m.getWeatherCached(location)
 	if err != nil {
-		slog.Error("Failed to get weather", "MessageID", mc.ID, "Location", location, "Error", err)
-		if _, err2 := s.ChannelMessageSend(mc.ChannelID, "Failed to get weather for "+location+": "+err.Error()); err2 != nil {
-			slog.Error("Failed to send error message", "ChannelID", mc.ChannelID, "Error", err2)
-		}
-		return ""
+		return "", fmt.Errorf("get weather for %s: %w", location, err)
 	}
 	var structured string
 	if forecast {
@@ -353,11 +366,11 @@ func (m *Module) constructDiscordMessage(s *discordgo.Session, mc *discordgo.Mes
 	} else {
 		structured = buildWeatherString(weatherResult)
 	}
-	outro := m.buildLLMWeatherOutro(s, mc, location, structured)
+	outro := m.buildLLMWeatherOutro(s, channelID, location, structured)
 	if outro != "" {
-		return structured + "\n" + outro
+		return structured + "\n" + outro, nil
 	}
-	return structured
+	return structured, nil
 }
 
 func (m *Module) getWeatherCached(location string) (wttrinResponse, error) {
@@ -395,8 +408,8 @@ func (m *Module) getWeatherCached(location string) (wttrinResponse, error) {
 	return call.result, call.err
 }
 
-func (m *Module) buildLLMWeatherOutro(s *discordgo.Session, mc *discordgo.MessageCreate, location, weatherData string) string {
-	lang, err := m.detectLang(s, mc.ChannelID)
+func (m *Module) buildLLMWeatherOutro(s *discordgo.Session, channelID, location, weatherData string) string {
+	lang, err := m.detectLang(s, channelID)
 	if err != nil {
 		slog.Warn("wttrin: language detection failed", "error", err)
 		lang = "English"
