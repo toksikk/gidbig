@@ -1,5 +1,7 @@
 package gidbig
 
+import "strings"
+
 type templateData struct {
 	Prefixes  []string
 	Username  string
@@ -36,6 +38,17 @@ type soundCollection struct {
 	Sounds     []*soundClip
 	ChainWith  *soundCollection
 	soundRange int
+}
+
+// Lookup returns the first sound with the given name (case-insensitive), or nil.
+func (sc *soundCollection) Lookup(name string) *soundClip {
+	lower := strings.ToLower(name)
+	for _, s := range sc.Sounds {
+		if strings.ToLower(s.Name) == lower {
+			return s
+		}
+	}
+	return nil
 }
 
 // soundClip represents a sound clip

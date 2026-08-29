@@ -22,7 +22,7 @@ func coreSlashCommands() []*discordgo.ApplicationCommand {
 		},
 		{
 			Name:        "play",
-			Description: "Play a sound effect (random from collection if sound omitted)",
+			Description: "Play a sound effect (no playback if sound omitted)",
 			Options: []*discordgo.ApplicationCommandOption{
 				{
 					Type:        discordgo.ApplicationCommandOptionString,
@@ -61,6 +61,10 @@ func playCollectionChoices() []*discordgo.ApplicationCommandOptionChoice {
 	return choices
 }
 
+// maxContentLen is Discord's hard limit for message content, which is what
+// /list replies use.
+const maxContentLen = 2000
+
 func buildListMessage() string {
 	var b strings.Builder
 	for _, c := range COLLECTIONS {
@@ -69,6 +73,10 @@ func buildListMessage() string {
 			b.WriteString(s.Name + "\n")
 		}
 		b.WriteString("\n")
+		if b.Len() >= maxContentLen-64 {
+			b.WriteString("...\n(remaining collections omitted)")
+			break
+		}
 	}
 	return b.String()
 }
@@ -79,14 +87,11 @@ func buildUptimeBody() string {
 	return fmt.Sprintf("`Uptime: %s (since %s)`", uptime, startDateTime)
 }
 
-func interactionUserID(i *discordgo.InteractionCreate) string {
+func interactionUser(i *discordgo.InteractionCreate) *discordgo.User {
 	if i.Member != nil && i.Member.User != nil {
-		return i.Member.User.ID
+		return i.Member.User
 	}
-	if i.User != nil {
-		return i.User.ID
-	}
-	return ""
+	return i.User
 }
 
 func respondEphemeral(s *discordgo.Session, i *discordgo.InteractionCreate, content string) {
@@ -122,7 +127,8 @@ func onCoreSlashInteractionCreate(s *discordgo.Session, i *discordgo.Interaction
 	case "list":
 		respondEphemeral(s, i, buildListMessage())
 	case "uptime":
-		if interactionUserID(i) != conf.Discord.OwnerID {
+		user := interactionUser(i)
+		if user == nil || user.ID != conf.Discord.OwnerID {
 			respondEphemeral(s, i, "Access denied.")
 			return
 		}
@@ -161,23 +167,32 @@ func onPlayInteraction(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	if collection == "" {
 		return
 	}
-	userID := interactionUserID(i)
-	if userID == "" {
-		return
-	}
-	user, err := s.User(userID)
-	if err != nil {
-		slog.Warn("play: could not fetch user", "userID", userID, "error", err)
+	user := interactionUser(i)
+	if user == nil {
 		return
 	}
 
-	sound, coll := findSoundAndCollection("!"+collection, soundname)
-	// Collection must exist; an unknown explicit sound stays silent (legacy !play behavior).
+	var coll *soundCollection
+	for _, c := range COLLECTIONS {
+		if strings.ToLower(c.Prefix) == collection {
+			coll = c
+			break
+		}
+	}
 	if coll == nil {
 		return
 	}
-	if soundname != "" && sound == nil {
-		return
+	var sound *soundClip
+	if soundname != "" {
+		sound = coll.Lookup(soundname)
+		if sound == nil {
+			return
+		}
+	} else {
+		sound = coll.Random()
+		if sound == nil {
+			return
+		}
 	}
 
 	slog.Debug("play: enqueuing", "collection", collection, "sound", soundname, "guild", guild.Name)
