@@ -211,6 +211,28 @@ func TestCurrentVersionUsesLinkedVersion(t *testing.T) {
 	}
 }
 
+func TestNormalizeVersionWrapsBareCommitHash(t *testing.T) {
+	originalVersion := version
+	defer func() { version = originalVersion }()
+
+	version = "b21666f"
+	if got := currentVersion(); got != "(devel b21666f)" {
+		t.Fatalf("currentVersion() = %q, want \"(devel b21666f)\"", got)
+	}
+}
+
+func TestNormalizeVersionKeepsTag(t *testing.T) {
+	if got := normalizeVersion("v0.37.1"); got != "v0.37.1" {
+		t.Fatalf("normalizeVersion() = %q, want \"v0.37.1\"", got)
+	}
+	if got := normalizeVersion("v0.37.1-1-gb21666f"); got != "v0.37.1-1-gb21666f" {
+		t.Fatalf("normalizeVersion() = %q, want \"v0.37.1-1-gb21666f\"", got)
+	}
+	if got := normalizeVersion("(devel 0123456789ab dirty)"); got != "(devel 0123456789ab dirty)" {
+		t.Fatalf("normalizeVersion() = %q, want original dev form", got)
+	}
+}
+
 func TestStartedStatusUsesCurrentVersion(t *testing.T) {
 	originalVersion, originalBuilddate := version, builddate
 	version, builddate = "v1.2.3-4-g0123456", "2026-08-13T12:00:00Z"

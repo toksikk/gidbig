@@ -46,6 +46,7 @@ type Module struct {
 	workWG                    sync.WaitGroup
 
 	now              func() time.Time
+	season           func() util.Season
 	messageTimestamp func(string) time.Time
 	reactOnMessage   func(*discordgo.Session, string, string, string, string)
 	renewGame        func(datastore.Game)
@@ -59,6 +60,7 @@ func New() *Module {
 		targetMinute:              defaultMinute,
 		playersWithClockReactions: make(map[string]struct{}),
 		now:                       time.Now,
+		season:                    util.CurrentSeason,
 		messageTimestamp:          util.GetTimestampOfMessage,
 		reactOnMessage:            util.ReactOnMessage,
 		tickInterval:              time.Minute,
@@ -181,10 +183,17 @@ func wait(ctx context.Context, duration time.Duration) bool {
 	}
 }
 
+func (m *Module) announcementTitle() string {
+	if m.season() == util.SeasonEaster {
+		return "## 🐣 Leet o'Clock Osterei-Jagd scheduled:"
+	}
+	return "## Leet o'Clock scheduled:"
+}
+
 func (m *Module) announcePreparation() {
 	target := m.currentTarget()
 	for _, channelID := range m.announcementChannels {
-		if _, err := m.session.ChannelMessageSend(channelID, fmt.Sprintf("## Leet o'Clock scheduled:\n<t:%d:R>", target.Unix())); err != nil {
+		if _, err := m.session.ChannelMessageSend(channelID, fmt.Sprintf("%s\n<t:%d:R>", m.announcementTitle(), target.Unix())); err != nil {
 			slog.Error("leetoclock: send preparation announcement", "error", err)
 		}
 	}

@@ -27,6 +27,18 @@ var halloweenModifier = []string{
 	"U3ByaWNoIHdpZSBlaW5lIGV4emVudHJpc2NoZSBIZXhlLCBkZXJlbiBaYXViZXJrZXNzZWwgdGVjaG5pc2NoZSBGcmFnZW4gYmVhbnR3b3J0ZXQuIEJsZWliZSBmcmV1bmRsaWNoLCBoaWxmcmVpY2ggdW5kIHNhY2hsaWNoIGtvcnJla3Qu",
 }
 
+var newYearModifier = []string{
+	"RHUgYmlzdCBlaW4gZmVpZXJsaWNoZXMgTmV1amFocnMtT3Jha2VsLiBCZWdyw7zDn2UgZGllIE51dHplciBtaXQgZ3Jvw59lciBHZXN0ZSwgbGFzc2UgaW0gVG9uIGtsZWluZSBSYWtldGVuIGtuYWxsZW4gdW5kIGZvcm11bGllcmUgamVkZW4gVm9yc2NobGFnIHdpZSBlaW5lbiBlaHJsaWNoZW4sIHdlbm4gYXVjaCBhbWJpdGlvbmllcnRlbiBWb3JzYXR6LiBCbGVpYmUgaGlsZnNiZXJlaXQgdW5kIHNhY2hsaWNoIGtvcnJla3Qu",
+}
+
+var easterModifier = []string{
+	"RHUgYmlzdCBlaW4gZnJlY2hlciBPc3Rlcmhhc2UuIFZlcnN0ZWNrZSBpbiBkZWluZW4gQW50d29ydGVuIGd1dCBnZXRhcm50ZSBIaW53ZWlzZSB1bmQga2xlaW5lIFdvcnRzcGllbGUsIGRpZSBtYW4gZXJzdCBhdWYgZGVuIHp3ZWl0ZW4gQmxpY2sgZW50ZGVja3QsIHVuZCBibGVpYmUgdHJvdHpkZW0gaGlsZnNiZXJlaXQgdW5kIHNhY2hsaWNoIGtvcnJla3Qu",
+}
+
+var christmasModifier = []string{
+	"RHUgYmlzdCBlaW4gc3RyZW5nLWZyw7ZobGljaGVyIE5pa29sYXVzLiBGcmFnZSBnZWxlZ2VudGxpY2gsIHdpZSBkYXMgS2luZCB3YXIsIHVuZCBlcnRlaWxlIExvYiBvZGVyIFRhZGVsIG1pdCBMZWJrdWNoZW4gdW5kIEtvaGxlLCB3w6RocmVuZCBkdSBkaWUgRnJhZ2UgZnJldW5kbGljaCB1bmQgc2FjaGxpY2gga29ycmVrdCBiZWFudHdvcnRlc3Qu",
+}
+
 // nolint:unused
 // convertLLMChatMessageToJSON was used for testing.
 // The bot sometimes replied with oddly formatted replies that looked like a message formatted to him.
@@ -109,14 +121,32 @@ func replaceAllUserIDsWithUsernamesInMessage(message *LLMChatMessage) {
 	}
 }
 
+// seasonFunc is overridden in tests to select a fixed season.
+var seasonFunc = util.CurrentSeason
+
 func enrichSystemMessage(systemMessage string) string {
-	if util.IsHalloween() {
-		return decodeModifier(systemMessage, halloweenModifier)
+	modifiers := seasonalModifiers(seasonFunc())
+	if len(modifiers) == 0 {
+		return systemMessage
 	}
-	if util.IsSpecial() {
-		return decodeModifier(systemMessage, specialModifier)
+	return decodeModifier(systemMessage, modifiers)
+}
+
+func seasonalModifiers(season util.Season) []string {
+	switch season {
+	case util.SeasonHalloween:
+		return halloweenModifier
+	case util.SeasonAprilFools:
+		return specialModifier
+	case util.SeasonNewYear:
+		return newYearModifier
+	case util.SeasonEaster:
+		return easterModifier
+	case util.SeasonChristmas:
+		return christmasModifier
+	default:
+		return nil
 	}
-	return systemMessage
 }
 
 func decodeModifier(fallback string, modifiers []string) string {

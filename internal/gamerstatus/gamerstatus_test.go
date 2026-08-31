@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/toksikk/gidbig/internal/bot"
+	"github.com/toksikk/gidbig/internal/util"
 )
 
 func TestNew(t *testing.T) {
@@ -16,8 +17,8 @@ func TestNew(t *testing.T) {
 	if m.Name() != "gamerstatus" {
 		t.Fatalf("Name() = %q, want %q", m.Name(), "gamerstatus")
 	}
-	if m.isSpecial == nil || m.isHalloween == nil {
-		t.Fatal("New() should initialize date hooks")
+	if m.season == nil {
+		t.Fatal("New() should initialize the season hook")
 	}
 }
 
@@ -90,12 +91,43 @@ func TestShutdown(t *testing.T) {
 	}
 }
 
-func TestCurrentGameHalloween(t *testing.T) {
-	m := New()
-	m.isHalloween = func() bool { return true }
-	m.isSpecial = func() bool { return false }
+func TestCurrentGameSeasons(t *testing.T) {
+	cases := []struct {
+		name   string
+		season util.Season
+		want   string
+	}{
+		{"halloween", util.SeasonHalloween, "🎃 Spooky Season 👻"},
+		{"aprilfools", util.SeasonAprilFools, string(util.Cl)},
+		{"newyear", util.SeasonNewYear, "🥂 Prost, frohes neues Jahr!"},
+		{"easter", util.SeasonEaster, "🐣 Jagd nach Ostereiern"},
+		{"christmas", util.SeasonChristmas, "🎅 Frohe Weihnachten"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := New()
+			m.season = func() util.Season { return tc.season }
 
-	if got := m.currentGame(); got != "🎃 Spooky Season 👻" {
-		t.Fatalf("currentGame() = %q, want Halloween status", got)
+			if got := m.currentGame(); got != tc.want {
+				t.Fatalf("currentGame() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestCurrentGameDefault(t *testing.T) {
+	m := New()
+	m.season = func() util.Season { return util.SeasonNone }
+
+	got := m.currentGame()
+	found := false
+	for _, game := range games {
+		if game == got {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("currentGame() = %q, want a random game from the list", got)
 	}
 }
