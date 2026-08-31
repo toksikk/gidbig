@@ -21,6 +21,8 @@ func TestCurrentSeasonAt(t *testing.T) {
 		{"easter week 2026 (2026-04-05 sunday)", time.Date(2026, 4, 5, 12, 0, 0, 0, time.UTC), SeasonEaster},
 		{"good friday 2026", time.Date(2026, 4, 3, 12, 0, 0, 0, time.UTC), SeasonEaster},
 		{"easter monday 2026", time.Date(2026, 4, 6, 12, 0, 0, 0, time.UTC), SeasonEaster},
+		{"easter beats april fools 2029", time.Date(2029, 4, 1, 12, 0, 0, 0, time.UTC), SeasonEaster},
+		{"easter monday beats april fools 2024", time.Date(2024, 4, 1, 12, 0, 0, 0, time.UTC), SeasonEaster},
 		{"day before good friday 2026", time.Date(2026, 4, 2, 12, 0, 0, 0, time.UTC), SeasonNone},
 		{"day after easter monday 2026", time.Date(2026, 4, 7, 12, 0, 0, 0, time.UTC), SeasonNone},
 		{"october 30", time.Date(2026, 10, 30, 12, 0, 0, 0, time.UTC), SeasonNone},
