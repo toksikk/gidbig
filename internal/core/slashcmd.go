@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/bwmarrin/discordgo"
 )
@@ -22,14 +23,14 @@ func coreSlashCommands() []*discordgo.ApplicationCommand {
 		},
 		{
 			Name:        "play",
-			Description: "Play a sound effect (no playback if sound omitted)",
+			Description: "Play a sound effect (random if sound is omitted)",
 			Options: []*discordgo.ApplicationCommandOption{
 				{
 					Type:        discordgo.ApplicationCommandOptionString,
 					Name:        "collection",
 					Description: "Sound collection to play from",
 					Required:    true,
-					Choices:     playCollectionChoices(),
+					MaxLength:   100,
 				},
 				{
 					Type:        discordgo.ApplicationCommandOptionString,
@@ -43,27 +44,13 @@ func coreSlashCommands() []*discordgo.ApplicationCommand {
 	}
 }
 
-// playCollectionChoices builds one choice per collection prefix, capped at 25.
-func playCollectionChoices() []*discordgo.ApplicationCommandOptionChoice {
-	const maxChoices = 25
-	limit := len(COLLECTIONS)
-	if limit > maxChoices {
-		limit = maxChoices
-	}
-	choices := make([]*discordgo.ApplicationCommandOptionChoice, 0, limit)
-	for _, c := range COLLECTIONS[:limit] {
-		name := strings.ToLower(c.Prefix)
-		choices = append(choices, &discordgo.ApplicationCommandOptionChoice{
-			Name:  name,
-			Value: c.Prefix,
-		})
-	}
-	return choices
-}
-
 // maxContentLen is Discord's hard limit for message content, which is what
 // /list replies use.
 const maxContentLen = 2000
+
+var playEnqueue = func(user *discordgo.User, guild *discordgo.Guild, coll *soundCollection, sound *soundClip) {
+	go enqueuePlay(user, guild, coll, sound)
+}
 
 func buildListMessage() string {
 	var b strings.Builder
@@ -73,12 +60,18 @@ func buildListMessage() string {
 			b.WriteString(s.Name + "\n")
 		}
 		b.WriteString("\n")
-		if b.Len() >= maxContentLen-64 {
-			b.WriteString("...\n(remaining collections omitted)")
-			break
-		}
 	}
-	return b.String()
+	result := b.String()
+	if len(result) <= maxContentLen {
+		return result
+	}
+
+	const marker = "\n...\n(remaining collections omitted)"
+	result = result[:maxContentLen-len(marker)]
+	for !utf8.ValidString(result) {
+		result = result[:len(result)-1]
+	}
+	return result + marker
 }
 
 func buildUptimeBody() string {
@@ -106,11 +99,10 @@ func respondEphemeral(s *discordgo.Session, i *discordgo.InteractionCreate, cont
 	}
 }
 
-// deferInteraction acknowledges with a deferred response. The response
-// stays empty (silent success) or gets edited later for error content.
 func deferInteraction(s *discordgo.Session, i *discordgo.InteractionCreate) bool {
 	if err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{Flags: discordgo.MessageFlagsEphemeral},
 	}); err != nil {
 		slog.Error("could not respond to slash command", "error", err)
 		return false
@@ -134,20 +126,26 @@ func onCoreSlashInteractionCreate(s *discordgo.Session, i *discordgo.Interaction
 		}
 		respondEphemeral(s, i, buildUptimeBody())
 	case "play":
-		go onPlayInteraction(s, i)
+		if deferInteraction(s, i) {
+			go onPlayInteraction(s, i, playEnqueue)
+		}
 	}
 }
 
-func onPlayInteraction(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	if i.GuildID == "" {
-		return
+func onPlayInteraction(s *discordgo.Session, i *discordgo.InteractionCreate, enqueue func(*discordgo.User, *discordgo.Guild, *soundCollection, *soundClip)) {
+	edit := func(content string) {
+		if _, err := s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: &content}); err != nil {
+			slog.Error("could not edit play response", "error", err)
+		}
 	}
-	if !deferInteraction(s, i) {
+	if i.GuildID == "" {
+		edit("This command can only be used in a server.")
 		return
 	}
 	guild, _ := s.State.Guild(i.GuildID)
 	if guild == nil {
 		slog.Warn("play: guild not found", "guildID", i.GuildID)
+		edit("Could not find this server. Please try again.")
 		return
 	}
 
@@ -165,10 +163,12 @@ func onPlayInteraction(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	}
 
 	if collection == "" {
+		edit("A collection is required.")
 		return
 	}
 	user := interactionUser(i)
 	if user == nil {
+		edit("Could not identify the requesting user.")
 		return
 	}
 
@@ -180,21 +180,25 @@ func onPlayInteraction(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		}
 	}
 	if coll == nil {
+		edit(fmt.Sprintf("Unknown collection `%s`.", collection))
 		return
 	}
 	var sound *soundClip
 	if soundname != "" {
 		sound = coll.Lookup(soundname)
 		if sound == nil {
+			edit(fmt.Sprintf("Sound `%s` was not found in `%s`.", soundname, coll.Prefix))
 			return
 		}
 	} else {
 		sound = coll.Random()
 		if sound == nil {
+			edit(fmt.Sprintf("Collection `%s` has no sounds.", coll.Prefix))
 			return
 		}
 	}
 
 	slog.Debug("play: enqueuing", "collection", collection, "sound", soundname, "guild", guild.Name)
-	go enqueuePlay(user, guild, coll, sound)
+	enqueue(user, guild, coll, sound)
+	edit(fmt.Sprintf("Queued `%s` from `%s`.", sound.Name, coll.Prefix))
 }

@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -18,8 +19,6 @@ import (
 )
 
 const (
-	baseURL         = "https://wttr.in/"
-	apiSuffix       = "?format=j1"
 	weatherCacheTTL = 10 * time.Minute
 )
 
@@ -626,9 +625,20 @@ func buildForecastString(weatherResult wttrinResponse) (result string) {
 }
 
 func getWeather(location string) (weatherResult wttrinResponse, err error) {
-	queryURL := baseURL + location + apiSuffix
+	queryURL := buildWeatherURL(location)
 	slog.Info("Querying wttr.in", "URL", queryURL)
 	return httpGet(queryURL)
+}
+
+func buildWeatherURL(location string) string {
+	u := url.URL{
+		Scheme:   "https",
+		Host:     "wttr.in",
+		Path:     "/" + location,
+		RawPath:  "/" + url.PathEscape(location),
+		RawQuery: url.Values{"format": {"j1"}}.Encode(),
+	}
+	return u.String()
 }
 
 func httpGet(url string) (weatherResult wttrinResponse, err error) {
