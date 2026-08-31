@@ -66,32 +66,6 @@ func findSoundAndCollection(command string, soundname string) (*soundClip, *soun
 	return nil, nil
 }
 
-// Find sound in collection and play it or do nothing if not found
-func findAndPlaySound(s *discordgo.Session, m *discordgo.MessageCreate, parts []string, g *discordgo.Guild) {
-	for _, coll := range COLLECTIONS {
-		if scontains(parts[0], coll.Commands...) {
-			go deleteCommandMessage(s, m.ChannelID, m.ID)
-
-			// If they passed a specific sound effect, find and select that (otherwise play nothing)
-			var sound *soundClip
-			if len(parts) > 1 {
-				for _, s := range coll.Sounds {
-					if parts[1] == s.Name {
-						sound = s
-					}
-				}
-
-				if sound == nil {
-					return
-				}
-			}
-
-			go enqueuePlay(m.Author, g, coll, sound)
-			return
-		}
-	}
-}
-
 // Play plays this sound over the specified VoiceConnection.
 //
 // discordgo's opusSender drives the 20 ms transmit cadence with its own

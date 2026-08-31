@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/signal"
 	"runtime"
-	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -85,15 +84,6 @@ func scontains(key string, options ...string) bool {
 		}
 	}
 	return false
-}
-
-func displayUptime(channelid string) {
-	uptime := time.Since(startTime).Round(time.Second)
-	startDateTime := startTime.Format("2006-01-02 15:04:05")
-	uptimeMessage := fmt.Sprintf("`Uptime: %s (since %s)`", uptime, startDateTime)
-	if _, err := discord.ChannelMessageSend(channelid, uptimeMessage); err != nil {
-		slog.Error("could not send channel message", "error", err)
-	}
 }
 
 func buildBotStatsMessage(s *discordgo.Session) string {
@@ -223,53 +213,6 @@ func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 			slog.Error("could not set game status", "error", err)
 		}
 	}
-	if len(m.Content) <= 0 || (m.Content[0] != '!' && len(m.Mentions) < 1) {
-		return
-	}
-
-	if m.Content == "!list" {
-		var list string
-		for _, c := range COLLECTIONS {
-			list += "**!" + c.Prefix + "**\n"
-			for _, sounds := range c.Sounds {
-				list += sounds.Name + "\n"
-			}
-			list += "\n"
-		}
-		st, _ := s.UserChannelCreate(m.Author.ID)
-		msg, err := s.ChannelMessageSend(st.ID, list)
-		if err != nil {
-			slog.Error("could not send channel message", "message", msg, "error", err)
-		}
-		go deleteCommandMessage(s, m.ChannelID, m.ID)
-	}
-
-	msg := strings.Replace(m.ContentWithMentionsReplaced(), s.State.User.Username, "username", 1)
-	parts := strings.Split(strings.ToLower(msg), " ")
-
-	channel, _ := discord.State.Channel(m.ChannelID)
-	if channel == nil {
-		slog.Warn("Failed to grab channel", "channel", m.ChannelID, "message", m.ID)
-		return
-	}
-
-	guild, _ := discord.State.Guild(channel.GuildID)
-	if guild == nil {
-		slog.Warn("Failed to grab guild", "guild", channel.GuildID, "channel", channel, "message", m.ID)
-		return
-	}
-
-	// If this is a mention, it should come from the owner (otherwise we don't care)
-	if m.Author.ID == conf.Discord.OwnerID && len(parts) > 0 {
-		if len(parts) == 1 {
-			if scontains(parts[0], "!uptime") {
-				displayUptime(m.ChannelID)
-			}
-		}
-	}
-
-	// Find the collection for the command we got
-	findAndPlaySound(s, m, parts, guild)
 }
 
 func setStartedStatus() {
@@ -281,15 +224,6 @@ func setStartedStatus() {
 
 func startedStatus() string {
 	return "I just started! " + currentVersion() + " (" + builddate + ")"
-}
-
-// Delete the message after a delay so the channel does not get cluttered
-func deleteCommandMessage(s *discordgo.Session, channelID string, messageID string) {
-	time.Sleep(30 * time.Second)
-	err := s.ChannelMessageDelete(channelID, messageID)
-	if err != nil {
-		slog.Error("Failed to delete message", "error", err)
-	}
 }
 
 func setupLogging(config *cfg.Config) {
@@ -360,6 +294,7 @@ func StartGidbig() {
 	discord.AddHandler(onResumed)
 	discord.AddHandler(onMessageCreate)
 	discord.AddHandler(onStatusInteractionCreate)
+	discord.AddHandler(onCoreSlashInteractionCreate)
 
 	err = discord.Open()
 	if err != nil {
@@ -445,11 +380,13 @@ func StartGidbig() {
 	cmds := []*discordgo.ApplicationCommand{
 		{Name: "status", Description: "Show bot runtime status (owner only)"},
 	}
+	cmds = append(cmds, coreSlashCommands()...)
 	cmds = append(cmds, admin.Commands()...)
 	cmds = append(cmds, coffeeMod.Commands()...)
 	cmds = append(cmds, esoMod.Commands()...)
 	cmds = append(cmds, gippity.Commands()...)
 	cmds = append(cmds, stollMod.Commands()...)
+	cmds = append(cmds, wttrinMod.Commands()...)
 	if _, err := discord.ApplicationCommandBulkOverwrite(discord.State.User.ID, "", cmds); err != nil {
 		slog.Error("Failed to register slash commands", "error", err)
 	}

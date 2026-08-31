@@ -2,7 +2,12 @@ package wttrin
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -30,9 +35,7 @@ func TestBuildLLMWeatherOutro_ReturnsOnSuccess(t *testing.T) {
 		return "Das Wetter heute ist angenehm.", nil
 	}
 
-	outro := m.buildLLMWeatherOutro(nil, &discordgo.MessageCreate{
-		Message: &discordgo.Message{ChannelID: "ch1"},
-	}, "Berlin", "15°C sunny")
+	outro := m.buildLLMWeatherOutro(nil, "ch1", "Berlin", "15°C sunny")
 
 	if outro != "Das Wetter heute ist angenehm." {
 		t.Errorf("unexpected outro: %q", outro)
@@ -45,9 +48,7 @@ func TestBuildLLMWeatherOutro_EmptyOnLLMError(t *testing.T) {
 		return "", errors.New("api error")
 	}
 
-	outro := m.buildLLMWeatherOutro(nil, &discordgo.MessageCreate{
-		Message: &discordgo.Message{ChannelID: "ch1"},
-	}, "London", "10°C rain")
+	outro := m.buildLLMWeatherOutro(nil, "ch1", "London", "10°C rain")
 
 	if outro != "" {
 		t.Errorf("expected empty outro on LLM error, got %q", outro)
@@ -60,9 +61,7 @@ func TestBuildLLMWeatherOutro_TrimsWhitespace(t *testing.T) {
 		return "  Nice weather!  ", nil
 	}
 
-	outro := m.buildLLMWeatherOutro(nil, &discordgo.MessageCreate{
-		Message: &discordgo.Message{ChannelID: "ch1"},
-	}, "London", "data")
+	outro := m.buildLLMWeatherOutro(nil, "ch1", "London", "data")
 
 	if outro != "Nice weather!" {
 		t.Errorf("expected trimmed outro, got %q", outro)
@@ -79,6 +78,141 @@ func TestDefaultsWiredCorrectly(t *testing.T) {
 	}
 	if m.getWeatherFn == nil {
 		t.Error("getWeatherFn must not be nil")
+	}
+}
+
+func TestBuildWeatherURL(t *testing.T) {
+	locations := []string{"New York", "A#B", "what?where", "München", "north/east"}
+	for _, location := range locations {
+		t.Run(location, func(t *testing.T) {
+			raw := buildWeatherURL(location)
+			u, err := url.Parse(raw)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := strings.TrimPrefix(u.Path, "/"); got != location {
+				t.Errorf("decoded path = %q, want %q (URL %q)", got, location, raw)
+			}
+			if got, want := u.EscapedPath(), "/"+url.PathEscape(location); got != want {
+				t.Errorf("escaped path = %q, want %q", got, want)
+			}
+			if u.Query().Get("format") != "j1" || len(u.Query()) != 1 {
+				t.Errorf("query = %v, want only format=j1", u.Query())
+			}
+		})
+	}
+}
+
+type weatherDiscordRequest struct {
+	method string
+	path   string
+	body   []byte
+}
+
+func weatherDiscordSession(t *testing.T) (*discordgo.Session, <-chan weatherDiscordRequest) {
+	t.Helper()
+	requests := make(chan weatherDiscordRequest, 4)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		requests <- weatherDiscordRequest{method: r.Method, path: r.URL.Path, body: body}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	t.Cleanup(server.Close)
+	origAPI, origWebhooks := discordgo.EndpointAPI, discordgo.EndpointWebhooks
+	discordgo.EndpointAPI = server.URL + "/"
+	discordgo.EndpointWebhooks = server.URL + "/webhooks/"
+	t.Cleanup(func() {
+		discordgo.EndpointAPI = origAPI
+		discordgo.EndpointWebhooks = origWebhooks
+	})
+	s, err := discordgo.New("Bot test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s, requests
+}
+
+func weatherInteraction(name string) *discordgo.InteractionCreate {
+	return &discordgo.InteractionCreate{Interaction: &discordgo.Interaction{
+		ID: "interaction", AppID: "app", Token: "token", Type: discordgo.InteractionApplicationCommand,
+		ChannelID: "channel", Data: discordgo.ApplicationCommandInteractionData{Name: name, Options: []*discordgo.ApplicationCommandInteractionDataOption{
+			{Name: "location", Value: "Berlin"},
+		}},
+	}}
+}
+
+func awaitWeatherRequest(t *testing.T, requests <-chan weatherDiscordRequest) weatherDiscordRequest {
+	t.Helper()
+	select {
+	case req := <-requests:
+		return req
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for Discord request")
+		return weatherDiscordRequest{}
+	}
+}
+
+func TestWeatherSlashHandlers_DeferAndEditSuccessAndError(t *testing.T) {
+	tests := []struct {
+		command string
+		fail    bool
+		want    string
+	}{
+		{"wttr", false, "## 📍"},
+		{"wttrf", false, "### 📅"},
+		{"wttr", true, "Failed to get weather for `Berlin`"},
+		{"wttrf", true, "Failed to get weather for `Berlin`"},
+	}
+	for _, tt := range tests {
+		name := tt.command + " success"
+		if tt.fail {
+			name = tt.command + " error"
+		}
+		t.Run(name, func(t *testing.T) {
+			m := newTestModule()
+			if tt.fail {
+				m.getWeatherFn = func(string) (wttrinResponse, error) { return wttrinResponse{}, errors.New("offline") }
+			} else {
+				m.getWeatherFn = func(string) (wttrinResponse, error) { return minimalWeatherResponse(), nil }
+			}
+			s, requests := weatherDiscordSession(t)
+			m.onInteractionCreate(s, weatherInteraction(tt.command))
+
+			deferReq := awaitWeatherRequest(t, requests)
+			var response discordgo.InteractionResponse
+			if err := json.Unmarshal(deferReq.body, &response); err != nil {
+				t.Fatal(err)
+			}
+			if response.Type != discordgo.InteractionResponseDeferredChannelMessageWithSource {
+				t.Errorf("initial response type = %v, want deferred", response.Type)
+			}
+			editReq := awaitWeatherRequest(t, requests)
+			var edit struct {
+				Content *string `json:"content"`
+			}
+			if err := json.Unmarshal(editReq.body, &edit); err != nil {
+				t.Fatal(err)
+			}
+			if edit.Content == nil || !strings.Contains(*edit.Content, tt.want) {
+				t.Errorf("edited content = %v, want containing %q", edit.Content, tt.want)
+			}
+			if deferReq.method != http.MethodPost || editReq.method != http.MethodPatch {
+				t.Errorf("request methods = %s, %s; want POST, PATCH", deferReq.method, editReq.method)
+			}
+		})
+	}
+}
+
+func TestWeatherCommandsMetadata(t *testing.T) {
+	commands := New().Commands()
+	if len(commands) != 2 || commands[0].Name != "wttr" || commands[1].Name != "wttrf" {
+		t.Fatalf("unexpected weather commands: %#v", commands)
+	}
+	for _, command := range commands {
+		if len(command.Options) != 1 || !command.Options[0].Required || command.Options[0].MaxLength != 100 {
+			t.Errorf("%s location metadata = %#v", command.Name, command.Options)
+		}
 	}
 }
 
@@ -356,14 +490,15 @@ func TestGetWeatherCached_CoalescesConcurrentRequests(t *testing.T) {
 	}
 }
 
-func TestConstructDiscordMessage_StructuredBeforeLLMOutro(t *testing.T) {
+func TestComposeWeather_StructuredBeforeLLMOutro(t *testing.T) {
 	m := newTestModule()
 	m.generateFn = func(_ context.Context, _, _ string) (string, error) { return "Lovely day ahead!", nil }
 	m.getWeatherFn = func(_ string) (wttrinResponse, error) { return minimalWeatherResponse(), nil }
 
-	msg := m.constructDiscordMessage(nil, &discordgo.MessageCreate{
-		Message: &discordgo.Message{ChannelID: "ch1"},
-	}, []string{"!wttr", "Berlin"}, &discordgo.Guild{}, false)
+	msg, err := m.composeWeather(nil, "ch1", "Berlin", false)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	outroIdx := strings.Index(msg, "Lovely day ahead!")
 	if outroIdx == -1 {
@@ -378,14 +513,15 @@ func TestConstructDiscordMessage_StructuredBeforeLLMOutro(t *testing.T) {
 	}
 }
 
-func TestConstructDiscordMessage_ForecastStructuredBeforeLLMOutro(t *testing.T) {
+func TestComposeWeather_ForecastStructuredBeforeLLMOutro(t *testing.T) {
 	m := newTestModule()
 	m.generateFn = func(_ context.Context, _, _ string) (string, error) { return "Pack an umbrella!", nil }
 	m.getWeatherFn = func(_ string) (wttrinResponse, error) { return minimalWeatherResponse(), nil }
 
-	msg := m.constructDiscordMessage(nil, &discordgo.MessageCreate{
-		Message: &discordgo.Message{ChannelID: "ch1"},
-	}, []string{"!wttrf", "Berlin"}, &discordgo.Guild{}, true)
+	msg, err := m.composeWeather(nil, "ch1", "Berlin", true)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	outroIdx := strings.Index(msg, "Pack an umbrella!")
 	if outroIdx == -1 {
@@ -400,19 +536,29 @@ func TestConstructDiscordMessage_ForecastStructuredBeforeLLMOutro(t *testing.T) 
 	}
 }
 
-func TestConstructDiscordMessage_LLMFailureReturnsOnlyStructured(t *testing.T) {
+func TestComposeWeather_LLMFailureReturnsOnlyStructured(t *testing.T) {
 	m := newTestModule()
 	m.generateFn = func(_ context.Context, _, _ string) (string, error) { return "", errors.New("llm down") }
 	m.getWeatherFn = func(_ string) (wttrinResponse, error) { return minimalWeatherResponse(), nil }
 
-	msg := m.constructDiscordMessage(nil, &discordgo.MessageCreate{
-		Message: &discordgo.Message{ChannelID: "ch1"},
-	}, []string{"!wttr", "Berlin"}, &discordgo.Guild{}, false)
+	msg, err := m.composeWeather(nil, "ch1", "Berlin", false)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	if msg == "" {
 		t.Fatal("expected structured weather, got empty string")
 	}
 	if strings.Contains(msg, "llm down") {
 		t.Error("error message must not leak into output")
+	}
+}
+
+func TestComposeWeather_WeatherFetchError(t *testing.T) {
+	m := newTestModule()
+	m.getWeatherFn = func(_ string) (wttrinResponse, error) { return wttrinResponse{}, errors.New("no network") }
+
+	if _, err := m.composeWeather(nil, "ch1", "Berlin", false); err == nil {
+		t.Fatal("expected error when weather fetch fails")
 	}
 }
