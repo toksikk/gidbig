@@ -27,12 +27,9 @@ var (
 	maxQueueSize = 6
 )
 
-// SetMaxQueueSize overrides the per-guild sound queue depth. Non-positive
-// values keep the default.
+// SetMaxQueueSize overrides the per-guild sound queue depth.
 func SetMaxQueueSize(size int) {
-	if size > 0 {
-		maxQueueSize = size
-	}
+	maxQueueSize = size
 }
 
 // Random select sound

@@ -42,9 +42,7 @@ var userMessageCountLastReset map[string]time.Time
 func Start(discord *discordgo.Session, rateLimitPerHour int) {
 	initDB()
 
-	if rateLimitPerHour > 0 {
-		userMessageLimit = rateLimitPerHour
-	}
+	userMessageLimit = rateLimitPerHour
 
 	go idToNameCacheResetLoop()
 

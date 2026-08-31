@@ -18,6 +18,16 @@ func newTestVoiceConnection(bufSize int) *discordgo.VoiceConnection {
 	return vc
 }
 
+func TestSetMaxQueueSize(t *testing.T) {
+	previous := maxQueueSize
+	t.Cleanup(func() { maxQueueSize = previous })
+
+	SetMaxQueueSize(2)
+	if maxQueueSize != 2 {
+		t.Fatalf("maxQueueSize = %d, want 2", maxQueueSize)
+	}
+}
+
 // TestSoundClipPlay_deliversAllFrames verifies that every Opus frame in the
 // buffer is forwarded to OpusSend.
 func TestSoundClipPlay_deliversAllFrames(t *testing.T) {
