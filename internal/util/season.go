@@ -28,12 +28,12 @@ func CurrentSeasonAt(now time.Time) Season {
 		return SeasonNewYear
 	case now.Month() == time.January && now.Day() == 1:
 		return SeasonNewYear
+	case inEasterWeek(now):
+		return SeasonEaster
 	case now.Month() == time.April && now.Day() == 1:
 		return SeasonAprilFools
 	case now.Month() == time.October && now.Day() == 31:
 		return SeasonHalloween
-	case inEasterWeek(now):
-		return SeasonEaster
 	case now.Month() == time.December && (now.Day() == 24 || now.Day() == 25):
 		return SeasonChristmas
 	default:
