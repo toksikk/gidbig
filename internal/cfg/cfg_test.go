@@ -1,6 +1,7 @@
 package cfg
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -307,5 +308,35 @@ soundboard:
 	}
 	if cfg.Soundboard.QueueMaxDepth != 12 {
 		t.Errorf("queue_max_depth = %d, want 12", cfg.Soundboard.QueueMaxDepth)
+	}
+}
+
+func TestDecodeConfig_rejectsInvalidTuning(t *testing.T) {
+	tests := []struct {
+		name      string
+		field     string
+		value     int
+		wantError string
+	}{
+		{"zero rate limit", "rate_limit_messages_per_hour", 0, "gippity.rate_limit_messages_per_hour"},
+		{"negative rate limit", "rate_limit_messages_per_hour", -1, "gippity.rate_limit_messages_per_hour"},
+		{"zero queue depth", "queue_max_depth", 0, "soundboard.queue_max_depth"},
+		{"negative queue depth", "queue_max_depth", -1, "soundboard.queue_max_depth"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			yaml := "discord:\n  token: tok\ngippity:\n  allowed_guilds: [guild]\n"
+			if strings.HasPrefix(tt.field, "rate_") {
+				yaml += fmt.Sprintf("  %s: %d\n", tt.field, tt.value)
+			} else {
+				yaml += fmt.Sprintf("soundboard:\n  %s: %d\n", tt.field, tt.value)
+			}
+
+			_, err := decodeConfig(strings.NewReader(yaml))
+			if err == nil || !strings.Contains(err.Error(), tt.wantError) {
+				t.Fatalf("decodeConfig() error = %v, want error containing %q", err, tt.wantError)
+			}
+		})
 	}
 }

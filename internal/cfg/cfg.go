@@ -102,7 +102,9 @@ func loadFile() *Config {
 
 // decodeConfig decodes YAML from r into a Config and validates required fields.
 func decodeConfig(r io.Reader) (*Config, error) {
-	var cfg Config
+	cfg := Config{}
+	cfg.Gippity.RateLimitMessagesPerHour = defaultGippityRateLimitPerHour
+	cfg.Soundboard.QueueMaxDepth = defaultSoundboardQueueMaxDepth
 	if err := yaml.NewDecoder(r).Decode(&cfg); err != nil {
 		return nil, errors.New("could not decode config: " + err.Error())
 	}
@@ -116,10 +118,10 @@ func decodeConfig(r io.Reader) (*Config, error) {
 		return nil, errors.New("gippity.allowed_guilds is required and cannot be empty")
 	}
 	if cfg.Gippity.RateLimitMessagesPerHour <= 0 {
-		cfg.Gippity.RateLimitMessagesPerHour = defaultGippityRateLimitPerHour
+		return nil, errors.New("gippity.rate_limit_messages_per_hour must be greater than zero")
 	}
 	if cfg.Soundboard.QueueMaxDepth <= 0 {
-		cfg.Soundboard.QueueMaxDepth = defaultSoundboardQueueMaxDepth
+		return nil, errors.New("soundboard.queue_max_depth must be greater than zero")
 	}
 	return &cfg, nil
 }

@@ -23,6 +23,7 @@ func setupGippityTest(t *testing.T) *discordgo.Session {
 	previousIgnoredUserIDs := ignoredUserIDs
 	previousUserMessageCount := userMessageCount
 	previousUserMessageCountLastReset := userMessageCountLastReset
+	previousUserMessageLimit := userMessageLimit
 	previousGenerateAnswerFunc := generateAnswerFunc
 	previousDescribeImagesFunc = describeImagesFunc
 	previousChatCompletionFunc := chatCompletionFunc
@@ -69,6 +70,7 @@ func setupGippityTest(t *testing.T) *discordgo.Session {
 		ignoredUserIDs = previousIgnoredUserIDs
 		userMessageCount = previousUserMessageCount
 		userMessageCountLastReset = previousUserMessageCountLastReset
+		userMessageLimit = previousUserMessageLimit
 		generateAnswerFunc = previousGenerateAnswerFunc
 		describeImagesFunc = previousDescribeImagesFunc
 		chatCompletionFunc = previousChatCompletionFunc
@@ -77,6 +79,22 @@ func setupGippityTest(t *testing.T) *discordgo.Session {
 	})
 
 	return session
+}
+
+func TestIsLimitedUserUsesConfiguredLimit(t *testing.T) {
+	setupGippityTest(t)
+	userMessageLimit = 2
+	message := &discordgo.MessageCreate{Message: &discordgo.Message{Author: &discordgo.User{ID: "user"}}}
+
+	if isLimitedUser(message) {
+		t.Fatal("first message was limited")
+	}
+	if isLimitedUser(message) {
+		t.Fatal("second message was limited")
+	}
+	if !isLimitedUser(message) {
+		t.Fatal("third message was not limited")
+	}
 }
 
 func TestDescribeImagesUsesConfiguredVisionModel(t *testing.T) {
