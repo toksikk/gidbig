@@ -4,7 +4,7 @@
         "config:recommended"
     ],
     "labels": ["patch"],
-    "platformAutomerge": false,
+    "platformAutomerge": true,
     "automergeStrategy": "rebase",
     "packageRules": [
         {
