@@ -84,9 +84,9 @@ var generateMessageFn = func(ctx context.Context, systemPrompt, userPrompt strin
 			openai.SystemMessage(systemPrompt),
 			openai.UserMessage(userPrompt),
 		},
-		Model:     textModel,
-		N:         openai.Int(1),
-		MaxTokens: openai.Int(llmMaxTokens),
+		Model:               textModel,
+		N:                   openai.Int(1),
+		MaxCompletionTokens: openai.Int(llmMaxTokens),
 	})
 	if err != nil {
 		return "", err
@@ -205,9 +205,9 @@ func GenerateMessageWith(ctx context.Context, c *openai.Client, systemPrompt, us
 			openai.SystemMessage(systemPrompt),
 			openai.UserMessage(userPrompt),
 		},
-		Model:     textModel,
-		N:         openai.Int(1),
-		MaxTokens: openai.Int(llmMaxTokens),
+		Model:               textModel,
+		N:                   openai.Int(1),
+		MaxCompletionTokens: openai.Int(llmMaxTokens),
 	})
 	if err != nil {
 		return "", err

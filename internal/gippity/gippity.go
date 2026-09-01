@@ -414,10 +414,10 @@ Manche Namen sind Pseudonyme (Benutzer 1, 2, …) für anonyme Teilnehmer. Echte
 	}
 
 	chatCompletion, err := chatCompletionFunc(context.Background(), openai.ChatCompletionNewParams{
-		Messages:  messages,
-		Model:     llm.Model(),
-		N:         openai.Int(1),
-		MaxTokens: openai.Int(300),
+		Messages:            messages,
+		Model:               llm.Model(),
+		N:                   openai.Int(1),
+		MaxCompletionTokens: openai.Int(300),
 	})
 
 	slog.Debug("Chat completion", "chatCompletion", chatCompletion)

@@ -30,9 +30,9 @@ func describeImages(imageURLs []string) (string, error) {
 		Messages: []openai.ChatCompletionMessageParamUnion{
 			{OfUser: &userMsg},
 		},
-		Model:     llm.VisionModel(),
-		N:         openai.Int(1),
-		MaxTokens: openai.Int(150),
+		Model:               llm.VisionModel(),
+		N:                   openai.Int(1),
+		MaxCompletionTokens: openai.Int(150),
 	})
 	if err != nil {
 		slog.Error("Error describing image", "error", err)
