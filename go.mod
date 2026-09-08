@@ -9,7 +9,7 @@ require (
 	github.com/mattn/go-sqlite3 v1.14.50
 	github.com/openai/openai-go/v3 v3.56.0
 	github.com/simplesurance/go-ip-anonymizer v0.0.0-20200429124537-35a880f8e87d
-	golang.org/x/oauth2 v0.36.0
+	golang.org/x/oauth2 v0.37.0
 	gopkg.in/yaml.v3 v3.0.1
 	gorm.io/driver/sqlite v1.6.0
 	gorm.io/gorm v1.31.2
