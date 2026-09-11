@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sort"
+	"strconv"
 	"sync"
 	"time"
 
@@ -16,16 +17,16 @@ import (
 )
 
 const (
-	firstPlace    = "🥇"
-	secondPlace   = "🥈"
-	thirdPlace    = "🥉"
-	otherPlace    = "🏅"
-	zonk          = ":zonk:750630908372975636"
-	lol           = ":louisdefunes_lol:357611625102180373"
-	notamused     = ":louisdefunes_notamused:357611625521479680"
-	wat           = ":gustaff:721122751145967679"
-	defaultHour   = 13
-	defaultMinute = 37
+	firstPlace        = "🥇"
+	secondPlace       = "🥈"
+	thirdPlace        = "🥉"
+	otherPlace        = "🏅"
+	fallbackZonk      = "😴"
+	fallbackLol       = "😂"
+	fallbackNotAmused = "😒"
+	fallbackWat       = "🧐"
+	defaultHour       = 13
+	defaultMinute     = 37
 )
 
 // Module implements bot.Module for the daily Leet o'Clock game.
@@ -51,6 +52,11 @@ type Module struct {
 	reactOnMessage   func(*discordgo.Session, string, string, string, string)
 	renewGame        func(datastore.Game)
 	tickInterval     time.Duration
+
+	emojiZonk      string
+	emojiLol       string
+	emojiNotAmused string
+	emojiWat       string
 }
 
 // New returns a Module with production defaults.
@@ -64,6 +70,10 @@ func New() *Module {
 		messageTimestamp:          util.GetTimestampOfMessage,
 		reactOnMessage:            util.ReactOnMessage,
 		tickInterval:              time.Minute,
+		emojiZonk:                 fallbackZonk,
+		emojiLol:                  fallbackLol,
+		emojiNotAmused:            fallbackNotAmused,
+		emojiWat:                  fallbackWat,
 	}
 	m.renewGame = m.renewReactions
 	return m
@@ -71,6 +81,19 @@ func New() *Module {
 
 // Name returns the module identifier.
 func (m *Module) Name() string { return "leetoclock" }
+
+// resolveEmoji returns the emoji to react with. A configured value is treated
+// as a guild emoji ID when numeric (formatted as "name:id") and otherwise used
+// verbatim, so Unicode overrides also work. Empty config uses the fallback.
+func resolveEmoji(name, configured, fallback string) string {
+	if configured == "" {
+		return fallback
+	}
+	if _, err := strconv.ParseUint(configured, 10, 64); err == nil {
+		return name + ":" + configured
+	}
+	return configured
+}
 
 // Init opens the shared database and captures runtime dependencies.
 func (m *Module) Init(d bot.Deps) error {
@@ -103,6 +126,10 @@ func (m *Module) Init(d bot.Deps) error {
 	} else {
 		m.announcementChannels = append(m.announcementChannels, lec.AnnouncementChannels...)
 	}
+	m.emojiZonk = resolveEmoji("zonk", lec.Emojis.Zonk, fallbackZonk)
+	m.emojiLol = resolveEmoji("lol", lec.Emojis.Lol, fallbackLol)
+	m.emojiNotAmused = resolveEmoji("notamused", lec.Emojis.NotAmused, fallbackNotAmused)
+	m.emojiWat = resolveEmoji("wat", lec.Emojis.Wat, fallbackWat)
 	m.updateTarget()
 	slog.Info("leetoclock: initialized", "debug", lec.Debug, "announcement_channels", m.announcementChannels, "target", m.currentTarget().String())
 	return nil
@@ -301,15 +328,15 @@ func (m *Module) renewReactions(game datastore.Game) {
 		return
 	}
 	for _, score := range earlyBirds {
-		m.reactOnMessage(m.session, game.ChannelID, score.MessageID, lol, "remove")
-		m.reactOnMessage(m.session, game.ChannelID, score.MessageID, notamused, "remove")
-		m.reactOnMessage(m.session, game.ChannelID, score.MessageID, wat, "remove")
+		m.reactOnMessage(m.session, game.ChannelID, score.MessageID, m.emojiLol, "remove")
+		m.reactOnMessage(m.session, game.ChannelID, score.MessageID, m.emojiNotAmused, "remove")
+		m.reactOnMessage(m.session, game.ChannelID, score.MessageID, m.emojiWat, "remove")
 		if isScoreInScoreArray(score, zonks) {
-			m.reactOnMessage(m.session, game.ChannelID, score.MessageID, lol, "add")
+			m.reactOnMessage(m.session, game.ChannelID, score.MessageID, m.emojiLol, "add")
 		} else if isScoreInScoreArray(score, winners) {
-			m.reactOnMessage(m.session, game.ChannelID, score.MessageID, notamused, "add")
+			m.reactOnMessage(m.session, game.ChannelID, score.MessageID, m.emojiNotAmused, "add")
 		} else {
-			m.reactOnMessage(m.session, game.ChannelID, score.MessageID, wat, "add")
+			m.reactOnMessage(m.session, game.ChannelID, score.MessageID, m.emojiWat, "add")
 		}
 	}
 	for i, score := range winners {
@@ -319,8 +346,8 @@ func (m *Module) renewReactions(game datastore.Game) {
 		m.reactOnMessage(m.session, game.ChannelID, score.MessageID, []string{firstPlace, secondPlace, thirdPlace}[i], "add")
 	}
 	for _, score := range zonks {
-		m.reactOnMessage(m.session, game.ChannelID, score.MessageID, zonk, "remove")
-		m.reactOnMessage(m.session, game.ChannelID, score.MessageID, zonk, "add")
+		m.reactOnMessage(m.session, game.ChannelID, score.MessageID, m.emojiZonk, "remove")
+		m.reactOnMessage(m.session, game.ChannelID, score.MessageID, m.emojiZonk, "add")
 	}
 }
 

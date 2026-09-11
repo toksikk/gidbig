@@ -224,6 +224,71 @@ func TestInitAppliesLeetoclockConfig(t *testing.T) {
 	})
 }
 
+func TestResolveEmoji(t *testing.T) {
+	tests := []struct {
+		name       string
+		configured string
+		fallback   string
+		want       string
+	}{
+		{name: "empty uses fallback", configured: "", fallback: "😴", want: "😴"},
+		{name: "numeric id formatted", configured: "750630908372975636", fallback: "😴", want: "zonk:750630908372975636"},
+		{name: "unicode used verbatim", configured: "🧐", fallback: "😴", want: "🧐"},
+		{name: "name id used verbatim", configured: "custom:123", fallback: "😴", want: "custom:123"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := resolveEmoji("zonk", tc.configured, tc.fallback); got != tc.want {
+				t.Errorf("resolveEmoji() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestInitAppliesEmojiConfig(t *testing.T) {
+	newInitModule := func(t *testing.T, lec cfg.LeetoclockConfig) *Module {
+		t.Helper()
+		conf := &cfg.Config{}
+		conf.Database.Path = filepath.Join(t.TempDir(), "gidbig.db")
+		conf.Leetoclock = lec
+		session, err := discordgo.New("Bot test")
+		if err != nil {
+			t.Fatal(err)
+		}
+		m := New()
+		if err := m.Init(bot.Deps{Session: session, Config: conf}); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() {
+			if err := m.Shutdown(); err != nil {
+				t.Errorf("Shutdown() = %v", err)
+			}
+		})
+		return m
+	}
+
+	t.Run("defaults when omitted", func(t *testing.T) {
+		m := newInitModule(t, cfg.LeetoclockConfig{})
+		if m.emojiZonk != fallbackZonk || m.emojiLol != fallbackLol ||
+			m.emojiNotAmused != fallbackNotAmused || m.emojiWat != fallbackWat {
+			t.Errorf("emojis = %q/%q/%q/%q, want fallbacks", m.emojiZonk, m.emojiLol, m.emojiNotAmused, m.emojiWat)
+		}
+	})
+
+	t.Run("custom emoji ids", func(t *testing.T) {
+		m := newInitModule(t, cfg.LeetoclockConfig{Emojis: cfg.LeetoclockEmojisConfig{
+			Zonk: "111", Lol: "222", NotAmused: "333", Wat: "444",
+		}})
+		want := []string{"zonk:111", "lol:222", "notamused:333", "wat:444"}
+		got := []string{m.emojiZonk, m.emojiLol, m.emojiNotAmused, m.emojiWat}
+		for i := range want {
+			if got[i] != want[i] {
+				t.Errorf("emoji[%d] = %q, want %q", i, got[i], want[i])
+			}
+		}
+	})
+}
+
 func TestAnnouncementTitle(t *testing.T) {
 	t.Run("default", func(t *testing.T) {
 		m := New()
