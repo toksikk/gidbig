@@ -122,6 +122,47 @@ leetoclock:
 	}
 }
 
+func TestDecodeConfig_leetoclockEmojis(t *testing.T) {
+	yaml := `
+discord:
+  token: "tok"
+gippity:
+  allowed_guilds: ["456"]
+leetoclock:
+  emojis:
+    zonk: "111"
+    lol: "222"
+    notamused: "333"
+    wat: "444"
+`
+	cfg, err := decodeConfig(strings.NewReader(yaml))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Leetoclock.Emojis.Zonk != "111" || cfg.Leetoclock.Emojis.Lol != "222" ||
+		cfg.Leetoclock.Emojis.NotAmused != "333" || cfg.Leetoclock.Emojis.Wat != "444" {
+		t.Errorf("leetoclock.emojis = %+v, want 111/222/333/444", cfg.Leetoclock.Emojis)
+	}
+}
+
+func TestDecodeConfig_leetoclockEmojisOmitted(t *testing.T) {
+	yaml := `
+discord:
+  token: "tok"
+gippity:
+  allowed_guilds: ["456"]
+leetoclock:
+  debug: false
+`
+	cfg, err := decodeConfig(strings.NewReader(yaml))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Leetoclock.Emojis != (LeetoclockEmojisConfig{}) {
+		t.Errorf("leetoclock.emojis should be empty when omitted, got %+v", cfg.Leetoclock.Emojis)
+	}
+}
+
 func TestDecodeConfig_leetoclockOmitted(t *testing.T) {
 	yaml := `
 discord:

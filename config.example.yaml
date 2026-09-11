@@ -30,6 +30,14 @@ leetoclock:
     debug_channel: ""
     # Runs the game one minute after startup with a fast tick loop.
     debug: false
+    # Optional custom guild emoji IDs used as reactions. When a value is
+    # omitted or left empty, a standard Unicode emoji is used instead, so the
+    # feature works on any server. Values may also be full Unicode emojis.
+    emojis:
+        zonk: ""
+        lol: ""
+        notamused: ""
+        wat: ""
 llm:
     # Optional provider and model settings. Provider defaults to openai and its
     # model defaults to gpt-4o-mini. OpenRouter requires an explicit model.

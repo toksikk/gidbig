@@ -16,6 +16,16 @@ const (
 	defaultGippityRateLimitPerHour = 30
 )
 
+// LeetoclockEmojisConfig holds optional custom Discord emoji IDs used as
+// reactions during a game. Each value is a guild emoji ID; when omitted the
+// module falls back to a standard Unicode equivalent.
+type LeetoclockEmojisConfig struct {
+	Zonk      string `yaml:"zonk,omitempty"`
+	Lol       string `yaml:"lol,omitempty"`
+	NotAmused string `yaml:"notamused,omitempty"`
+	Wat       string `yaml:"wat,omitempty"`
+}
+
 // LeetoclockConfig configures the daily Leet o'Clock game module.
 type LeetoclockConfig struct {
 	// AnnouncementChannels receives the daily preparation announcement.
@@ -25,6 +35,8 @@ type LeetoclockConfig struct {
 	DebugChannel string `yaml:"debug_channel,omitempty"`
 	// Debug runs the game one minute after start with a fast tick loop.
 	Debug bool `yaml:"debug,omitempty"`
+	// Emojis overrides the reaction emojis with custom guild emoji IDs.
+	Emojis LeetoclockEmojisConfig `yaml:"emojis,omitempty"`
 }
 
 // Config struct with all parameters
