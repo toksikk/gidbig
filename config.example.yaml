@@ -46,8 +46,9 @@ llm:
     # Set a custom persona string here; it takes precedence over personality_preset.
     personality: ""
     # Or pick a predefined persona instead of writing your own. Used only when
-    # personality is empty. One of: hal, schemer, dry. Unknown values fall back to
-    # the default. (hal = calm, logical, eerily polite superintelligence;
-    # schemer = fake-friendly sarcastic manipulator; dry = monotone, few words.)
+    # personality is empty. One of: hal, schemer, dry, genalpha. Unknown values
+    # fall back to the default. (hal = calm, logical, eerily polite
+    # superintelligence; schemer = fake-friendly sarcastic manipulator;
+    # dry = monotone, few words; genalpha = hyper Gen Alpha teen slang.)
     personality_preset: ""
 dev_mode: true

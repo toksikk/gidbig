@@ -94,6 +94,7 @@ func TestResolvePersonality(t *testing.T) {
 		{"whitespace custom is ignored", "   ", "dry", PersonalityPresets["dry"]},
 		{"known preset hal", "", "hal", PersonalityPresets["hal"]},
 		{"known preset schemer", "", "schemer", PersonalityPresets["schemer"]},
+		{"known preset genalpha", "", "genalpha", PersonalityPresets["genalpha"]},
 		{"unknown preset falls back to default", "", "nope", defaultPersonality},
 		{"nothing set uses default", "", "", defaultPersonality},
 	}
