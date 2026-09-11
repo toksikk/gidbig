@@ -209,13 +209,6 @@ func (m *Module) expireDueOrders(now time.Time) (int, error) {
 	defer m.machineMu.Unlock()
 	var expired int
 	err := db.Transaction(func(tx *gorm.DB) error {
-		// A restart can interrupt the short brewing animation. Release those orders
-		// without penalizing the user because no pickup button was ever guaranteed.
-		if err := tx.Model(&DrinkOrder{}).
-			Where("status = ? AND ready_at <= ?", orderStatusBrewing, now).
-			Updates(map[string]any{"status": orderStatusExpired, "expired_at": now}).Error; err != nil {
-			return err
-		}
 		var orders []DrinkOrder
 		if err := tx.Where("status = ? AND expires_at <= ?", orderStatusReady, now).Find(&orders).Error; err != nil {
 			return err
