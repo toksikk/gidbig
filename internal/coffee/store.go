@@ -175,7 +175,15 @@ func (m *Module) openStore(path string) error {
 		&PendingService{}, &SlackerEvent{}, &TeaBagInventory{}); err != nil {
 		return err
 	}
-	return m.db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_coffee_open_order ON coffee_drink_orders(guild_id, user_id) WHERE deleted_at IS NULL AND status IN ('brewing', 'ready')").Error
+	if err = m.db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_coffee_open_order ON coffee_drink_orders(guild_id, user_id) WHERE deleted_at IS NULL AND status IN ('brewing', 'ready')").Error; err != nil {
+		return err
+	}
+	// Before handlers start, every brewing order belongs to an interrupted run.
+	// Release it without a pickup violation, regardless of its estimated ready time.
+	// Recurring sweeps must leave live brews alone even when completion is delayed.
+	return m.db.Model(&DrinkOrder{}).
+		Where("status = ?", orderStatusBrewing).
+		Updates(map[string]any{"status": orderStatusExpired, "expired_at": m.nowFunc().UTC()}).Error
 }
 
 func (m *Module) closeStore() error {

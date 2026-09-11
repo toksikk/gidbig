@@ -2,10 +2,12 @@ package coffee
 
 import (
 	"context"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/bwmarrin/discordgo"
 	"gorm.io/gorm"
 )
 
@@ -210,23 +212,89 @@ func TestOnlyOneOpenOrderPerUserAndGuild(t *testing.T) {
 	}
 }
 
-func TestStartupSweepReleasesInterruptedBrewWithoutViolation(t *testing.T) {
+func TestBrewSurvivesExpirySweep(t *testing.T) {
 	m := newTestModule(t)
 	now := time.Date(2026, 8, 12, 12, 0, 0, 0, time.UTC)
-	order := DrinkOrder{GuildID: "g1", UserID: "u1", Drink: "coffee", Status: orderStatusBrewing, ReadyAt: now.Add(-time.Minute)}
-	if err := m.getDB().Create(&order).Error; err != nil {
-		t.Fatalf("create order: %v", err)
+	m.nowFunc = func() time.Time { return now }
+	_, edits, _ := captureBrewIO(m)
+	var components []discordgo.MessageComponent
+	m.editWithComponents = func(_ *discordgo.Session, _ *discordgo.InteractionCreate, content string, comps []discordgo.MessageComponent) {
+		*edits = append(*edits, content)
+		components = comps
 	}
-	if _, err := m.expireDueOrders(now); err != nil {
-		t.Fatalf("expireDueOrders: %v", err)
+	m.sleep = func(wait time.Duration) {
+		now = now.Add(wait)
+		if count, err := m.expireDueOrders(now); err != nil || count != 0 {
+			t.Fatalf("sweep at estimated ready time: count=%d err=%v", count, err)
+		}
+		// Completion can lag behind the estimate because of LLM/Discord latency.
+		now = now.Add(time.Minute)
+		if count, err := m.expireDueOrders(now); err != nil || count != 0 {
+			t.Fatalf("sweep after estimated ready time: count=%d err=%v", count, err)
+		}
 	}
-	if err := m.getDB().First(&order, order.ID).Error; err != nil {
-		t.Fatalf("reload order: %v", err)
+	m.handleBrewInteraction(nil, makeBrewInteraction("g1", strOpt("drink", "tea_rooibos")))
+	if len(*edits) != 2 || !strings.Contains((*edits)[1], "Rooibos tea") || len(components) != 1 {
+		t.Fatalf("expected ready message with pickup button: edits=%v components=%v", *edits, components)
 	}
-	var violations int64
-	m.getDB().Model(&PickupViolation{}).Where("order_id = ?", order.ID).Count(&violations)
-	if order.Status != orderStatusExpired || violations != 0 {
-		t.Fatalf("order=%+v violations=%d", order, violations)
+	var order DrinkOrder
+	if err := m.getDB().First(&order).Error; err != nil {
+		t.Fatalf("load order: %v", err)
+	}
+	if order.Status != orderStatusReady || !order.ReadyAt.Equal(now) || !order.ExpiresAt.Equal(now.Add(pickupWindow)) {
+		t.Fatalf("expected full pickup window from actual completion: %+v", order)
+	}
+	result, err := m.pickupOrder(order.ID, "u1", now.Add(pickupWindow-time.Second))
+	if err != nil || !result.picked {
+		t.Fatalf("pickup = %+v, err=%v", result, err)
+	}
+}
+
+func TestOpenStoreReleasesInterruptedBrewWithoutViolation(t *testing.T) {
+	for _, offset := range []time.Duration{-time.Minute, time.Minute} {
+		t.Run(offset.String(), func(t *testing.T) {
+			m := New()
+			now := time.Date(2026, 8, 12, 12, 0, 0, 0, time.UTC)
+			useNow(m, t, now)
+			path := filepath.Join(t.TempDir(), "coffee.db")
+			if err := m.openStore(path); err != nil {
+				t.Fatalf("open store: %v", err)
+			}
+			t.Cleanup(func() {
+				if err := m.closeStore(); err != nil {
+					t.Errorf("close store: %v", err)
+				}
+			})
+			order := DrinkOrder{GuildID: "g1", UserID: "u1", Drink: "tea_rooibos", Status: orderStatusBrewing, ReadyAt: now.Add(offset)}
+			if err := m.getDB().Create(&order).Error; err != nil {
+				t.Fatalf("create order: %v", err)
+			}
+			ready := createReadyOrder(t, m, "g1", "u2", now)
+			if err := m.closeStore(); err != nil {
+				t.Fatalf("close store before restart: %v", err)
+			}
+			if err := m.openStore(path); err != nil {
+				t.Fatalf("reopen store: %v", err)
+			}
+			if err := m.getDB().First(&order, order.ID).Error; err != nil {
+				t.Fatalf("reload order: %v", err)
+			}
+			var violations int64
+			if err := m.getDB().Model(&PickupViolation{}).Count(&violations).Error; err != nil {
+				t.Fatalf("count violations: %v", err)
+			}
+			if order.Status != orderStatusExpired || order.ExpiredAt == nil || !order.ExpiredAt.Equal(now) || violations != 0 {
+				t.Fatalf("order=%+v violations=%d", order, violations)
+			}
+			result, err := m.pickupOrder(ready.ID, "u2", now)
+			if err != nil || !result.picked {
+				t.Fatalf("ready order pickup after restart = %+v, err=%v", result, err)
+			}
+			out, err := m.dispense("g1", "u1", "tea_rooibos", false, false)
+			if err != nil || !out.ok {
+				t.Fatalf("brew after restart: out=%+v err=%v", out, err)
+			}
+		})
 	}
 }
 
