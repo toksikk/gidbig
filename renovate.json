@@ -6,6 +6,7 @@
     "labels": ["patch"],
     "platformAutomerge": true,
     "automergeStrategy": "rebase",
+    "minimumReleaseAge": "4 days",
     "packageRules": [
         {
             "matchPackageNames": ["github.com/yeongaori/discordgo-fork", "github.com/bwmarrin/discordgo"],
@@ -15,7 +16,6 @@
         {
             "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
             "automerge": true,
-            "minimumReleaseAge": "4 days",
             "description": "Auto-merge non-major bumps only after the release is 4 days old, to mitigate supply-chain attacks via freshly published malicious releases. Majors stay manual."
         },
         {

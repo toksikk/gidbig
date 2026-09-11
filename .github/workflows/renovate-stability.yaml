@@ -1,0 +1,63 @@
+name: Conditional Renovate stability
+
+on:
+    pull_request_target:
+        types: [opened, reopened, synchronize, edited]
+        branches: [master]
+    status:
+    workflow_dispatch:
+        inputs:
+            sha:
+                description: Pull request head commit to refresh
+                required: true
+                type: string
+
+permissions:
+    contents: read
+    pull-requests: read
+    statuses: write
+
+jobs:
+    stability:
+        name: Update Renovate stability gate
+        if: github.event_name != 'status' || github.event.context == 'renovate/stability-days'
+        concurrency:
+            group: renovate-stability-${{ github.event.pull_request.head.sha || github.event.sha || inputs.sha }}
+            cancel-in-progress: false
+        runs-on: ubuntu-latest
+        steps:
+            # No checkout: never execute pull request code with write permissions.
+            - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
+              with:
+                  script: |
+                      const repo = context.repo;
+                      const sha = context.payload.pull_request?.head.sha || context.payload.sha || context.payload.inputs.sha;
+                      if (!/^[0-9a-f]{40}$/.test(sha)) {
+                          throw new Error('A full commit SHA is required');
+                      }
+                      const prs = await github.paginate(github.rest.repos.listPullRequestsAssociatedWithCommit, {
+                          ...repo, commit_sha: sha,
+                      });
+                      const open = prs.filter(pr => pr.state === 'open' && pr.base.ref === 'master' && pr.head.sha === sha);
+                      if (open.length === 0) return;
+                      // Statuses belong to commits, so a second PR must not bypass a Renovate wait.
+                      const renovate = open.some(pr => pr.user.login === 'renovate[bot]' || pr.head.ref.startsWith('renovate/'));
+                      let state = 'success';
+                      let description = 'Not a Renovate pull request; release-age check not required';
+                      if (renovate) {
+                          const statuses = await github.paginate(github.rest.repos.listCommitStatusesForRef, {
+                              ...repo, ref: sha,
+                          });
+                          const stability = statuses.find(s =>
+                              s.context === 'renovate/stability-days' && s.creator?.id === 29139614);
+                          state = stability?.state ?? 'pending';
+                          description = `Renovate release-age check: ${state}`;
+                      }
+                      await github.rest.repos.createCommitStatus({
+                          ...repo,
+                          sha,
+                          context: 'Renovate stability',
+                          state,
+                          description,
+                          target_url: `https://github.com/${repo.owner}/${repo.repo}/actions/runs/${context.runId}`,
+                      });
