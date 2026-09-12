@@ -190,6 +190,68 @@ func TestFetchReferencedMessage_NotInDB_FallsBackToAPI(t *testing.T) {
 	}
 }
 
+func TestFormatReactionSummary(t *testing.T) {
+	cases := []struct {
+		name      string
+		reactions []*discordgo.MessageReactions
+		want      string
+	}{
+		{name: "none", reactions: nil, want: ""},
+		{
+			name: "single",
+			reactions: []*discordgo.MessageReactions{
+				{Count: 3, Emoji: &discordgo.Emoji{Name: "👍"}},
+			},
+			want: "[reactions: 👍×3]",
+		},
+		{
+			name: "sorted by count desc then emoji",
+			reactions: []*discordgo.MessageReactions{
+				{Count: 1, Emoji: &discordgo.Emoji{Name: "😂"}},
+				{Count: 3, Emoji: &discordgo.Emoji{Name: "👍"}},
+				{Count: 3, Emoji: &discordgo.Emoji{Name: "🎉"}},
+			},
+			want: "[reactions: 🎉×3 👍×3 😂×1]",
+		},
+		{
+			name: "custom emoji uses api name",
+			reactions: []*discordgo.MessageReactions{
+				{Count: 2, Emoji: &discordgo.Emoji{ID: "123", Name: "party"}},
+			},
+			want: "[reactions: party:123×2]",
+		},
+		{
+			name: "skips zero count and missing emoji",
+			reactions: []*discordgo.MessageReactions{
+				{Count: 0, Emoji: &discordgo.Emoji{Name: "👍"}},
+				{Count: 2},
+				{Count: 4, Emoji: &discordgo.Emoji{Name: "✅"}},
+			},
+			want: "[reactions: ✅×4]",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := formatReactionSummary(tc.reactions); got != tc.want {
+				t.Errorf("formatReactionSummary() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestConvertLLMChatMessageToLLMCompatibleFlowingText_WithReactionSummary(t *testing.T) {
+	msg := LLMChatMessage{
+		TimestampString: "2026-05-01 12:00:00",
+		Username:        "Alice",
+		Message:         "Hello there",
+		ReactionSummary: "[reactions: 👍×3]",
+	}
+	result := convertLLMChatMessageToLLMCompatibleFlowingText(msg)
+	if !strings.Contains(result, "[reactions: 👍×3]") {
+		t.Errorf("result missing reaction summary: %q", result)
+	}
+}
+
 func TestConvertLLMChatMessageToLLMCompatibleFlowingText_WithImageDescriptions(t *testing.T) {
 	msg := LLMChatMessage{
 		TimestampString:   "2026-05-01 12:00:00",

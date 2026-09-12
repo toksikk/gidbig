@@ -36,6 +36,7 @@ type LLMChatMessage struct {
 	GuildName         string
 	IsBotMention      bool
 	ImageDescriptions []string
+	ReactionSummary   string
 }
 
 const chatHistoryDBFilename = "gippity.db"

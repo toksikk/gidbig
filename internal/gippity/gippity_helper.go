@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/bwmarrin/discordgo"
@@ -56,6 +57,9 @@ func convertLLMChatMessageToLLMCompatibleFlowingText(message LLMChatMessage) str
 	sb.WriteString(message.TimestampString + " " + message.Username + ": " + message.Message)
 	for i, desc := range message.ImageDescriptions {
 		fmt.Fprintf(&sb, " [Image %d: %s]", i+1, desc)
+	}
+	if message.ReactionSummary != "" {
+		sb.WriteString(" " + message.ReactionSummary)
 	}
 	return sb.String()
 }
@@ -157,6 +161,85 @@ func decodeModifier(fallback string, modifiers []string) string {
 		return fallback
 	}
 	return string(decodedString)
+}
+
+// fetchMessageReactionsFunc is the var used in tests to mock the Discord API
+// lookup used for reaction context. It returns the full message so reaction
+// counts can be read without fetching individual reactors.
+var fetchMessageReactionsFunc = func(s *discordgo.Session, channelID, messageID string) (*discordgo.Message, error) {
+	return channelMessageFunc(s, channelID, messageID)
+}
+
+// formatReactionSummary renders aggregate reaction counts, most reacted emoji
+// first. Only emoji and counts are included so anonymized users stay anonymous.
+func formatReactionSummary(reactions []*discordgo.MessageReactions) string {
+	type countedEmoji struct {
+		emoji string
+		count int
+	}
+	counts := make([]countedEmoji, 0, len(reactions))
+	for _, reaction := range reactions {
+		if reaction == nil || reaction.Count == 0 || reaction.Emoji == nil {
+			continue
+		}
+		emoji := reaction.Emoji.Name
+		if reaction.Emoji.ID != "" {
+			emoji = reaction.Emoji.APIName()
+		}
+		if emoji == "" {
+			continue
+		}
+		counts = append(counts, countedEmoji{emoji: emoji, count: reaction.Count})
+	}
+	if len(counts) == 0 {
+		return ""
+	}
+
+	sort.SliceStable(counts, func(i, j int) bool {
+		if counts[i].count != counts[j].count {
+			return counts[i].count > counts[j].count
+		}
+		return counts[i].emoji < counts[j].emoji
+	})
+
+	var sb strings.Builder
+	sb.WriteString("[reactions:")
+	for _, c := range counts {
+		fmt.Fprintf(&sb, " %s×%d", c.emoji, c.count)
+	}
+	sb.WriteString("]")
+	return sb.String()
+}
+
+// fetchReactionSummary returns a formatted reaction summary for a message, or an
+// empty string when the message has no reactions or cannot be fetched. Failures
+// are non-fatal: reaction context is best-effort and never blocks an answer.
+func fetchReactionSummary(s *discordgo.Session, channelID, messageID string) string {
+	if channelID == "" || messageID == "" {
+		return ""
+	}
+	msg, err := fetchMessageReactionsFunc(s, channelID, messageID)
+	if err != nil {
+		slog.Debug("gippity: could not fetch message for reaction context", "messageID", messageID, "error", err)
+		return ""
+	}
+	if msg == nil {
+		return ""
+	}
+	return formatReactionSummary(msg.Reactions)
+}
+
+// reactionSummaryCache bounds reaction lookups to one fetch per message within
+// a single answer generation.
+type reactionSummaryCache map[string]string
+
+func (c reactionSummaryCache) get(s *discordgo.Session, channelID, messageID string) string {
+	if summary, ok := c[messageID]; ok {
+		return summary
+	}
+	summary := fetchReactionSummary(s, channelID, messageID)
+	c[messageID] = summary
+	return summary
 }
 
 // fetchReferencedMessageFunc is the var used in tests to mock fetchReferencedMessage.
