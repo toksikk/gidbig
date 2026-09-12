@@ -309,11 +309,14 @@ func generateAnswer(m *discordgo.MessageCreate, imageURLs []string) (string, err
 		chatHistory = []LLMChatMessage{}
 	}
 
+	reactionSummaries := reactionSummaryCache{}
+
 	systemMessageBase := `Discord-Chatbot, Name ` + util.GetBotDisplayName(m, discordSession) + `.
 Channel ` + util.GetChannelName(discordSession, m.ChannelID) + `, Server ` + util.GetGuildName(discordSession, m.GuildID) + `. Mehrere Benutzer gleichzeitig.
 Im Channel: ` + util.GetAllMembersOfChannelAsString(discordSession, m.ChannelID) + `.
 ---
 Nachrichten kommen so: [Zeitstempel] [Benutzername]: [Nachricht]
+Reaktionen stehen als [reactions: Emoji×Anzahl] am Ende einer Nachricht; nur Anzahl, keine Namen.
 ---
 Deine Antwort nur: [Deine Nachricht]
 ---
@@ -343,6 +346,13 @@ Manche Namen sind Pseudonyme (Benutzer 1, 2, …) für anonyme Teilnehmer. Echte
 				authorName = refMsg.Author.Username
 			}
 			note := fmt.Sprintf("[System note: User is replying to a message from %s: %s]", authorName, content)
+			refChannelID := refMsg.ChannelID
+			if refChannelID == "" && m.MessageReference != nil {
+				refChannelID = m.MessageReference.ChannelID
+			}
+			if summary := reactionSummaries.get(discordSession, refChannelID, refMsg.ID); summary != "" {
+				note += " " + summary
+			}
 			messages = append(messages, openai.SystemMessage(note))
 		}
 	}
@@ -352,8 +362,14 @@ Manche Namen sind Pseudonyme (Benutzer 1, 2, …) für anonyme Teilnehmer. Echte
 	privacyCache := make(map[string]bool)
 
 	for _, message := range chatHistory {
+		message.ReactionSummary = reactionSummaries.get(discordSession, message.ChannelID, message.MessageID)
+
 		if message.UserID == discordSession.State.User.ID {
-			messages = append(messages, openai.ChatCompletionMessageParamUnion(openai.AssistantMessage(message.Message)))
+			content := message.Message
+			if message.ReactionSummary != "" {
+				content += " " + message.ReactionSummary
+			}
+			messages = append(messages, openai.ChatCompletionMessageParamUnion(openai.AssistantMessage(content)))
 			continue
 		}
 
@@ -371,6 +387,7 @@ Manche Namen sind Pseudonyme (Benutzer 1, 2, …) für anonyme Teilnehmer. Echte
 				Username:        pseudo,
 				TimestampString: message.TimestampString,
 				Message:         "[Anonymisierte Nachricht]",
+				ReactionSummary: message.ReactionSummary,
 			}
 			messages = append(messages, openai.ChatCompletionMessageParamUnion(openai.UserMessage(convertLLMChatMessageToLLMCompatibleFlowingText(anon))))
 			continue
