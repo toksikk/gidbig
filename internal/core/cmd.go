@@ -44,7 +44,7 @@ var (
 )
 
 func onReady(s *discordgo.Session, event *discordgo.Ready) {
-	slog.Info("Discord READY", "session_id", event.SessionID, "user", event.User.String(), "guilds", len(event.Guilds), "latency_ms", s.HeartbeatLatency().Milliseconds())
+	slog.Info("Discord READY", "user", event.User.String(), "guilds", len(event.Guilds))
 }
 
 func onConnect(s *discordgo.Session, event *discordgo.Connect) {
@@ -56,25 +56,17 @@ func onConnect(s *discordgo.Session, event *discordgo.Connect) {
 }
 
 func onDisconnect(s *discordgo.Session, event *discordgo.Disconnect) {
-	s.RLock()
-	lastHeartbeatSent := s.LastHeartbeatSent
-	lastHeartbeatAck := s.LastHeartbeatAck
-	dataReady := s.DataReady
-	s.RUnlock()
-
-	slog.Error("Discord WebSocket disconnected; bot is offline until reconnect",
+	// Callbacks run asynchronously and can arrive after the next Connect.
+	// Do not wait for the session lock or claim this is the current state.
+	slog.Warn("Discord WebSocket disconnect event received; automatic reconnect enabled",
 		"shard_id", s.ShardID,
 		"shard_count", s.ShardCount,
 		"reconnect_enabled", s.ShouldReconnectOnError,
-		"data_ready", dataReady,
-		"last_heartbeat_sent", lastHeartbeatSent,
-		"last_heartbeat_ack", lastHeartbeatAck,
-		"heartbeat_ack_age", time.Since(lastHeartbeatAck).Round(time.Millisecond),
 	)
 }
 
 func onResumed(s *discordgo.Session, event *discordgo.Resumed) {
-	slog.Info("Discord session resumed", "latency_ms", s.HeartbeatLatency().Milliseconds())
+	slog.Info("Discord session resumed")
 }
 
 func scontains(key string, options ...string) bool {
@@ -296,6 +288,12 @@ func StartGidbig() {
 	discord.AddHandler(onStatusInteractionCreate)
 	discord.AddHandler(onCoreSlashInteractionCreate)
 
+	watchdogCtx, stopWatchdog := context.WithCancel(context.Background())
+	defer stopWatchdog()
+	go runDiscordWatchdog(watchdogCtx, discord, discordWatchdogInterval, discordWatchdogTimeout, func() {
+		os.Exit(1)
+	})
+
 	err = discord.Open()
 	if err != nil {
 		slog.Error("Failed to create discord websocket connection", "error", err)
@@ -410,12 +408,15 @@ func StartGidbig() {
 
 	slog.Info("shutting down")
 
+	stopWatchdog()
 	bgCancel()
-	bgSupervisor.Wait()
 
 	shutdownDone := make(chan struct{})
 	go func() {
 		defer close(shutdownDone)
+		// Background tasks can also be blocked on the Discord session lock.
+		// Include their wait in the shutdown deadline.
+		bgSupervisor.Wait()
 		if err := discord.Close(); err != nil {
 			slog.Error("error closing discord session", "error", err)
 		}
@@ -436,5 +437,6 @@ func StartGidbig() {
 		slog.Info("shutdown complete")
 	case <-time.After(10 * time.Second):
 		slog.Warn("shutdown timed out after 10s, forcing exit")
+		logGoroutineStacks()
 	}
 }

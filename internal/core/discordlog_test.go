@@ -63,3 +63,17 @@ func TestDiscordgoLevelNameUnknown(t *testing.T) {
 		t.Fatalf("discordgoLevelName(99) = %q, want unknown", got)
 	}
 }
+
+func TestLogDiscordgoSummarizesHandshake(t *testing.T) {
+	var output bytes.Buffer
+	previousLogger := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&output, nil)))
+	t.Cleanup(func() { slog.SetDefault(previousLogger) })
+	logDiscordgo(discordgo.LogInformational, 0, "First Packet:\n%#v\n", &discordgo.Event{
+		Type: "READY", Sequence: 123, RawData: []byte(`{"session_id":"private-session"}`),
+	})
+	got := output.String()
+	if !strings.Contains(got, "op=0 type=READY sequence=123") || strings.Contains(got, "private-session") || strings.Contains(got, "RawData") {
+		t.Fatalf("unexpected handshake log: %s", got)
+	}
+}

@@ -28,10 +28,8 @@ require (
 	golang.org/x/text v0.40.0 // indirect
 )
 
-// Pinned to 930441e7 (2026-03-07): the last fork commit where DAVE actually
-// activates after the Welcome message.  Commit c77a807b (2026-03-08) and later
-// removed the immediate HandleExecuteTransition call after Welcome and waited
-// for an OP22 execute_transition that Discord doesn't send for the initial
-// handshake — leaving DAVE in a "prepared" state forever, frames sent without
-// DAVE encryption, and Discord clients dropping them silently (#113).
-replace github.com/bwmarrin/discordgo => github.com/yeongaori/discordgo-fork v0.0.0-20260307131331-930441e7bd78
+// Pin a reproducible fork revision with the Op7/Op9 handshake deadlock fix
+// (PR #5), immediate DAVE Welcome activation (PR #6, regression #113), and
+// bounded resume attempts (6f7dfa36). Live DAVE playback must be verified
+// before deploying any pin change; see docs/discord-gateway-recovery.md.
+replace github.com/bwmarrin/discordgo => github.com/yeongaori/discordgo-fork v0.0.0-20260913055947-94d3e03d65d1

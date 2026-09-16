@@ -18,7 +18,7 @@
 
 ## Dependency Constraint
 
-- Do not casually update `github.com/bwmarrin/discordgo`: `go.mod` replaces it with `yeongaori/discordgo-fork@930441e7`, the last verified commit where initial DAVE voice encryption activates. Any bump requires testing playback in a DAVE-enabled voice channel; later fork commits caused silently dropped audio (#113).
+- Keep `github.com/bwmarrin/discordgo` replaced with an explicit `yeongaori/discordgo-fork` commit. The pin `94d3e03d` includes the Op7/Op9 handshake deadlock fix and restored initial DAVE Welcome activation. `930441e7` was the previous live-verified baseline; the new pin's live DAVE playback check is still pending. Any pin change requires playback testing in a DAVE-enabled voice channel before deployment (silent-audio regression #113); see `docs/discord-gateway-recovery.md`.
 
 ## Git And Releases
 
