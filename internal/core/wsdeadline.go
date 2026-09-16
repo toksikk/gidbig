@@ -39,7 +39,7 @@ const (
 // SetWriteDeadline still reach the underlying conn, but are
 // deliberately overwritten on the next Read/Write: the per-call
 // deadline is the whole point of the wrapper. The pinned discordgo
-// fork never sets its own deadlines (verified against 930441e7); if a
+// fork never sets its own deadlines (verified against 94d3e03d); if a
 // future fork bump introduces them, revisit this wrapper.
 type deadlineConn struct {
 	net.Conn
