@@ -14,6 +14,7 @@ import (
 	"github.com/bwmarrin/discordgo"
 	humanize "github.com/dustin/go-humanize"
 	"github.com/toksikk/gidbig/internal/admin"
+	"github.com/toksikk/gidbig/internal/anticheat"
 	"github.com/toksikk/gidbig/internal/bot"
 	"github.com/toksikk/gidbig/internal/cfg"
 	"github.com/toksikk/gidbig/internal/coffee"
@@ -359,6 +360,15 @@ func StartGidbig() {
 		}
 		bgSupervisor.Start(bgCtx, leetoMod.Background()...)
 	}
+	anticheatMod := anticheat.New()
+	if err := anticheatMod.Init(bot.Deps{Session: discord, OwnerID: conf.Discord.OwnerID}); err != nil {
+		slog.Error("anticheat: init failed", "error", err)
+	} else {
+		for _, l := range anticheatMod.Listeners() {
+			discord.AddHandler(l)
+		}
+		bgSupervisor.Start(bgCtx, anticheatMod.Background()...)
+	}
 	stollMod := stoll.New()
 	if err := stollMod.Init(bot.Deps{Session: discord, OwnerID: conf.Discord.OwnerID}); err != nil {
 		slog.Error("stoll: init failed", "error", err)
@@ -392,6 +402,7 @@ func StartGidbig() {
 	cmds = append(cmds, coffeeMod.Commands()...)
 	cmds = append(cmds, esoMod.Commands()...)
 	cmds = append(cmds, gippity.Commands()...)
+	cmds = append(cmds, anticheatMod.Commands()...)
 	cmds = append(cmds, stollMod.Commands()...)
 	cmds = append(cmds, wardogsMod.Commands()...)
 	cmds = append(cmds, wttrinMod.Commands()...)
