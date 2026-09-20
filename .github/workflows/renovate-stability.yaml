@@ -35,10 +35,12 @@ jobs:
                       if (!/^[0-9a-f]{40}$/.test(sha)) {
                           throw new Error('A full commit SHA is required');
                       }
-                      const prs = await github.paginate(github.rest.repos.listPullRequestsAssociatedWithCommit, {
-                          ...repo, commit_sha: sha,
+                      // Fork head commits may have no commit-to-PR association in
+                      // the base repository. Match against open PR heads instead.
+                      const prs = await github.paginate(github.rest.pulls.list, {
+                          ...repo, state: 'open', base: 'master', per_page: 100,
                       });
-                      const open = prs.filter(pr => pr.state === 'open' && pr.base.ref === 'master' && pr.head.sha === sha);
+                      const open = prs.filter(pr => pr.head.sha === sha);
                       if (open.length === 0) return;
                       // Statuses belong to commits, so a second PR must not bypass a Renovate wait.
                       const renovate = open.some(pr => pr.user.login === 'renovate[bot]' || pr.head.ref.startsWith('renovate/'));
