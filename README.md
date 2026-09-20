@@ -113,6 +113,18 @@ make docker                   # Build Docker image
 make update                   # go get -u -t ./... && go mod tidy
 ```
 
+### CI and deployments
+
+The `Check and build` workflow runs on pushes, pull requests targeting `master`
+(including forks), and manual starts. Go/build-input and CI-configuration changes
+run lint, tests, and a build; manual starts always run those checks. Pull-request
+runs test GitHub's merge ref with a read-only token and no deployment secrets.
+
+Only code pushes in `toksikk/gidbig` can dispatch deployments after successful
+checks: `master`, or an internal branch with an open, non-draft PR. Renovate and
+Dependabot actors/branches remain excluded. Fork PRs, pull-request events, manual
+starts, tags, and CI-only changes never deploy.
+
 ## 🐳 Docker
 
 ```bash

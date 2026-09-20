@@ -2,7 +2,13 @@ name: Check and build
 
 on:
     push:
+    pull_request:
+        branches: [master]
     workflow_dispatch:
+
+permissions:
+    contents: read
+    pull-requests: read
 
 jobs:
     detect_changes:
@@ -11,6 +17,7 @@ jobs:
 
         outputs:
             go: ${{ steps.filter.outputs.go }}
+            ci: ${{ steps.filter.outputs.ci }}
 
         steps:
             - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
@@ -24,11 +31,14 @@ jobs:
                         - 'go.mod'
                         - 'go.sum'
                         - 'Makefile'
+                      ci:
+                        - '.github/workflows/pipeline.yaml'
+                        - '.golangci.*'
 
     check_code:
         name: Check code
         needs: detect_changes
-        if: needs.detect_changes.outputs.go == 'true' || github.event_name == 'workflow_dispatch'
+        if: needs.detect_changes.outputs.go == 'true' || needs.detect_changes.outputs.ci == 'true' || github.event_name == 'workflow_dispatch'
         runs-on: ubuntu-latest
 
         steps:
@@ -49,7 +59,7 @@ jobs:
     build:
         name: Build
         needs: detect_changes
-        if: needs.detect_changes.outputs.go == 'true' || github.event_name == 'workflow_dispatch'
+        if: needs.detect_changes.outputs.go == 'true' || needs.detect_changes.outputs.ci == 'true' || github.event_name == 'workflow_dispatch'
         runs-on: ubuntu-latest
 
         steps:
@@ -68,17 +78,20 @@ jobs:
 
     deploy:
         name: Deploy
+        # Only internal code pushes may deploy. PR events (including forks),
+        # manual checks, tags, and workflow-only changes must never dispatch.
         if: >-
             ${{
-                github.event_name == 'workflow_dispatch' ||
-                (
-                    github.actor != 'renovate[bot]' &&
-                    github.actor != 'dependabot[bot]' &&
-                    !startsWith(github.ref_name, 'renovate/') &&
-                    !startsWith(github.ref_name, 'dependabot/')
-                )
+                github.event_name == 'push' &&
+                github.repository == 'toksikk/gidbig' &&
+                startsWith(github.ref, 'refs/heads/') &&
+                needs.detect_changes.outputs.go == 'true' &&
+                github.actor != 'renovate[bot]' &&
+                github.actor != 'dependabot[bot]' &&
+                !startsWith(github.ref_name, 'renovate/') &&
+                !startsWith(github.ref_name, 'dependabot/')
             }}
-        needs: [check_code, build]
+        needs: [detect_changes, check_code, build]
         runs-on: ubuntu-latest
 
         steps:
@@ -86,12 +99,14 @@ jobs:
               id: check
               env:
                   GH_TOKEN: ${{ github.token }}
+                  GH_REPO: ${{ github.repository }}
+                  BRANCH: ${{ github.ref_name }}
               run: |
-                  if [ "${{ github.ref_name }}" = "master" ]; then
-                      echo "deploy=true" >> $GITHUB_OUTPUT
+                  if [ "$BRANCH" = "master" ]; then
+                      echo "deploy=true" >> "$GITHUB_OUTPUT"
                   else
-                      PR_COUNT=$(gh pr list --repo "${{ github.repository }}" --head "${{ github.ref_name }}" --state open --json number,isDraft -q '[.[] | select(.isDraft == false)] | length')
-                      echo "deploy=$([ "${PR_COUNT:-0}" -gt 0 ] && echo true || echo false)" >> $GITHUB_OUTPUT
+                      PR_COUNT=$(gh pr list --repo "$GH_REPO" --head "$BRANCH" --state open --json number,isDraft,isCrossRepository -q '[.[] | select(.isDraft == false and .isCrossRepository == false)] | length')
+                      echo "deploy=$([ "${PR_COUNT:-0}" -gt 0 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
                   fi
 
             - name: Dispatch Deploy Repo
