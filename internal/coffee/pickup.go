@@ -17,13 +17,13 @@ const (
 	orderStatusExpired  = "expired"
 
 	pickupWindow       = 20 * time.Minute
-	violationWindow    = 90 * 24 * time.Hour
+	violationWindow    = 30 * 24 * time.Hour
 	orderSweepInterval = time.Minute
 )
 
 var (
-	banDurations        = [...]time.Duration{0, 3 * 24 * time.Hour, 7 * 24 * time.Hour, 30 * 24 * time.Hour}
-	probationDurations  = [...]time.Duration{0, 7 * 24 * time.Hour, 14 * 24 * time.Hour, 28 * 24 * time.Hour}
+	banDurations        = [...]time.Duration{0, 1 * 24 * time.Hour, 2 * 24 * time.Hour, 7 * 24 * time.Hour}
+	probationDurations  = [...]time.Duration{0, 2 * 24 * time.Hour, 4 * 24 * time.Hour, 7 * 24 * time.Hour}
 	violationThresholds = [...]int{3, 2, 1, 1}
 )
 

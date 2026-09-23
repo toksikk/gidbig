@@ -92,20 +92,20 @@ func TestPickupViolationsEscalateGlobally(t *testing.T) {
 		recordViolation(t, m, id, "u1", start.Add(time.Duration(id)*time.Hour))
 	}
 	stageOne := loadRestriction(t, m, "u1")
-	if stageOne.Stage != 1 || !stageOne.ProbationUntil.Equal(stageOne.BlockedUntil.Add(7*24*time.Hour)) {
+	if stageOne.Stage != 1 || !stageOne.BlockedUntil.Equal(start.Add(3*time.Hour+24*time.Hour)) || !stageOne.ProbationUntil.Equal(stageOne.BlockedUntil.Add(2*24*time.Hour)) {
 		t.Fatalf("stage one = %+v", stageOne)
 	}
 	afterFirstBan := stageOne.BlockedUntil.Add(time.Hour)
 	recordViolation(t, m, 4, "u1", afterFirstBan)
 	recordViolation(t, m, 5, "u1", afterFirstBan.Add(time.Hour))
 	stageTwo := loadRestriction(t, m, "u1")
-	if stageTwo.Stage != 2 || !stageTwo.BlockedUntil.Equal(afterFirstBan.Add(time.Hour+7*24*time.Hour)) || !stageTwo.ProbationUntil.Equal(stageTwo.BlockedUntil.Add(14*24*time.Hour)) {
+	if stageTwo.Stage != 2 || !stageTwo.BlockedUntil.Equal(afterFirstBan.Add(time.Hour+2*24*time.Hour)) || !stageTwo.ProbationUntil.Equal(stageTwo.BlockedUntil.Add(4*24*time.Hour)) {
 		t.Fatalf("stage two = %+v", stageTwo)
 	}
 	afterSecondBan := stageTwo.BlockedUntil.Add(time.Hour)
 	recordViolation(t, m, 6, "u1", afterSecondBan)
 	stageThree := loadRestriction(t, m, "u1")
-	if stageThree.Stage != 3 || !stageThree.BlockedUntil.Equal(afterSecondBan.Add(30*24*time.Hour)) || !stageThree.ProbationUntil.Equal(stageThree.BlockedUntil.Add(28*24*time.Hour)) {
+	if stageThree.Stage != 3 || !stageThree.BlockedUntil.Equal(afterSecondBan.Add(7*24*time.Hour)) || !stageThree.ProbationUntil.Equal(stageThree.BlockedUntil.Add(7*24*time.Hour)) {
 		t.Fatalf("stage three = %+v", stageThree)
 	}
 }
@@ -153,7 +153,25 @@ func TestOldViolationsDoNotTriggerFirstBan(t *testing.T) {
 	var count int64
 	m.getDB().Model(&BrewRestriction{}).Where("user_id = ?", "u1").Count(&count)
 	if count != 0 {
-		t.Fatal("a violation older than 90 days must not trigger a ban")
+		t.Fatal("a violation older than 30 days must not trigger a ban")
+	}
+}
+
+func TestAugustAndSeptemberMissesDoNotTriggerBan(t *testing.T) {
+	m := newTestModule(t)
+	for id, at := range []time.Time{
+		time.Date(2026, 8, 21, 12, 0, 0, 0, time.UTC),
+		time.Date(2026, 8, 31, 12, 0, 0, 0, time.UTC),
+		time.Date(2026, 9, 23, 12, 0, 0, 0, time.UTC),
+	} {
+		recordViolation(t, m, uint(id+1), "u1", at)
+	}
+	var restrictions int64
+	if err := m.getDB().Model(&BrewRestriction{}).Where("user_id = ?", "u1").Count(&restrictions).Error; err != nil {
+		t.Fatalf("count restrictions: %v", err)
+	}
+	if restrictions != 0 {
+		t.Fatalf("restrictions = %d, want 0", restrictions)
 	}
 }
 
@@ -312,7 +330,7 @@ func TestPickupPenaltyStatsShowsStrikesTimeoutsAndProbation(t *testing.T) {
 		recordViolation(t, m, id, "blocked", now.Add(-time.Duration(4-id)*time.Hour))
 	}
 	for id := uint(4); id <= 6; id++ {
-		recordViolation(t, m, id, "probation", now.Add(-5*24*time.Hour+time.Duration(id-4)*time.Hour))
+		recordViolation(t, m, id, "probation", now.Add(-2*24*time.Hour+time.Duration(id-4)*time.Hour))
 	}
 	recordViolation(t, m, 7, "old", now.Add(-violationWindow-time.Hour))
 
