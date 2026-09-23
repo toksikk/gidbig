@@ -797,7 +797,7 @@ func formatUserStats(userID string, drinks, refills []labelCount, groundsCount, 
 		}
 	}
 
-	sb.WriteString("\n**Unclaimed-drink strikes** _(Discord-wide, last 90 days)_\n")
+	fmt.Fprintf(&sb, "\n**Unclaimed-drink strikes** _(Discord-wide, last %d days)_\n", int(violationWindow/(24*time.Hour)))
 	if len(penalties) == 0 {
 		sb.WriteString("_none active_\n")
 	}
