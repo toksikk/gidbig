@@ -1437,7 +1437,7 @@ func TestFormatUserStats(t *testing.T) {
 		1, 250,
 		[]labelCount{{Key: "milk", Count: 3}},
 		[]pickupPenaltyStat{{UserID: "B", Strikes: 2, Stage: 1, BlockedUntil: now.Add(3 * time.Hour), ProbationUntil: now.Add(7 * 24 * time.Hour)}}, now)
-	for _, want := range []string{"<@A>", "Coffee: 2", "Espresso: 1", "Water: 2× (800 total)", "1× · 250g total · 250g avg", "Milk: 3", "last 30 days", "<@B>: 2 strikes", "stage 1 timeout"} {
+	for _, want := range []string{"<@A>", "Coffee: 2", "Espresso: 1", "Water: 2× (800 total)", "1× · 250g total · 250g avg", "Milk: 3", "last 14 days", "<@B>: 2 strikes", "stage 1 timeout"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("stats missing %q:\n%s", want, got)
 		}
