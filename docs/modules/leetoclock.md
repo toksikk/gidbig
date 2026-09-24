@@ -15,6 +15,8 @@ Daily game: players race to post exactly when the clock hits `13:37` (configurab
 
 Both commands default to private (ephemeral) responses. Set `public:true` to share in the invoking channel. Set `scope:global` for cross-server records; otherwise results cover all channels in the current server. Global results show server names when available and never link to cross-server messages. Period choices: `month` (current calendar month), `7d` (past 7 days), `30d` (past 30 days), `all` (all stored history). Only scores at or after the target time count; early-bird negative scores are excluded.
 
+Public `/leetoclock top` uses plain cached display names (or neutral player numbers when unavailable), never player mentions. Private results can display player mentions without sending notifications.
+
 Older databases need a one-time repair before these commands can read historical game rows correctly. See [database repair instructions](../leetoclock-database-repair.md).
 
 ## Scoring flow
