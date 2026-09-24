@@ -70,15 +70,13 @@ func historyQuery(start, end time.Time, guildID, userID string) (string, []any) 
 
 const recordColumns = `s.score, p.user_id, g.game_date, g.guild_id, g.channel_id, s.message_id`
 
-// TopPlayers returns up to ten distinct players' best valid attempts in a guild.
-// Ties are resolved by score, game date, message ID, then user ID.
+// TopPlayers returns up to ten distinct players' best valid attempts.
+// Empty guildID selects records across all guilds. Ties are resolved by score,
+// game date, message ID, then user ID.
 func (s *Store) TopPlayers(guildID string, period Period, now time.Time) ([]ScoreRecord, error) {
 	start, end, err := historyBounds(period, now)
 	if err != nil {
 		return nil, err
-	}
-	if guildID == "" {
-		return nil, fmt.Errorf("guild ID required for server leaderboard")
 	}
 	from, args := historyQuery(start, end, guildID, "")
 	query := `WITH ranked AS (

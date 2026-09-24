@@ -4,6 +4,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strconv"
+	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/bwmarrin/discordgo"
@@ -31,14 +34,18 @@ func recordCommands() []*discordgo.ApplicationCommand {
 	return []*discordgo.ApplicationCommand{{
 		Name: "leetoclock", Description: "View Leet o'Clock records", DMPermission: new(false),
 		Options: []*discordgo.ApplicationCommandOption{
-			{Type: discordgo.ApplicationCommandOptionSubCommand, Name: "top", Description: "Best players in this server", Options: []*discordgo.ApplicationCommandOption{period(), visibility()}},
+			{Type: discordgo.ApplicationCommandOptionSubCommand, Name: "top", Description: "Best players in this server or globally", Options: []*discordgo.ApplicationCommandOption{period(), scopeOption(), visibility()}},
 			{Type: discordgo.ApplicationCommandOptionSubCommand, Name: "player", Description: "One player's best records", Options: []*discordgo.ApplicationCommandOption{
 				{Type: discordgo.ApplicationCommandOptionUser, Name: "user", Description: "Player (default: you)"}, period(),
-				{Type: discordgo.ApplicationCommandOptionString, Name: "scope", Description: "Record scope (default: this server)", Choices: []*discordgo.ApplicationCommandOptionChoice{
-					{Name: "This server", Value: "server"}, {Name: "All servers", Value: "global"},
-				}}, visibility(),
+				scopeOption(), visibility(),
 			}},
 		},
+	}}
+}
+
+func scopeOption() *discordgo.ApplicationCommandOption {
+	return &discordgo.ApplicationCommandOption{Type: discordgo.ApplicationCommandOptionString, Name: "scope", Description: "Record scope (default: this server)", Choices: []*discordgo.ApplicationCommandOptionChoice{
+		{Name: "This server", Value: "server"}, {Name: "All servers", Value: "global"},
 	}}
 }
 
@@ -93,7 +100,7 @@ func parseRecordRequest(i *discordgo.InteractionCreate) (recordRequest, error) {
 			r.public = value
 		case "scope":
 			value, ok := opt.Value.(string)
-			if !ok || r.subcommand != "player" || (value != "server" && value != "global") {
+			if !ok || (value != "server" && value != "global") {
 				return r, fmt.Errorf("invalid scope")
 			}
 			r.scope = value
@@ -175,11 +182,15 @@ func (m *Module) recordResponse(guildID string, r recordRequest) (string, error)
 		return "", fmt.Errorf("store unavailable")
 	}
 	if r.subcommand == "top" {
-		records, err := m.store.TopPlayers(guildID, r.period, m.now())
+		queryGuild := guildID
+		if r.scope == "global" {
+			queryGuild = ""
+		}
+		records, err := m.store.TopPlayers(queryGuild, r.period, m.now())
 		if err != nil {
 			return "", err
 		}
-		return renderTop(guildID, r.periodName, records), nil
+		return renderTop(r, records, m.serverName), nil
 	}
 	guildScope := guildID
 	if r.scope == "global" {
@@ -194,9 +205,34 @@ func (m *Module) recordResponse(guildID string, r recordRequest) (string, error)
 		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 			return "", err
 		}
-		return renderPlayer(r, records, count, errors.Is(err, gorm.ErrRecordNotFound)), nil
+		return renderPlayer(r, records, count, errors.Is(err, gorm.ErrRecordNotFound), m.serverName), nil
 	}
-	return renderPlayer(r, records, count, false), nil
+	return renderPlayer(r, records, count, false, m.serverName), nil
+}
+
+// Only use guild names already available in the session state; global lookups
+// must not fetch inaccessible guild details or show internal IDs.
+func (m *Module) serverName(guildID string) string {
+	if m.session != nil && m.session.State != nil {
+		if guild, err := m.session.State.Guild(guildID); err == nil && guild != nil {
+			return safeServerName(guild.Name)
+		}
+	}
+	return "Unknown server"
+}
+
+func safeServerName(name string) string {
+	name = strings.NewReplacer("@", "＠", "`", "'", "*", "", "_", "", "\n", " ", "\r", " ").Replace(name)
+	if len(name) > 60 {
+		name = name[:60]
+		for !utf8.ValidString(name) {
+			name = name[:len(name)-1]
+		}
+	}
+	if name == "" {
+		return "Unknown server"
+	}
+	return name
 }
 
 func appendRecordLine(body string, line string) string {
@@ -217,19 +253,33 @@ func boundedRecords(body string) string {
 	return body
 }
 
-func renderTop(guildID, period string, records []datastore.ScoreRecord) string {
-	body := fmt.Sprintf("**Leet o'Clock top · server %s · %s**\n", guildID, period)
+func renderTop(r recordRequest, records []datastore.ScoreRecord, serverName func(string) string) string {
+	scope := "current server"
+	if r.scope == "global" {
+		scope = "global"
+	}
+	body := fmt.Sprintf("**Leet o'Clock top · %s · %s**\n", scope, r.periodName)
 	if len(records) == 0 {
 		return boundedRecords(body + "No valid scores in this period.")
 	}
 	for idx, record := range records {
-		body = appendRecordLine(body, fmt.Sprintf("%d. <@%s> — %d ms · <t:%d:d>%s\n", idx+1, record.UserID, record.Score, record.GameDate.Unix(), recordLink(record)))
+		line := fmt.Sprintf("%d. <@%s> — %d ms · %s", idx+1, record.UserID, record.Score, recordDate(record))
+		if r.scope == "global" {
+			line += " · " + serverName(record.GuildID)
+		} else {
+			line += recordLink(record)
+		}
+		body = appendRecordLine(body, line+"\n")
 	}
 	return boundedRecords(body)
 }
 
-func renderPlayer(r recordRequest, records []datastore.ScoreRecord, count int64, missing bool) string {
-	body := fmt.Sprintf("**Leet o'Clock · <@%s> · %s · %s**\nValid attempts: %d\n", r.userID, r.scope, r.periodName, count)
+func renderPlayer(r recordRequest, records []datastore.ScoreRecord, count int64, missing bool, serverName func(string) string) string {
+	scope := "current server"
+	if r.scope == "global" {
+		scope = "global"
+	}
+	body := fmt.Sprintf("**Leet o'Clock · <@%s> · %s · %s**\nValid attempts: %d\n", r.userID, scope, r.periodName, count)
 	if missing {
 		return boundedRecords(body + "No stored player found.")
 	}
@@ -237,15 +287,32 @@ func renderPlayer(r recordRequest, records []datastore.ScoreRecord, count int64,
 		return boundedRecords(body + "No valid scores in this period and scope.")
 	}
 	for idx, record := range records {
-		line := fmt.Sprintf("%d. %d ms · <t:%d:d>", idx+1, record.Score, record.GameDate.Unix())
+		line := fmt.Sprintf("%d. %d ms · %s", idx+1, record.Score, recordDate(record))
 		if r.scope == "global" {
-			line += " · server " + record.GuildID
+			line += " · " + serverName(record.GuildID)
 		} else {
 			line += recordLink(record)
 		}
 		body = appendRecordLine(body, line+"\n")
 	}
 	return boundedRecords(body)
+}
+
+// Some older stored games have an invalid date. Recover the date from the
+// scored Discord message when possible instead of displaying a 1970 timestamp.
+func recordDate(record datastore.ScoreRecord) string {
+	date := record.GameDate
+	if date.Before(time.Date(2015, time.January, 1, 0, 0, 0, 0, time.UTC)) || date.After(time.Now().Add(24*time.Hour)) {
+		if id, err := strconv.ParseUint(record.MessageID, 10, 64); err == nil && id >= 1<<22 {
+			if recovered, err := discordgo.SnowflakeTimestamp(record.MessageID); err == nil {
+				date = recovered
+			}
+		}
+	}
+	if date.Before(time.Date(2015, time.January, 1, 0, 0, 0, 0, time.UTC)) || date.After(time.Now().Add(24*time.Hour)) {
+		return "date unavailable"
+	}
+	return fmt.Sprintf("<t:%d:d>", date.Unix())
 }
 
 func recordLink(record datastore.ScoreRecord) string {
