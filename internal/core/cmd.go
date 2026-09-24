@@ -49,6 +49,13 @@ func onReady(s *discordgo.Session, event *discordgo.Ready) {
 	slog.Info("Discord READY", "user", event.User.String(), "guilds", len(event.Guilds))
 }
 
+func appendLeetoCommands(commands []*discordgo.ApplicationCommand, module *leetoclock.Module, ready bool) []*discordgo.ApplicationCommand {
+	if ready {
+		return append(commands, module.Commands()...)
+	}
+	return commands
+}
+
 func onConnect(s *discordgo.Session, event *discordgo.Connect) {
 	slog.Info("Discord WebSocket connected",
 		"shard_id", s.ShardID,
@@ -402,6 +409,7 @@ func StartGidbig() {
 	cmds = append(cmds, coffeeMod.Commands()...)
 	cmds = append(cmds, esoMod.Commands()...)
 	cmds = append(cmds, gippity.Commands()...)
+	cmds = appendLeetoCommands(cmds, leetoMod, leetoReady)
 	cmds = append(cmds, anticheatMod.Commands()...)
 	cmds = append(cmds, stollMod.Commands()...)
 	cmds = append(cmds, wardogsMod.Commands()...)

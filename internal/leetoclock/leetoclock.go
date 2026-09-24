@@ -135,11 +135,11 @@ func (m *Module) Init(d bot.Deps) error {
 	return nil
 }
 
-func (m *Module) Commands() []*discordgo.ApplicationCommand { return nil }
+func (m *Module) Commands() []*discordgo.ApplicationCommand { return recordCommands() }
 
 // Listeners returns the Discord listeners owned by this module.
 func (m *Module) Listeners() []bot.EventListener {
-	return []bot.EventListener{m.onMessageCreate}
+	return []bot.EventListener{m.onMessageCreate, m.onInteractionCreate}
 }
 
 func (m *Module) Components() []bot.ComponentHandler { return nil }
