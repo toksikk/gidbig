@@ -104,6 +104,13 @@ func TestTopPlayers(t *testing.T) {
 	if err != nil || empty == nil || len(empty) != 0 {
 		t.Errorf("empty leaderboard = %v, %v", empty, err)
 	}
+	global, err := f.store.TopPlayers("", PeriodMonth, f.now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(global) != 10 || global[0].GuildID != "other" || global[0].UserID != "alice" {
+		t.Errorf("global leaderboard = %+v", global)
+	}
 }
 
 func TestPlayerRecords(t *testing.T) {

@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -19,7 +20,7 @@ func TestRecordCommandsSchema(t *testing.T) {
 	if command.Name != "leetoclock" || len(command.Options) != 2 || command.Options[0].Name != "top" || command.Options[1].Name != "player" {
 		t.Fatalf("unexpected command: %#v", command)
 	}
-	for index, want := range [][]string{{"period", "public"}, {"user", "period", "scope", "public"}} {
+	for index, want := range [][]string{{"period", "scope", "public"}, {"user", "period", "scope", "public"}} {
 		sub := command.Options[index]
 		if sub.Type != discordgo.ApplicationCommandOptionSubCommand || len(sub.Options) != len(want) {
 			t.Fatalf("subcommand = %#v", sub)
@@ -119,7 +120,14 @@ func TestRecordInteractionRoutingAndVisibility(t *testing.T) {
 	addRecord(t, m, "one", "channel", "alice", "msg1", m.now().Add(-time.Hour), 0)
 	addRecord(t, m, "one", "channel2", "bob", "msg2", m.now().Add(-time.Hour), 100)
 	addRecord(t, m, "two", "elsewhere", "alice", "msg3", m.now().Add(-time.Hour), 1)
+	addRecord(t, m, "two", "elsewhere", "carol", "msg4", m.now().Add(-time.Hour), 2)
 	addRecord(t, m, "one", "channel", "alice", "early", m.now().Add(-time.Hour), -10)
+	if err := m.session.State.GuildAdd(&discordgo.Guild{ID: "one", Name: "Home Server"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.session.State.GuildAdd(&discordgo.Guild{ID: "two", Name: "Away Server"}); err != nil {
+		t.Fatal(err)
+	}
 	s, calls := recordSession(t)
 	for _, tc := range []struct {
 		sub          string
@@ -129,6 +137,7 @@ func TestRecordInteractionRoutingAndVisibility(t *testing.T) {
 	}{
 		{"top", nil, discordgo.MessageFlagsEphemeral, "<@bob>", "elsewhere"},
 		{"top", []*discordgo.ApplicationCommandInteractionDataOption{recordOption("period", "all"), recordOption("public", true)}, 0, "<@alice>", "msg3"},
+		{"top", []*discordgo.ApplicationCommandInteractionDataOption{recordOption("scope", "global")}, discordgo.MessageFlagsEphemeral, "Away Server", "discord.com/channels"},
 		{"player", nil, discordgo.MessageFlagsEphemeral, "Valid attempts: 1", "msg3"},
 		{"player", []*discordgo.ApplicationCommandInteractionDataOption{recordOption("user", "bob"), recordOption("scope", "global"), recordOption("public", true)}, 0, "<@bob>", "discord.com/channels"},
 		{"player", []*discordgo.ApplicationCommandInteractionDataOption{recordOption("scope", "global")}, discordgo.MessageFlagsEphemeral, "Valid attempts: 2", "discord.com/channels"},
@@ -218,10 +227,10 @@ func TestRecordFormattingBounded(t *testing.T) {
 	for i := range rows {
 		rows[i] = datastore.ScoreRecord{UserID: long, GuildID: long, ChannelID: long, MessageID: long, Score: i, GameDate: time.Now()}
 	}
-	if body := renderTop("guild", "all", rows); len(body) > 2000 {
+	if body := renderTop(recordRequest{periodName: "all"}, rows, func(string) string { return "Unknown server" }); len(body) > 2000 {
 		t.Fatalf("top length %d", len(body))
 	}
-	if body := renderPlayer(recordRequest{userID: "alice", scope: "global", periodName: "all"}, rows, 10, false); len(body) > 2000 || strings.Contains(body, "discord.com/channels") {
+	if body := renderPlayer(recordRequest{userID: "alice", scope: "global", periodName: "all"}, rows, 10, false, func(string) string { return "Unknown server" }); len(body) > 2000 || strings.Contains(body, "discord.com/channels") {
 		t.Fatalf("global length/link: %d %s", len(body), body)
 	}
 }
@@ -254,13 +263,42 @@ func TestRecordPeriodsAndGuildScope(t *testing.T) {
 			if err != nil || !strings.Contains(body, fmt.Sprintf("Valid attempts: %d", scope.count)) {
 				t.Errorf("%s/%s: %s, %v", tc.period, scope.name, body, err)
 			}
-			if scope.name == "global" && (!strings.Contains(body, "server two") || strings.Contains(body, "discord.com/channels")) {
+			if scope.name == "global" && (!strings.Contains(body, "Unknown server") || strings.Contains(body, "discord.com/channels") || strings.Contains(body, "server two")) {
 				t.Errorf("global output: %s", body)
 			}
 		}
 	}
 	top, err := m.recordResponse("one", recordRequest{subcommand: "top", period: datastore.PeriodMonth, periodName: "month"})
-	if err != nil || strings.Contains(top, "server two") || !strings.Contains(top, "1 ms") || strings.Contains(top, "0 ms") {
+	if err != nil || !strings.Contains(top, "current server") || !strings.Contains(top, "1 ms") || strings.Contains(top, "0 ms") {
 		t.Errorf("server top: %s, %v", top, err)
+	}
+	global, err := m.recordResponse("one", recordRequest{subcommand: "top", scope: "global", period: datastore.PeriodMonth, periodName: "month"})
+	if err != nil || !strings.Contains(global, "0 ms") || strings.Contains(global, "discord.com/channels") {
+		t.Errorf("global top: %s, %v", global, err)
+	}
+}
+
+func TestLegacyRecordDisplay(t *testing.T) {
+	m, _ := newTestModule(t)
+	date := time.Date(2024, time.February, 19, 13, 37, 0, 0, time.UTC)
+	id := strconv.FormatInt((date.UnixMilli()-1420070400000)<<22, 10)
+	m.now = func() time.Time { return time.Date(2026, time.September, 24, 0, 0, 0, 0, time.Local) }
+	addRecord(t, m, "2024-02-19 13:37:00+01:00", "old-channel", "alice", id, time.Unix(6, 0), 1)
+	r, err := parseRecordRequest(recordInteraction("player", "one", "alice", recordOption("period", "all"), recordOption("scope", "global")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fromStore, err := m.recordResponse("one", r)
+	if err != nil || !strings.Contains(fromStore, fmt.Sprintf("<t:%d:d>", date.Unix())) || !strings.Contains(fromStore, "Unknown server") {
+		t.Fatalf("stored legacy row: %s, %v", fromStore, err)
+	}
+	record := datastore.ScoreRecord{Score: 1, UserID: "alice", GameDate: time.Unix(6, 0), GuildID: "2024-02-19 13:37:00+01:00", MessageID: id}
+	body := renderPlayer(recordRequest{userID: "alice", scope: "global", periodName: "all"}, []datastore.ScoreRecord{record}, 1, false, m.serverName)
+	if !strings.Contains(body, fmt.Sprintf("<t:%d:d>", date.Unix())) || !strings.Contains(body, "Unknown server") || strings.Contains(body, "2024-02-19 13:37:00+01:00") {
+		t.Fatalf("legacy row: %s", body)
+	}
+	record.MessageID = "invalid"
+	if got := recordDate(record); got != "date unavailable" {
+		t.Errorf("invalid legacy date = %q", got)
 	}
 }
