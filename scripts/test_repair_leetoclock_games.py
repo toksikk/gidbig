@@ -28,8 +28,8 @@ class RepairLeetoclockGamesTest(unittest.TestCase):
                 CREATE TABLE leetoclock_scores (id INTEGER PRIMARY KEY, game_id INTEGER, score INTEGER);
                 INSERT INTO leetoclock_seasons VALUES (7);
                 INSERT INTO leetoclock_games VALUES
-                    (1, 'channel', '2024-02-19 13:37:00+01:00', 7, 225303764108705793),
-                    (2, 'another', '125231125961506816', '2026-09-24 13:37:00+02:00', 7);
+                    (1, 'channel', '2024-02-19 13:37:00+01:00', 7, 111111111111111111),
+                    (2, 'another', '222222222222222222', '2026-09-24 13:37:00+02:00', 7);
                 INSERT INTO leetoclock_scores VALUES (1, 1, 0), (2, 2, 17);
             """)
 
@@ -46,9 +46,9 @@ class RepairLeetoclockGamesTest(unittest.TestCase):
         self.assertEqual(len(backups), 1)
         with sqlite3.connect(self.database) as db:
             self.assertEqual(db.execute("SELECT * FROM leetoclock_games WHERE id=1").fetchone(),
-                             (1, "channel", "225303764108705793", "2024-02-19 13:37:00+01:00", 7))
+                             (1, "channel", "111111111111111111", "2024-02-19 13:37:00+01:00", 7))
             self.assertEqual(db.execute("SELECT * FROM leetoclock_games WHERE id=2").fetchone(),
-                             (2, "another", "125231125961506816", "2026-09-24 13:37:00+02:00", 7))
+                             (2, "another", "222222222222222222", "2026-09-24 13:37:00+02:00", 7))
             self.assertEqual(db.execute("SELECT * FROM leetoclock_scores").fetchall(),
                              [(1, 1, 0), (2, 2, 17)])
             self.assertEqual(db.execute("PRAGMA foreign_key_check").fetchall(), [])
