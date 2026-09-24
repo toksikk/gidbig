@@ -1,12 +1,19 @@
 # leetoclock
 
-Directory `internal/leetoclock`. Implements `bot.Module`. No slash commands.
+Directory `internal/leetoclock`. Implements `bot.Module`.
 
 Daily game: players race to post exactly when the clock hits `13:37` (configurable). Score = ms offset from target (can be negative). Keeps a scoreboard, reacts with award emojis, announces winners.
 
 - Store: SQLite via `leetoclock/util/datastore`.
 - Emojis: configurable guild IDs, else Unicode fallback.
 - Debug mode: one minute after start, fast tick.
+
+## Record commands
+
+- `/leetoclock top` shows this server's ten best distinct players for the current calendar month. Example: `/leetoclock top period:7d public:true` posts the last seven days' leaderboard in the invoking channel.
+- `/leetoclock player` shows your current-month records in this server, including valid attempt count and ten best scores. Example: `/leetoclock player user:@someone period:all scope:global` looks up that player's records across servers without linking to other servers' messages.
+
+Both commands default to private (ephemeral) responses. Set `public:true` to share in the invoking channel. Period choices: `month` (current calendar month), `7d` (past 7 days), `30d` (past 30 days), `all` (all stored history). Only scores at or after the target time count; early-bird negative scores are excluded. Server results cover all channels in the server.
 
 ## Scoring flow
 

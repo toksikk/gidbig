@@ -22,11 +22,11 @@ func TestModuleShape(t *testing.T) {
 	if m.Name() != "leetoclock" {
 		t.Fatalf("Name() = %q, want leetoclock", m.Name())
 	}
-	if len(m.Commands()) != 0 || len(m.Components()) != 0 {
-		t.Fatal("leetoclock should not expose commands or components")
+	if len(m.Commands()) != 1 || len(m.Components()) != 0 {
+		t.Fatal("leetoclock should expose one command and no components")
 	}
-	if len(m.Listeners()) != 1 {
-		t.Fatalf("Listeners() len = %d, want 1", len(m.Listeners()))
+	if len(m.Listeners()) != 2 {
+		t.Fatalf("Listeners() len = %d, want 2", len(m.Listeners()))
 	}
 	if len(m.Background()) != 2 {
 		t.Fatalf("Background() len = %d, want 2", len(m.Background()))
