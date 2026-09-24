@@ -1,0 +1,9 @@
+# One-time Leet o'Clock database repair
+
+Before August 2026, 1,636 historical games in the live SQLite database were stored with three shifted fields: `guild_id` contains the game date, `game_date` contains the season ID, and `season_id` contains the guild ID. Score rows themselves are intact. Server and period queries for `/leetoclock top` and `/leetoclock player` cannot include those games correctly until their game rows are repaired. The copied production database has 3,526 nonnegative scores in these games. Run this once **before deploying the record commands** to production (or whenever moving an unrepaired database to a version with those commands).
+
+1. Stop the bot so the database cannot change during backup and repair. Locate the active SQLite file: `database.path` in `config.yaml`, otherwise `gidbig.db` in the bot's working directory.
+2. From the repository root, run `python3 scripts/repair-leetoclock-games.py /path/to/gidbig.db`. Python 3 standard library suffices. The script first makes a timestamped SQLite backup alongside the database, then repairs matching games in one transaction. It refuses unknown integer-date rows and rolls back if foreign-key validation fails.
+3. Check that it reports the expected number of repaired games (1,636 for the September 2026 production copy), then start the bot. Check `/leetoclock top period:all` and `/leetoclock player period:all` in each server. Negative early-bird scores remain excluded from records by design.
+
+Rerunning the command is safe: it reports zero changes and creates no new backup once all shifted games are repaired. Normal games are never touched. Keep the timestamped backup until you have checked the commands. To restore it while the bot is stopped, copy the backup over the database file. Keep local database copies and backups out of version control.
