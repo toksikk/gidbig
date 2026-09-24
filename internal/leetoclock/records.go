@@ -190,7 +190,7 @@ func (m *Module) recordResponse(guildID string, r recordRequest) (string, error)
 		if err != nil {
 			return "", err
 		}
-		return renderTop(r, records, m.serverName), nil
+		return renderTop(r, records, m.serverName, m.playerDisplayName), nil
 	}
 	guildScope := guildID
 	if r.scope == "global" {
@@ -235,6 +235,37 @@ func safeServerName(name string) string {
 	return name
 }
 
+// Public leaderboards use cached display names rather than Discord mentions.
+// Do not fetch users here: a cold cache must not delay the interaction or
+// generate ten extra API calls for a global leaderboard.
+func (m *Module) playerDisplayName(guildID, userID string) string {
+	if m.session == nil || m.session.State == nil {
+		return ""
+	}
+	member, err := m.session.State.Member(guildID, userID)
+	if err != nil || member == nil {
+		return ""
+	}
+	if member.Nick != "" {
+		return safePlayerName(member.Nick)
+	}
+	if member.User != nil {
+		return safePlayerName(member.User.DisplayName())
+	}
+	return ""
+}
+
+func safePlayerName(name string) string {
+	name = strings.NewReplacer("@", "＠", "<", "‹", ">", "›", "`", "'", "*", "", "_", "", "[", "", "]", "", "\n", " ", "\r", " ").Replace(name)
+	if len(name) > 60 {
+		name = name[:60]
+		for !utf8.ValidString(name) {
+			name = name[:len(name)-1]
+		}
+	}
+	return strings.TrimSpace(name)
+}
+
 func appendRecordLine(body string, line string) string {
 	if len(body)+len(line) > maxRecordResponse {
 		return body
@@ -253,7 +284,7 @@ func boundedRecords(body string) string {
 	return body
 }
 
-func renderTop(r recordRequest, records []datastore.ScoreRecord, serverName func(string) string) string {
+func renderTop(r recordRequest, records []datastore.ScoreRecord, serverName func(string) string, playerName func(string, string) string) string {
 	scope := "current server"
 	if r.scope == "global" {
 		scope = "global"
@@ -263,7 +294,14 @@ func renderTop(r recordRequest, records []datastore.ScoreRecord, serverName func
 		return boundedRecords(body + "No valid scores in this period.")
 	}
 	for idx, record := range records {
-		line := fmt.Sprintf("%d. <@%s> — %d ms · %s", idx+1, record.UserID, record.Score, recordDate(record))
+		name := fmt.Sprintf("<@%s>", record.UserID)
+		if r.public {
+			name = playerName(record.GuildID, record.UserID)
+			if name == "" {
+				name = fmt.Sprintf("Player #%d", idx+1)
+			}
+		}
+		line := fmt.Sprintf("%d. %s — %d ms · %s", idx+1, name, record.Score, recordDate(record))
 		if r.scope == "global" {
 			line += " · " + serverName(record.GuildID)
 		} else {

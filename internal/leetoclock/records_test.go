@@ -128,6 +128,9 @@ func TestRecordInteractionRoutingAndVisibility(t *testing.T) {
 	if err := m.session.State.GuildAdd(&discordgo.Guild{ID: "two", Name: "Away Server"}); err != nil {
 		t.Fatal(err)
 	}
+	if err := m.session.State.MemberAdd(&discordgo.Member{GuildID: "one", User: &discordgo.User{ID: "alice", Username: "Alice"}, Nick: "Alice"}); err != nil {
+		t.Fatal(err)
+	}
 	s, calls := recordSession(t)
 	for _, tc := range []struct {
 		sub          string
@@ -136,8 +139,9 @@ func TestRecordInteractionRoutingAndVisibility(t *testing.T) {
 		want, absent string
 	}{
 		{"top", nil, discordgo.MessageFlagsEphemeral, "<@bob>", "elsewhere"},
-		{"top", []*discordgo.ApplicationCommandInteractionDataOption{recordOption("period", "all"), recordOption("public", true)}, 0, "<@alice>", "msg3"},
+		{"top", []*discordgo.ApplicationCommandInteractionDataOption{recordOption("period", "all"), recordOption("public", true)}, 0, "Alice — 0 ms", "<@"},
 		{"top", []*discordgo.ApplicationCommandInteractionDataOption{recordOption("scope", "global")}, discordgo.MessageFlagsEphemeral, "Away Server", "discord.com/channels"},
+		{"top", []*discordgo.ApplicationCommandInteractionDataOption{recordOption("scope", "global"), recordOption("public", true)}, 0, "Player #", "<@"},
 		{"player", nil, discordgo.MessageFlagsEphemeral, "Valid attempts: 1", "msg3"},
 		{"player", []*discordgo.ApplicationCommandInteractionDataOption{recordOption("user", "bob"), recordOption("scope", "global"), recordOption("public", true)}, 0, "<@bob>", "discord.com/channels"},
 		{"player", []*discordgo.ApplicationCommandInteractionDataOption{recordOption("scope", "global")}, discordgo.MessageFlagsEphemeral, "Valid attempts: 2", "discord.com/channels"},
@@ -227,11 +231,29 @@ func TestRecordFormattingBounded(t *testing.T) {
 	for i := range rows {
 		rows[i] = datastore.ScoreRecord{UserID: long, GuildID: long, ChannelID: long, MessageID: long, Score: i, GameDate: time.Now()}
 	}
-	if body := renderTop(recordRequest{periodName: "all"}, rows, func(string) string { return "Unknown server" }); len(body) > 2000 {
+	if body := renderTop(recordRequest{periodName: "all"}, rows, func(string) string { return "Unknown server" }, func(string, string) string { return "" }); len(body) > 2000 {
 		t.Fatalf("top length %d", len(body))
+	}
+	if body := renderTop(recordRequest{periodName: "all", public: true}, rows, func(string) string { return "Unknown server" }, func(string, string) string { return "" }); len(body) > 2000 || strings.Contains(body, "<@") {
+		t.Fatalf("public top length or mention: %d %s", len(body), body)
 	}
 	if body := renderPlayer(recordRequest{userID: "alice", scope: "global", periodName: "all"}, rows, 10, false, func(string) string { return "Unknown server" }); len(body) > 2000 || strings.Contains(body, "discord.com/channels") {
 		t.Fatalf("global length/link: %d %s", len(body), body)
+	}
+}
+
+func TestPublicTopEscapesCachedNames(t *testing.T) {
+	m, _ := newTestModule(t)
+	if err := m.session.State.GuildAdd(&discordgo.Guild{ID: "one", Name: "One"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.session.State.MemberAdd(&discordgo.Member{GuildID: "one", Nick: "@everyone <@123> *bold*", User: &discordgo.User{ID: "alice", Username: "alice"}}); err != nil {
+		t.Fatal(err)
+	}
+	records := []datastore.ScoreRecord{{UserID: "alice", GuildID: "one", GameDate: time.Now(), Score: 0}, {UserID: "missing", GuildID: "two", GameDate: time.Now(), Score: 5}}
+	body := renderTop(recordRequest{scope: "global", periodName: "all", public: true}, records, m.serverName, m.playerDisplayName)
+	if !strings.Contains(body, "＠everyone ‹＠123› bold") || !strings.Contains(body, "Player #2") || strings.Contains(body, "<@") || strings.Contains(body, "@everyone") {
+		t.Fatalf("unsafe public leaderboard: %s", body)
 	}
 }
 
