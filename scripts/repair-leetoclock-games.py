@@ -15,6 +15,24 @@ INVALID = """(
 )"""
 
 
+def save_backup(source, backup):
+    try:
+        with sqlite3.connect(str(backup)) as saved:
+            native_backup = getattr(source, "backup", None)
+            if callable(native_backup):
+                native_backup(saved)
+            else:
+                # Older sqlite3 modules lack Connection.backup(). Dump via SQL
+                # so pending WAL transactions are included in the snapshot.
+                saved.executescript("\n".join(source.iterdump()))
+            if saved.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
+                raise ValueError("backup integrity check failed")
+    except Exception:
+        if backup.exists():
+            backup.unlink()
+        raise
+
+
 def repair(path: Path):
     if not path.is_file():
         raise ValueError(f"database does not exist: {path}")
@@ -36,8 +54,7 @@ def repair(path: Path):
         backup = path.with_name(path.name + ".backup-" + datetime.now().strftime("%Y%m%d-%H%M%S"))
         if backup.exists():
             raise FileExistsError(f"backup already exists: {backup}")
-        with sqlite3.connect(str(backup)) as saved:
-            db.backup(saved)
+        save_backup(db, backup)
 
         # SQLite evaluates assignments against original row values. The old
         # rows hold date in guild_id, season number in game_date, and guild ID
@@ -74,7 +91,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
     try:
         updated, backup_path = repair(args.database)
-    except (ValueError, FileExistsError, sqlite3.Error) as exc:
+    except (ValueError, FileExistsError, OSError, sqlite3.Error) as exc:
         parser.exit(1, f"Repair failed: {exc}\n")
     if backup_path:
         print(f"Repaired {updated} games. Backup: {backup_path}")

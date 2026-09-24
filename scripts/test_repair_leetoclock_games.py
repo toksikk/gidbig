@@ -1,14 +1,19 @@
 """Run with: python3 -m unittest discover -s scripts -p 'test_*.py'."""
 
+import importlib.util
 import sqlite3
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 SCRIPT = Path(__file__).with_name("repair-leetoclock-games.py")
+spec = importlib.util.spec_from_file_location("repair_leetoclock_games", SCRIPT)
+repair_module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(repair_module)
 
 
 class RepairLeetoclockGamesTest(unittest.TestCase):
@@ -35,7 +40,8 @@ class RepairLeetoclockGamesTest(unittest.TestCase):
 
     def run_repair(self):
         return subprocess.run(
-            [sys.executable, str(SCRIPT), str(self.database)], capture_output=True, text=True, check=False
+            [sys.executable, str(SCRIPT), str(self.database)],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, check=False
         )
 
     def test_repairs_once_without_touching_scores_or_new_games(self):
@@ -69,6 +75,26 @@ class RepairLeetoclockGamesTest(unittest.TestCase):
         self.assertEqual(list(self.database.parent.glob("gidbig.db.backup-*")), [])
         with sqlite3.connect(str(self.database)) as db:
             self.assertEqual(db.execute("SELECT season_id FROM leetoclock_games WHERE id=1").fetchone(), (0,))
+
+    def test_fallback_when_sqlite_connection_lacks_backup(self):
+        class DumpOnly:
+            def __init__(self, connection):
+                self.connection = connection
+
+            def iterdump(self):
+                return self.connection.iterdump()
+
+        original_backup = repair_module.save_backup
+        with mock.patch.object(repair_module, "save_backup", side_effect=lambda source, path: original_backup(DumpOnly(source), path)):
+            updated, backup = repair_module.repair(self.database)
+        self.assertEqual(updated, 1)
+        with sqlite3.connect(str(backup)) as saved:
+            self.assertEqual(saved.execute("SELECT typeof(game_date) FROM leetoclock_games WHERE id=1").fetchone(), ("integer",))
+            self.assertEqual(saved.execute("SELECT COUNT(*) FROM leetoclock_scores").fetchone(), (2,))
+        with sqlite3.connect(str(self.database)) as db:
+            self.assertEqual(db.execute("PRAGMA foreign_key_check").fetchall(), [])
+            self.assertEqual(db.execute("SELECT guild_id FROM leetoclock_games WHERE id=1").fetchone(), ("111111111111111111",))
+        self.assertEqual(repair_module.repair(self.database), (0, None))
 
 
 if __name__ == "__main__":
