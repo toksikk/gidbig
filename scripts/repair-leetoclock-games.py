@@ -15,7 +15,7 @@ INVALID = """(
 )"""
 
 
-def repair(path: Path) -> tuple[int, Path | None]:
+def repair(path: Path):
     if not path.is_file():
         raise ValueError(f"database does not exist: {path}")
 
