@@ -1,6 +1,7 @@
 package leetoclock
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -235,22 +236,35 @@ func safeServerName(name string) string {
 	return name
 }
 
-// Public leaderboards use cached display names rather than Discord mentions.
-// Do not fetch users here: a cold cache must not delay the interaction or
-// generate ten extra API calls for a global leaderboard.
+// Public leaderboards use display names instead of Discord mentions. Gateway
+// member caches are often empty; resolve missing users through Discord REST
+// after the interaction has been deferred.
 func (m *Module) playerDisplayName(guildID, userID string) string {
-	if m.session == nil || m.session.State == nil {
+	if m.session == nil {
 		return ""
 	}
-	member, err := m.session.State.Member(guildID, userID)
-	if err != nil || member == nil {
+	if m.session.State != nil {
+		member, err := m.session.State.Member(guildID, userID)
+		if err == nil && member != nil {
+			if name := safePlayerName(member.Nick); name != "" {
+				return name
+			}
+			if member.User != nil {
+				if name := safePlayerName(member.User.DisplayName()); name != "" {
+					return name
+				}
+			}
+		}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	user, err := m.session.User(userID, discordgo.WithContext(ctx), discordgo.WithRetryOnRatelimit(false))
+	if err != nil {
+		slog.Warn("leetoclock: resolve leaderboard player", "error", err)
 		return ""
 	}
-	if member.Nick != "" {
-		return safePlayerName(member.Nick)
-	}
-	if member.User != nil {
-		return safePlayerName(member.User.DisplayName())
+	if user != nil {
+		return safePlayerName(user.DisplayName())
 	}
 	return ""
 }
@@ -298,7 +312,7 @@ func renderTop(r recordRequest, records []datastore.ScoreRecord, serverName func
 		if r.public {
 			name = playerName(record.GuildID, record.UserID)
 			if name == "" {
-				name = fmt.Sprintf("Player #%d", idx+1)
+				name = "User ID " + safePlayerName(record.UserID)
 			}
 		}
 		line := fmt.Sprintf("%d. %s — %d ms · %s", idx+1, name, record.Score, recordDate(record))
