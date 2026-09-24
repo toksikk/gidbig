@@ -87,15 +87,23 @@ func recordSession(t *testing.T) (*discordgo.Session, <-chan discordCall) {
 	t.Helper()
 	calls := make(chan discordCall, 4)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/users/") {
+			id := r.URL.Path[strings.LastIndex(r.URL.Path, "/")+1:]
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(&discordgo.User{ID: id, Username: strings.ToUpper(id[:1]) + id[1:]})
+			return
+		}
 		body, _ := io.ReadAll(r.Body)
 		calls <- discordCall{r.Method, body}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{}`))
 	}))
 	t.Cleanup(server.Close)
-	api, webhooks := discordgo.EndpointAPI, discordgo.EndpointWebhooks
-	discordgo.EndpointAPI, discordgo.EndpointWebhooks = server.URL+"/", server.URL+"/webhooks/"
-	t.Cleanup(func() { discordgo.EndpointAPI, discordgo.EndpointWebhooks = api, webhooks })
+	api, webhooks, users := discordgo.EndpointAPI, discordgo.EndpointWebhooks, discordgo.EndpointUsers
+	discordgo.EndpointAPI, discordgo.EndpointWebhooks, discordgo.EndpointUsers = server.URL+"/", server.URL+"/webhooks/", server.URL+"/users/"
+	t.Cleanup(func() {
+		discordgo.EndpointAPI, discordgo.EndpointWebhooks, discordgo.EndpointUsers = api, webhooks, users
+	})
 	s, err := discordgo.New("Bot test")
 	if err != nil {
 		t.Fatal(err)
@@ -139,9 +147,9 @@ func TestRecordInteractionRoutingAndVisibility(t *testing.T) {
 		want, absent string
 	}{
 		{"top", nil, discordgo.MessageFlagsEphemeral, "<@bob>", "elsewhere"},
-		{"top", []*discordgo.ApplicationCommandInteractionDataOption{recordOption("period", "all"), recordOption("public", true)}, 0, "Alice — 0 ms", "<@"},
+		{"top", []*discordgo.ApplicationCommandInteractionDataOption{recordOption("period", "all"), recordOption("public", true)}, 0, "Bob — 100 ms", "<@"},
 		{"top", []*discordgo.ApplicationCommandInteractionDataOption{recordOption("scope", "global")}, discordgo.MessageFlagsEphemeral, "Away Server", "discord.com/channels"},
-		{"top", []*discordgo.ApplicationCommandInteractionDataOption{recordOption("scope", "global"), recordOption("public", true)}, 0, "Player #", "<@"},
+		{"top", []*discordgo.ApplicationCommandInteractionDataOption{recordOption("scope", "global"), recordOption("public", true)}, 0, "Carol — 2 ms", "<@"},
 		{"player", nil, discordgo.MessageFlagsEphemeral, "Valid attempts: 1", "msg3"},
 		{"player", []*discordgo.ApplicationCommandInteractionDataOption{recordOption("user", "bob"), recordOption("scope", "global"), recordOption("public", true)}, 0, "<@bob>", "discord.com/channels"},
 		{"player", []*discordgo.ApplicationCommandInteractionDataOption{recordOption("scope", "global")}, discordgo.MessageFlagsEphemeral, "Valid attempts: 2", "discord.com/channels"},
@@ -166,6 +174,9 @@ func TestRecordInteractionRoutingAndVisibility(t *testing.T) {
 		}
 		if second.method != http.MethodPatch || !strings.Contains(edited.Content, tc.want) || strings.Contains(edited.Content, tc.absent) || len(edited.Content) > 2000 || edited.AllowedMentions.Parse == nil || len(edited.AllowedMentions.Parse) != 0 {
 			t.Errorf("edit %s: %s %s", tc.sub, second.method, string(second.body))
+		}
+		if tc.sub == "top" && tc.flags == 0 && strings.Contains(edited.Content, "User ID ") {
+			t.Errorf("public top failed to resolve usernames: %s", edited.Content)
 		}
 	}
 	// Unrelated interaction types and commands never reach the API.
@@ -234,7 +245,7 @@ func TestRecordFormattingBounded(t *testing.T) {
 	if body := renderTop(recordRequest{periodName: "all"}, rows, func(string) string { return "Unknown server" }, func(string, string) string { return "" }); len(body) > 2000 {
 		t.Fatalf("top length %d", len(body))
 	}
-	if body := renderTop(recordRequest{periodName: "all", public: true}, rows, func(string) string { return "Unknown server" }, func(string, string) string { return "" }); len(body) > 2000 || strings.Contains(body, "<@") {
+	if body := renderTop(recordRequest{periodName: "all", public: true}, rows, func(string) string { return "Unknown server" }, func(string, string) string { return "" }); len(body) > 2000 || strings.Contains(body, "<@") || !strings.Contains(body, "User ID "+long[:60]) {
 		t.Fatalf("public top length or mention: %d %s", len(body), body)
 	}
 	if body := renderPlayer(recordRequest{userID: "alice", scope: "global", periodName: "all"}, rows, 10, false, func(string) string { return "Unknown server" }); len(body) > 2000 || strings.Contains(body, "discord.com/channels") {
@@ -251,8 +262,14 @@ func TestPublicTopEscapesCachedNames(t *testing.T) {
 		t.Fatal(err)
 	}
 	records := []datastore.ScoreRecord{{UserID: "alice", GuildID: "one", GameDate: time.Now(), Score: 0}, {UserID: "missing", GuildID: "two", GameDate: time.Now(), Score: 5}}
-	body := renderTop(recordRequest{scope: "global", periodName: "all", public: true}, records, m.serverName, m.playerDisplayName)
-	if !strings.Contains(body, "＠everyone ‹＠123› bold") || !strings.Contains(body, "Player #2") || strings.Contains(body, "<@") || strings.Contains(body, "@everyone") {
+	name := func(guildID, userID string) string {
+		if userID == "alice" {
+			return m.playerDisplayName(guildID, userID)
+		}
+		return "" // Simulate Discord lookup failure: keep the user's ID visible.
+	}
+	body := renderTop(recordRequest{scope: "global", periodName: "all", public: true}, records, m.serverName, name)
+	if !strings.Contains(body, "＠everyone ‹＠123› bold") || !strings.Contains(body, "User ID missing") || strings.Contains(body, "<@") || strings.Contains(body, "@everyone") {
 		t.Fatalf("unsafe public leaderboard: %s", body)
 	}
 }
