@@ -36,7 +36,7 @@ def repair(path: Path):
         backup = path.with_name(path.name + ".backup-" + datetime.now().strftime("%Y%m%d-%H%M%S"))
         if backup.exists():
             raise FileExistsError(f"backup already exists: {backup}")
-        with sqlite3.connect(backup) as saved:
+        with sqlite3.connect(str(backup)) as saved:
             db.backup(saved)
 
         # SQLite evaluates assignments against original row values. The old

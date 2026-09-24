@@ -16,7 +16,7 @@ class RepairLeetoclockGamesTest(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.database = Path(self.temp.name) / "gidbig.db"
-        with sqlite3.connect(self.database) as db:
+        with sqlite3.connect(str(self.database)) as db:
             db.executescript("""
                 PRAGMA foreign_keys = OFF;
                 CREATE TABLE leetoclock_seasons (id INTEGER PRIMARY KEY);
@@ -35,7 +35,7 @@ class RepairLeetoclockGamesTest(unittest.TestCase):
 
     def run_repair(self):
         return subprocess.run(
-            [sys.executable, SCRIPT, self.database], capture_output=True, text=True, check=False
+            [sys.executable, str(SCRIPT), str(self.database)], capture_output=True, text=True, check=False
         )
 
     def test_repairs_once_without_touching_scores_or_new_games(self):
@@ -44,7 +44,7 @@ class RepairLeetoclockGamesTest(unittest.TestCase):
         self.assertIn("Repaired 1 games", first.stdout)
         backups = list(self.database.parent.glob("gidbig.db.backup-*"))
         self.assertEqual(len(backups), 1)
-        with sqlite3.connect(self.database) as db:
+        with sqlite3.connect(str(self.database)) as db:
             self.assertEqual(db.execute("SELECT * FROM leetoclock_games WHERE id=1").fetchone(),
                              (1, "channel", "111111111111111111", "2024-02-19 13:37:00+01:00", 7))
             self.assertEqual(db.execute("SELECT * FROM leetoclock_games WHERE id=2").fetchone(),
@@ -52,7 +52,7 @@ class RepairLeetoclockGamesTest(unittest.TestCase):
             self.assertEqual(db.execute("SELECT * FROM leetoclock_scores").fetchall(),
                              [(1, 1, 0), (2, 2, 17)])
             self.assertEqual(db.execute("PRAGMA foreign_key_check").fetchall(), [])
-        with sqlite3.connect(backups[0]) as saved:
+        with sqlite3.connect(str(backups[0])) as saved:
             self.assertEqual(saved.execute("SELECT typeof(game_date) FROM leetoclock_games WHERE id=1").fetchone(),
                              ("integer",))
         second = self.run_repair()
@@ -61,13 +61,13 @@ class RepairLeetoclockGamesTest(unittest.TestCase):
         self.assertEqual(len(list(self.database.parent.glob("gidbig.db.backup-*"))), 1)
 
     def test_refuses_unrecognized_rows_without_modifying_database(self):
-        with sqlite3.connect(self.database) as db:
+        with sqlite3.connect(str(self.database)) as db:
             db.execute("UPDATE leetoclock_games SET season_id=0 WHERE id=1")
         result = self.run_repair()
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("unrecognized historical game", result.stderr)
         self.assertEqual(list(self.database.parent.glob("gidbig.db.backup-*")), [])
-        with sqlite3.connect(self.database) as db:
+        with sqlite3.connect(str(self.database)) as db:
             self.assertEqual(db.execute("SELECT season_id FROM leetoclock_games WHERE id=1").fetchone(), (0,))
 
 
