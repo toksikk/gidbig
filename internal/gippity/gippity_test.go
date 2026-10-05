@@ -3,6 +3,7 @@ package gippity
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -30,6 +31,10 @@ func setupGippityTest(t *testing.T) *discordgo.Session {
 	previousVisionCompletionFunc := visionCompletionFunc
 	previousChannelTypingFunc := channelTypingFunc
 	previousFetchMessageReactionsFunc := fetchMessageReactionsFunc
+	previousMessageSendFunc := messageSendFunc
+	previousMessageThreadStartFunc := messageThreadStartFunc
+	previousChannelIsThreadFunc := channelIsThreadFunc
+	previousReplyInThread := replyInThread
 
 	testDB, err := sql.Open("sqlite3", ":memory:")
 	if err != nil {
@@ -65,6 +70,14 @@ func setupGippityTest(t *testing.T) *discordgo.Session {
 	fetchMessageReactionsFunc = func(_ *discordgo.Session, _, _ string) (*discordgo.Message, error) {
 		return &discordgo.Message{}, nil
 	}
+	replyInThread = false
+	messageSendFunc = func(_ *discordgo.Session, _, _ string) (*discordgo.Message, error) {
+		return &discordgo.Message{}, nil
+	}
+	messageThreadStartFunc = func(_ *discordgo.Session, _, _ string, _ *discordgo.ThreadStart) (*discordgo.Channel, error) {
+		return &discordgo.Channel{ID: "thread-1"}, nil
+	}
+	channelIsThreadFunc = func(_ *discordgo.Session, _ string) bool { return false }
 
 	t.Cleanup(func() {
 		_ = testDB.Close()
@@ -81,6 +94,10 @@ func setupGippityTest(t *testing.T) *discordgo.Session {
 		visionCompletionFunc = previousVisionCompletionFunc
 		channelTypingFunc = previousChannelTypingFunc
 		fetchMessageReactionsFunc = previousFetchMessageReactionsFunc
+		messageSendFunc = previousMessageSendFunc
+		messageThreadStartFunc = previousMessageThreadStartFunc
+		channelIsThreadFunc = previousChannelIsThreadFunc
+		replyInThread = previousReplyInThread
 	})
 
 	return session
@@ -948,5 +965,220 @@ func TestGetLastNMessagesFromDatabase_IncludesImageDescriptions(t *testing.T) {
 	}
 	if msgs[0].ImageDescriptions[0] != "a fluffy dog" {
 		t.Errorf("image description = %q, want %q", msgs[0].ImageDescriptions[0], "a fluffy dog")
+	}
+}
+
+func TestSendReply_PostsInChannelWhenThreadRepliesDisabled(t *testing.T) {
+	session := setupGippityTest(t)
+	replyInThread = false
+
+	var threadStarts int
+	var sentChannel string
+	messageThreadStartFunc = func(_ *discordgo.Session, _, _ string, _ *discordgo.ThreadStart) (*discordgo.Channel, error) {
+		threadStarts++
+		return &discordgo.Channel{ID: "thread-1"}, nil
+	}
+	messageSendFunc = func(_ *discordgo.Session, channelID, _ string) (*discordgo.Message, error) {
+		sentChannel = channelID
+		return &discordgo.Message{}, nil
+	}
+
+	if err := sendReply(session, gippityTestMessage("hey <@bot-user>"), "answer"); err != nil {
+		t.Fatalf("sendReply: %v", err)
+	}
+	if threadStarts != 0 {
+		t.Errorf("thread starts = %d, want 0", threadStarts)
+	}
+	if sentChannel != "channel-1" {
+		t.Errorf("reply channel = %q, want %q", sentChannel, "channel-1")
+	}
+}
+
+func TestSendReply_StartsThreadWhenEnabled(t *testing.T) {
+	session := setupGippityTest(t)
+	replyInThread = true
+
+	var startChannel, startMessage, threadName string
+	var sentChannel string
+	messageThreadStartFunc = func(_ *discordgo.Session, channelID, messageID string, data *discordgo.ThreadStart) (*discordgo.Channel, error) {
+		startChannel, startMessage, threadName = channelID, messageID, data.Name
+		return &discordgo.Channel{ID: "thread-42"}, nil
+	}
+	messageSendFunc = func(_ *discordgo.Session, channelID, _ string) (*discordgo.Message, error) {
+		sentChannel = channelID
+		return &discordgo.Message{}, nil
+	}
+
+	m := gippityTestMessage("hey <@123456789> wie geht das")
+	if err := sendReply(session, m, "answer"); err != nil {
+		t.Fatalf("sendReply: %v", err)
+	}
+	if startChannel != "channel-1" || startMessage != m.ID {
+		t.Errorf("thread started on %q/%q, want %q/%q", startChannel, startMessage, "channel-1", m.ID)
+	}
+	if threadName != "hey wie geht das" {
+		t.Errorf("thread name = %q, want %q", threadName, "hey wie geht das")
+	}
+	if sentChannel != "thread-42" {
+		t.Errorf("reply channel = %q, want %q", sentChannel, "thread-42")
+	}
+}
+
+func TestSendReply_AnswersInPlaceInsideExistingThread(t *testing.T) {
+	session := setupGippityTest(t)
+	replyInThread = true
+	channelIsThreadFunc = func(_ *discordgo.Session, _ string) bool { return true }
+
+	var threadStarts int
+	var sentChannel string
+	messageThreadStartFunc = func(_ *discordgo.Session, _, _ string, _ *discordgo.ThreadStart) (*discordgo.Channel, error) {
+		threadStarts++
+		return &discordgo.Channel{ID: "thread-42"}, nil
+	}
+	messageSendFunc = func(_ *discordgo.Session, channelID, _ string) (*discordgo.Message, error) {
+		sentChannel = channelID
+		return &discordgo.Message{}, nil
+	}
+
+	m := gippityTestMessage("hey <@bot-user>")
+	m.ChannelID = "existing-thread"
+
+	if err := sendReply(session, m, "answer"); err != nil {
+		t.Fatalf("sendReply: %v", err)
+	}
+	if threadStarts != 0 {
+		t.Errorf("thread starts = %d, want 0 for a message already in a thread", threadStarts)
+	}
+	if sentChannel != "existing-thread" {
+		t.Errorf("reply channel = %q, want %q", sentChannel, "existing-thread")
+	}
+}
+
+func TestSendReply_FallsBackToChannelWhenThreadStartFails(t *testing.T) {
+	tests := []struct {
+		name   string
+		thread func(*discordgo.Session, string, string, *discordgo.ThreadStart) (*discordgo.Channel, error)
+	}{
+		{
+			name: "start returns error",
+			thread: func(_ *discordgo.Session, _, _ string, _ *discordgo.ThreadStart) (*discordgo.Channel, error) {
+				return nil, errors.New("missing create public threads permission")
+			},
+		},
+		{
+			name: "start returns no channel",
+			thread: func(_ *discordgo.Session, _, _ string, _ *discordgo.ThreadStart) (*discordgo.Channel, error) {
+				return nil, nil
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			session := setupGippityTest(t)
+			replyInThread = true
+			messageThreadStartFunc = tc.thread
+
+			var sentChannel string
+			messageSendFunc = func(_ *discordgo.Session, channelID, _ string) (*discordgo.Message, error) {
+				sentChannel = channelID
+				return &discordgo.Message{}, nil
+			}
+
+			if err := sendReply(session, gippityTestMessage("hey <@bot-user>"), "answer"); err != nil {
+				t.Fatalf("sendReply: %v", err)
+			}
+			if sentChannel != "channel-1" {
+				t.Errorf("reply channel = %q, want channel fallback %q", sentChannel, "channel-1")
+			}
+		})
+	}
+}
+
+func TestOnMessageCreate_RepliesInThreadWhenConfigured(t *testing.T) {
+	session := setupGippityTest(t)
+	replyInThread = true
+	generateAnswerFunc = func(_ *discordgo.MessageCreate, _ []string) (string, error) {
+		return "answer", nil
+	}
+
+	var sentChannel string
+	messageSendFunc = func(_ *discordgo.Session, channelID, _ string) (*discordgo.Message, error) {
+		sentChannel = channelID
+		return &discordgo.Message{}, nil
+	}
+	messageThreadStartFunc = func(_ *discordgo.Session, _, _ string, _ *discordgo.ThreadStart) (*discordgo.Channel, error) {
+		return &discordgo.Channel{ID: "thread-9"}, nil
+	}
+
+	onMessageCreate(session, gippityTestMessage("hey <@bot-user>", &discordgo.User{ID: "bot-user"}))
+
+	if sentChannel != "thread-9" {
+		t.Errorf("reply channel = %q, want thread %q", sentChannel, "thread-9")
+	}
+}
+
+func TestLimited_RateLimitNoticeFollowsThreadReplySetting(t *testing.T) {
+	setupGippityTest(t)
+	replyInThread = true
+	userMessageLimit = 1
+
+	var sentChannel string
+	messageSendFunc = func(_ *discordgo.Session, channelID, _ string) (*discordgo.Message, error) {
+		sentChannel = channelID
+		return &discordgo.Message{}, nil
+	}
+	messageThreadStartFunc = func(_ *discordgo.Session, _, _ string, _ *discordgo.ThreadStart) (*discordgo.Channel, error) {
+		return &discordgo.Channel{ID: "thread-9"}, nil
+	}
+
+	m := gippityTestMessage("hey <@bot-user>", &discordgo.User{ID: "bot-user"})
+	if limited(m) {
+		t.Fatal("first mention should not be rate limited")
+	}
+	if !limited(m) {
+		t.Fatal("second mention should hit the rate limit of 1")
+	}
+	if sentChannel != "thread-9" {
+		t.Errorf("rate limit notice sent to %q, want thread %q", sentChannel, "thread-9")
+	}
+}
+
+func TestThreadName(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+		want    string
+	}{
+		{"strips mentions", "hey <@123> <@!456> <#789> <@&42> frage", "hey frage"},
+		{"strips backticks and newlines", "```go\nfunc main() {}\n```", "go func main() {}"},
+		{"collapses whitespace", "  hallo 	 welt  ", "hallo welt"},
+		{"blank falls back", "   ", defaultThreadName},
+		{"mention only falls back", "<@123>", defaultThreadName},
+		{"keeps plain text", "wie baue ich das", "wie baue ich das"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := threadName(tc.content); got != tc.want {
+				t.Errorf("threadName(%q) = %q, want %q", tc.content, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestThreadName_TruncatesToDiscordLimit(t *testing.T) {
+	got := threadName(strings.Repeat("ä", threadNameMaxLength+50))
+	if runes := []rune(got); len(runes) != threadNameMaxLength {
+		t.Errorf("thread name length = %d runes, want %d", len(runes), threadNameMaxLength)
+	}
+}
+
+func TestThreadName_DropsZeroWidthCharacters(t *testing.T) {
+	// Zero-width space and zero-width joiner are invisible, so dropping them
+	// keeps the name rendered exactly as the message showed it.
+	got := threadName("hal\u200blo\u200dwelt")
+	if got != "hallowelt" {
+		t.Errorf("threadName = %q, want %q", got, "hallowelt")
 	}
 }

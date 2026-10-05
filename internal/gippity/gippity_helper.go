@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"unicode"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/toksikk/gidbig/internal/util"
@@ -275,4 +276,43 @@ func replaceAllUserIDsWithUsernamesInStringMessage(message string, guildid strin
 	}
 	replaceAllUserIDsWithUsernamesInMessage(&llmChatMessage)
 	return llmChatMessage.Message
+}
+
+const (
+	// threadNameMaxLength is Discord's limit for a thread name in characters.
+	threadNameMaxLength = 100
+	// defaultThreadName is used when the triggering message yields no usable
+	// name (for example an attachment-only mention).
+	defaultThreadName = "Gippity"
+)
+
+// threadMentionRegexp matches user, role and channel mention tokens
+// (`<@id>`, `<@!id>`, `<@&id>`, `<#id>`) that should not end up in a thread
+// name.
+var threadMentionRegexp = regexp.MustCompile(`<[@#][!&]?\d+>`)
+
+// threadName derives a Discord thread name from the message that triggered the
+// answer. Mention tokens, backticks, control and format characters are stripped
+// and whitespace is collapsed, so the name cannot break Discord formatting; the
+// result is clamped to Discord's 100-character limit and falls back to a static
+// name when nothing usable remains.
+func threadName(content string) string {
+	name := threadMentionRegexp.ReplaceAllString(content, " ")
+	name = strings.Map(func(r rune) rune {
+		if unicode.Is(unicode.Cf, r) {
+			return -1
+		}
+		if r == '`' || unicode.IsControl(r) {
+			return ' '
+		}
+		return r
+	}, name)
+	name = strings.Join(strings.Fields(name), " ")
+	if name == "" {
+		return defaultThreadName
+	}
+	if runes := []rune(name); len(runes) > threadNameMaxLength {
+		name = strings.TrimSpace(string(runes[:threadNameMaxLength]))
+	}
+	return name
 }

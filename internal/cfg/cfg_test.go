@@ -33,6 +33,37 @@ dev_mode: true
 	}
 }
 
+func TestDecodeConfig_gippityReplyInThread(t *testing.T) {
+	yaml := `
+discord:
+  token: "tok"
+gippity:
+  allowed_guilds: ["456"]
+  reply_in_thread: true
+`
+	cfg, err := decodeConfig(strings.NewReader(yaml))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !cfg.Gippity.ReplyInThread {
+		t.Error("gippity.reply_in_thread should be true")
+	}
+
+	omitted := `
+discord:
+  token: "tok"
+gippity:
+  allowed_guilds: ["456"]
+`
+	cfg, err = decodeConfig(strings.NewReader(omitted))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Gippity.ReplyInThread {
+		t.Error("gippity.reply_in_thread should default to false")
+	}
+}
+
 func TestDecodeConfig_llmFields(t *testing.T) {
 	yaml := `
 discord:

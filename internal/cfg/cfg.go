@@ -63,6 +63,9 @@ type Config struct {
 		AllowedGuilds            []string `yaml:"allowed_guilds"`
 		IgnoredUsers             []string `yaml:"ignored_users"`
 		RateLimitMessagesPerHour int      `yaml:"rate_limit_messages_per_hour,omitempty"`
+		// ReplyInThread answers mentions inside a public thread started on the
+		// mentioning message instead of writing into the channel itself.
+		ReplyInThread bool `yaml:"reply_in_thread,omitempty"`
 	} `yaml:"gippity"`
 	Soundboard struct {
 		QueueMaxDepth int `yaml:"queue_max_depth,omitempty"`
