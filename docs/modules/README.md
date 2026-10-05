@@ -9,7 +9,7 @@ One file per internal package. Each doc: what it does + sequence diagram of the 
 | [core](core.md) | `/status` `/uptime` | Composition root, web server, Discord lifecycle |
 | [soundboard](soundboard.md) | `/list` `/play` | Audio collection loading, per-guild voice playback queue |
 | [coffee](coffee.md) | `/brew` `/coffeemachine` `/setbeverage` | Coffee machine economy, orders, stats |
-| [gippity](gippity.md) | `/gippity` | LLM chat over Discord messages, vision, privacy |
+| [gippity](gippity.md) | `/gippity` | LLM chat over Discord messages, vision, privacy, optional thread replies |
 | [leetoclock](leetoclock.md) | `/leetoclock` | Daily reaction-time game + scoreboard |
 | [wttrin](wttrin.md) | `/wttr` `/wttrf` | Weather + forecast via wttr.in + LLM outro |
 | [eso](eso.md) | `/eso` | Esoteric nonsense generator (LLM, fallback) |

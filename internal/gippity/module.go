@@ -47,7 +47,14 @@ type Module struct {
 	fetchReferencedMessageFunc func(*discordgo.Session, *discordgo.MessageReference) (*discordgo.Message, error)
 	channelMessageFunc         func(*discordgo.Session, string, string) (*discordgo.Message, error)
 	fetchMessageReactionsFunc  func(*discordgo.Session, string, string) (*discordgo.Message, error)
+	messageSendFunc            func(*discordgo.Session, string, string) (*discordgo.Message, error)
+	messageThreadStartFunc     func(*discordgo.Session, string, string, *discordgo.ThreadStart) (*discordgo.Channel, error)
+	channelIsThreadFunc        func(*discordgo.Session, string) bool
 	seasonFunc                 func() util.Season
+
+	// replyInThread mirrors gippity.reply_in_thread: when true, answers go into
+	// a thread started on the mentioning message instead of the channel.
+	replyInThread bool
 }
 
 // New returns a Module with production-default hook implementations.
@@ -73,6 +80,22 @@ func New() *Module {
 	m.fetchMessageReactionsFunc = func(s *discordgo.Session, channelID, messageID string) (*discordgo.Message, error) {
 		return m.channelMessageFunc(s, channelID, messageID)
 	}
+	m.messageSendFunc = func(s *discordgo.Session, channelID, content string) (*discordgo.Message, error) {
+		return s.ChannelMessageSend(channelID, content)
+	}
+	m.messageThreadStartFunc = func(s *discordgo.Session, channelID, messageID string, data *discordgo.ThreadStart) (*discordgo.Channel, error) {
+		return s.MessageThreadStartComplex(channelID, messageID, data)
+	}
+	m.channelIsThreadFunc = func(s *discordgo.Session, channelID string) bool {
+		if channel, err := s.State.Channel(channelID); err == nil && channel != nil {
+			return channel.IsThread()
+		}
+		channel, err := s.Channel(channelID)
+		if err != nil || channel == nil {
+			return false
+		}
+		return channel.IsThread()
+	}
 	m.fetchReferencedMessageFunc = m.fetchReferencedMessage
 	m.seasonFunc = util.CurrentSeason
 	return m
@@ -87,6 +110,9 @@ func (m *Module) Init(d bot.Deps) error {
 
 	if d.Config != nil && d.Config.Gippity.RateLimitMessagesPerHour > 0 {
 		m.userMessageLimit = d.Config.Gippity.RateLimitMessagesPerHour
+	}
+	if d.Config != nil {
+		m.replyInThread = d.Config.Gippity.ReplyInThread
 	}
 
 	m.userMessageCount = make(map[string]int)
