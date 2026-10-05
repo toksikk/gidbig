@@ -2,6 +2,7 @@ package gippity
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -57,8 +58,7 @@ func (m *Module) limited(mc *discordgo.MessageCreate) bool {
 		if m.isLimitedUser(mc) {
 			count, reset := m.mentionState(mc.Author.ID)
 			slog.Info("not answering because of user limitation", "userMessageCount", count, "userMessageLimit", m.userMessageLimit, "userMessageCountLastReset", reset)
-			_, err := m.session.ChannelMessageSend(mc.ChannelID, "Du hast heute schon genug Nachrichten geschrieben. Komm wann anders wieder.")
-			if err != nil {
+			if err := m.sendReply(mc, "Du hast heute schon genug Nachrichten geschrieben. Komm wann anders wieder."); err != nil {
 				slog.Info("Error while sending message", "error", err)
 			}
 			return true
@@ -67,6 +67,34 @@ func (m *Module) limited(mc *discordgo.MessageCreate) bool {
 	}
 
 	return true
+}
+
+// sendReply delivers a bot reply for the message that triggered it. With
+// gippity.reply_in_thread enabled the reply is posted inside a public thread
+// started on that message, keeping the channel itself clean; messages that
+// already arrive in a thread are answered in place, because Discord does not
+// allow threads on threads. When the thread cannot be created the reply falls
+// back to the channel so an answer is never dropped.
+func (m *Module) sendReply(mc *discordgo.MessageCreate, content string) error {
+	if !m.replyInThread || m.channelIsThreadFunc(m.session, mc.ChannelID) {
+		_, err := m.messageSendFunc(m.session, mc.ChannelID, content)
+		return err
+	}
+
+	thread, err := m.messageThreadStartFunc(m.session, mc.ChannelID, mc.ID, &discordgo.ThreadStart{Name: threadName(mc.Content)})
+	if err != nil {
+		slog.Warn("gippity: could not start thread, replying in channel", "channel", mc.ChannelID, "error", err)
+	} else if thread == nil || thread.ID == "" {
+		slog.Warn("gippity: thread start returned no channel, replying in channel", "channel", mc.ChannelID)
+		err = errors.New("thread start returned no channel")
+	}
+	if err != nil {
+		_, sendErr := m.messageSendFunc(m.session, mc.ChannelID, content)
+		return sendErr
+	}
+
+	_, err = m.messageSendFunc(m.session, thread.ID, content)
+	return err
 }
 
 func (m *Module) onMessageCreate(s *discordgo.Session, mc *discordgo.MessageCreate) {
@@ -117,9 +145,7 @@ func (m *Module) onMessageCreate(s *discordgo.Session, mc *discordgo.MessageCrea
 	slog.Debug("Generated answer", "answer", generatedAnswer)
 
 	if generatedAnswer != "" {
-		_, err = s.ChannelMessageSend(mc.ChannelID, generatedAnswer)
-
-		if err != nil {
+		if err := m.sendReply(mc, generatedAnswer); err != nil {
 			slog.Info("Error while sending message", "error", err)
 		}
 	}
