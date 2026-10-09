@@ -36,7 +36,11 @@ func sampleSnapshot() statusSnapshot {
 			}},
 			{Name: "gippity", Err: errors.New("timed out after 500ms")},
 		},
-		GuildList: []guildStatus{{Name: "Big Guild", Members: 1500, Voice: true}, {Name: "Small", Members: 3}},
+		GuildList: []guildStatus{{Name: "Big Guild", Members: 1500, Known: 2, Voice: true}, {Name: "Small", Members: 3, Known: 1}},
+		Users: []userStatus{
+			{Name: "alice", Guilds: []string{"Big Guild", "Small"}},
+			{Name: "bob", Guilds: []string{"Big Guild"}},
+		},
 	}
 }
 
@@ -59,7 +63,7 @@ func TestRenderStatusTextSummaryLayout(t *testing.T) {
 			t.Errorf("summary missing %q:\n%s", want, out)
 		}
 	}
-	for _, unwanted := range []string{"refills", "Big Guild", "discordgo", "TotalAlloc"} {
+	for _, unwanted := range []string{"refills", "Big Guild", "alice", "discordgo", "TotalAlloc"} {
 		if strings.Contains(out, unwanted) {
 			t.Errorf("summary should not contain %q:\n%s", unwanted, out)
 		}
@@ -68,7 +72,7 @@ func TestRenderStatusTextSummaryLayout(t *testing.T) {
 
 func TestRenderStatusTextDetailedAddsDetailAndGuilds(t *testing.T) {
 	out := renderStatusText(sampleSnapshot(), statusViewDetailed, discordMessageLimit)
-	for _, want := range []string{"88 refills", "── Guilds (2)", "Big Guild", "1,500 members · voice", "discordgo", "sys mem"} {
+	for _, want := range []string{"88 refills", "── Guilds (2)", "Big Guild", "1,500 members · 2 known · voice", "── Known users (2)", "alice", "Big Guild, Small", "discordgo", "sys mem"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("detailed missing %q:\n%s", want, out)
 		}
@@ -292,6 +296,57 @@ func TestFormatUptime(t *testing.T) {
 	for d, want := range cases {
 		if got := formatUptime(d); got != want {
 			t.Errorf("formatUptime(%s) = %q, want %q", d, got, want)
+		}
+	}
+}
+
+func TestCollectStatusKnownUsers(t *testing.T) {
+	s := &discordgo.Session{State: discordgo.NewState(), VoiceConnections: map[string]*discordgo.VoiceConnection{}}
+	alice := &discordgo.User{ID: "1", Username: "alice", GlobalName: "Alice"}
+	bob := &discordgo.User{ID: "2", Username: "bob"}
+	botUser := &discordgo.User{ID: "3", Username: "gidbig", Bot: true}
+	guilds := []*discordgo.Guild{
+		{ID: "g1", Name: "Zeta", MemberCount: 10, Members: []*discordgo.Member{{User: alice}, {User: bob}, {User: botUser}}},
+		{ID: "g2", Name: "Alpha", MemberCount: 5, Members: []*discordgo.Member{{User: alice}}},
+	}
+	for _, g := range guilds {
+		if err := s.State.GuildAdd(g); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	snap := collectStatus(context.Background(), s, nil, nil)
+	if len(snap.Users) != 2 {
+		t.Fatalf("users = %+v, want 2 (bots skipped)", snap.Users)
+	}
+	if snap.Users[0].Name != "Alice (alice)" || strings.Join(snap.Users[0].Guilds, ",") != "Alpha,Zeta" {
+		t.Errorf("first user = %+v, want Alice in Alpha,Zeta", snap.Users[0])
+	}
+	if snap.Users[1].Name != "bob" || len(snap.Users[1].Guilds) != 1 {
+		t.Errorf("second user = %+v", snap.Users[1])
+	}
+	known := map[string]int{}
+	for _, g := range snap.GuildList {
+		known[g.Name] = g.Known
+	}
+	if known["Zeta"] != 2 || known["Alpha"] != 1 {
+		t.Errorf("known counts = %v", known)
+	}
+}
+
+func TestRenderStatusTextTrimsUsersBeforeGuilds(t *testing.T) {
+	snap := sampleSnapshot()
+	for i := 0; i < 500; i++ {
+		snap.Users = append(snap.Users, userStatus{Name: fmt.Sprintf("user%03d", i), Guilds: []string{"Big Guild"}})
+	}
+	limit := discordMessageLimit - 6
+	out := renderStatusText(snap, statusViewDetailed, limit)
+	if n := len([]rune(out)); n > limit {
+		t.Fatalf("output %d runes exceeds %d", n, limit)
+	}
+	for _, want := range []string{"Small", "! gippity", "── Known users (502)", "more"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q:\n%s", want, out)
 		}
 	}
 }
