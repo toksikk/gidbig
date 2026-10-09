@@ -155,9 +155,9 @@ func TestAddNewSoundCollection(t *testing.T) {
 
 func TestStatusInteractionResponse_Owner(t *testing.T) {
 	ownerID := "owner123"
-	statsOutput := "some stats"
+	want := &discordgo.InteractionResponseData{Content: "some stats", Flags: discordgo.MessageFlagsEphemeral}
 
-	resp := statusInteractionResponse(ownerID, ownerID, func() string { return statsOutput })
+	resp := statusInteractionResponse(ownerID, ownerID, func() *discordgo.InteractionResponseData { return want })
 
 	if resp == nil {
 		t.Fatal("expected non-nil response")
@@ -166,14 +166,8 @@ func TestStatusInteractionResponse_Owner(t *testing.T) {
 	if resp.Type != discordgo.InteractionResponseChannelMessageWithSource {
 		t.Errorf("Type = %v, want InteractionResponseChannelMessageWithSource", resp.Type)
 	}
-	if resp.Data.Flags != discordgo.MessageFlagsEphemeral {
-		t.Errorf("Flags = %v, want Ephemeral", resp.Data.Flags)
-	}
-	if !strings.Contains(resp.Data.Content, statsOutput) {
-		t.Errorf("Content %q does not contain stats output %q", resp.Data.Content, statsOutput)
-	}
-	if !strings.HasPrefix(resp.Data.Content, "```") || !strings.HasSuffix(resp.Data.Content, "```") {
-		t.Errorf("Content %q not wrapped in code block", resp.Data.Content)
+	if resp.Data != want {
+		t.Errorf("Data = %+v, want built data", resp.Data)
 	}
 }
 
@@ -183,7 +177,7 @@ func TestBuildBotStatsMessageIncludesVersion(t *testing.T) {
 	t.Cleanup(func() { version = originalVersion })
 
 	got := buildBotStatsMessage(&discordgo.Session{})
-	if !strings.Contains(got, "Version:         v1.2.3") {
+	if !strings.Contains(got, "gidbig v1.2.3") {
 		t.Fatalf("status missing bot version:\n%s", got)
 	}
 }
@@ -248,9 +242,9 @@ func TestStatusInteractionResponse_NonOwner(t *testing.T) {
 	callerID := "rando456"
 
 	called := false
-	resp := statusInteractionResponse(callerID, ownerID, func() string {
+	resp := statusInteractionResponse(callerID, ownerID, func() *discordgo.InteractionResponseData {
 		called = true
-		return "stats"
+		return &discordgo.InteractionResponseData{Content: "stats"}
 	})
 
 	if resp == nil {

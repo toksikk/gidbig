@@ -253,6 +253,9 @@ type Module struct {
 	cacheMu      sync.Mutex
 	cache        map[string]weatherCacheEntry
 	inflight     map[string]*weatherCall
+	lookups      int64
+	cacheHits    int64
+	fetchErrors  int64
 }
 
 type weatherCacheEntry struct {
@@ -377,8 +380,10 @@ func (m *Module) getWeatherCached(location string) (wttrinResponse, error) {
 	now := m.now()
 
 	m.cacheMu.Lock()
+	m.lookups++
 	if entry, ok := m.cache[key]; ok {
 		if now.Before(entry.expiresAt) {
+			m.cacheHits++
 			m.cacheMu.Unlock()
 			return entry.result, nil
 		}
@@ -399,6 +404,8 @@ func (m *Module) getWeatherCached(location string) (wttrinResponse, error) {
 	m.cacheMu.Lock()
 	if call.err == nil {
 		m.cache[key] = weatherCacheEntry{result: call.result, expiresAt: m.now().Add(weatherCacheTTL)}
+	} else {
+		m.fetchErrors++
 	}
 	delete(m.inflight, key)
 	close(call.done)

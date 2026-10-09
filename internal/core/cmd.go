@@ -2,17 +2,14 @@ package gidbig
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
-	"runtime"
 	"sync"
 	"syscall"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
-	humanize "github.com/dustin/go-humanize"
 	"github.com/toksikk/gidbig/internal/admin"
 	"github.com/toksikk/gidbig/internal/anticheat"
 	"github.com/toksikk/gidbig/internal/bot"
@@ -87,68 +84,9 @@ func scontains(key string, options ...string) bool {
 	return false
 }
 
-func buildBotStatsMessage(s *discordgo.Session) string {
-	stats := runtime.MemStats{}
-	runtime.ReadMemStats(&stats)
-
-	users := 0
-	servers := 0
-	if s.State != nil {
-		servers = len(s.State.Guilds)
-		for _, guild := range s.State.Guilds {
-			users += len(guild.Members)
-		}
-	}
-
-	uptime := time.Since(startTime).Round(time.Second)
-	startDateTime := startTime.Format("2006-01-02 15:04:05")
-
-	msg := fmt.Sprintf(`Version:         %s
-Discordgo:       %s
-Go:              %s
-
-Memory:
-  Alloc:         %s
-  Sys:           %s
-  TotalAlloc:    %s
-
-Live Memory Objects:
-  Malloc:        %s
-  Frees:         %s
-
-Heap:
-  Alloc:         %s
-  InUse:         %s
-  Sys:           %s
-
-Heap Returnable:
-  HeapIdle:      %s
-  HeapReleased:  %s
-
-Stack:
-  InUse:         %s
-  Sys:           %s
-
-Pointer Lookups: %d
-Tasks:           %d
-Servers:         %d
-Users:           %d
-
-Uptime:          %s (since %s)
-`, currentVersion(), discordgo.VERSION, runtime.Version(),
-		humanize.Bytes(stats.Alloc), humanize.Bytes(stats.Sys), humanize.Bytes(stats.TotalAlloc),
-		humanize.Bytes(stats.Mallocs), humanize.Bytes(stats.Frees),
-		humanize.Bytes(stats.HeapAlloc), humanize.Bytes(stats.HeapInuse), humanize.Bytes(stats.HeapSys),
-		humanize.Bytes(stats.HeapIdle), humanize.Bytes(stats.HeapReleased),
-		humanize.Bytes(stats.StackInuse), humanize.Bytes(stats.StackSys),
-		stats.Lookups, runtime.NumGoroutine(), servers, users, uptime, startDateTime)
-
-	return msg
-}
-
 // statusInteractionResponse builds the ephemeral interaction response for /status.
-// Owner gets the stats block; non-owners get a denial. buildStats is injectable for testing.
-func statusInteractionResponse(userID, ownerID string, buildStats func() string) *discordgo.InteractionResponse {
+// Owner gets the status payload; non-owners get a denial. build is injectable for testing.
+func statusInteractionResponse(userID, ownerID string, build func() *discordgo.InteractionResponseData) *discordgo.InteractionResponse {
 	if userID != ownerID {
 		return &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
@@ -160,10 +98,7 @@ func statusInteractionResponse(userID, ownerID string, buildStats func() string)
 	}
 	return &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseChannelMessageWithSource,
-		Data: &discordgo.InteractionResponseData{
-			Content: "```" + buildStats() + "```",
-			Flags:   discordgo.MessageFlagsEphemeral,
-		},
+		Data: build(),
 	}
 }
 
@@ -171,19 +106,22 @@ func onStatusInteractionCreate(s *discordgo.Session, i *discordgo.InteractionCre
 	if i.Type != discordgo.InteractionApplicationCommand {
 		return
 	}
-	if i.ApplicationCommandData().Name != "status" {
+	data := i.ApplicationCommandData()
+	if data.Name != "status" {
 		return
 	}
 
 	var userID string
-	if i.Member != nil {
+	if i.Member != nil && i.Member.User != nil {
 		userID = i.Member.User.ID
 	} else if i.User != nil {
 		userID = i.User.ID
 	}
 
-	resp := statusInteractionResponse(userID, conf.Discord.OwnerID, func() string {
-		return buildBotStatsMessage(s)
+	view, format := statusOptions(data.Options)
+	resp := statusInteractionResponse(userID, conf.Discord.OwnerID, func() *discordgo.InteractionResponseData {
+		snap := collectStatus(context.Background(), s, statusProviders, statusDBPaths)
+		return statusResponseData(snap, view, format)
 	})
 	if err := s.InteractionRespond(i.Interaction, resp); err != nil {
 		slog.Error("could not respond to /status interaction", "error", err)
@@ -401,9 +339,21 @@ func StartGidbig() {
 		}
 	}
 
-	cmds := []*discordgo.ApplicationCommand{
-		{Name: "status", Description: "Show bot runtime status (owner only)"},
+	statusProviders = []bot.StatsProvider{soundboardStatsProvider(), gippity.StatsProvider}
+	if coffeeReady {
+		statusProviders = append(statusProviders, coffeeMod)
 	}
+	if leetoReady {
+		statusProviders = append(statusProviders, leetoMod)
+	}
+	statusProviders = append(statusProviders, wttrinMod)
+	dbPath := "gidbig.db"
+	if conf.Database.Path != "" {
+		dbPath = conf.Database.Path
+	}
+	statusDBPaths = []string{dbPath, gippity.DBPath()}
+
+	cmds := []*discordgo.ApplicationCommand{statusCommand()}
 	cmds = append(cmds, coreSlashCommands()...)
 	cmds = append(cmds, admin.Commands()...)
 	cmds = append(cmds, coffeeMod.Commands()...)
