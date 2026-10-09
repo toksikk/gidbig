@@ -29,6 +29,7 @@ const (
 	statusOptionFormat    = "format"
 	statusViewSummary     = "summary"
 	statusViewDetailed    = "detailed"
+	statusViewUsers       = "users"
 	statusFormatText      = "text"
 	statusFormatEmbed     = "embed"
 	statusEmbedColorOK    = 0x2ecc71
@@ -54,16 +55,10 @@ type dbFileStatus struct {
 }
 
 type guildStatus struct {
+	ID      string
 	Name    string
 	Members int
-	Known   int
 	Voice   bool
-}
-
-// userStatus is a user found in the member cache and the guilds they share with the bot.
-type userStatus struct {
-	Name   string
-	Guilds []string
 }
 
 type statusSnapshot struct {
@@ -86,7 +81,6 @@ type statusSnapshot struct {
 	DBFiles    []dbFileStatus
 	Modules    []moduleStatus
 	GuildList  []guildStatus
-	Users      []userStatus
 }
 
 func statusCommand() *discordgo.ApplicationCommand {
@@ -101,6 +95,7 @@ func statusCommand() *discordgo.ApplicationCommand {
 				Choices: []*discordgo.ApplicationCommandOptionChoice{
 					{Name: "summary", Value: statusViewSummary},
 					{Name: "detailed (module details + guilds)", Value: statusViewDetailed},
+					{Name: "users (all guild members, attaches CSV)", Value: statusViewUsers},
 				},
 			},
 			{
@@ -122,8 +117,9 @@ func statusOptions(opts []*discordgo.ApplicationCommandInteractionDataOption) (v
 	for _, o := range opts {
 		switch o.Name {
 		case statusOptionView:
-			if o.StringValue() == statusViewDetailed {
-				view = statusViewDetailed
+			switch o.StringValue() {
+			case statusViewDetailed, statusViewUsers:
+				view = o.StringValue()
 			}
 		case statusOptionFormat:
 			if o.StringValue() == statusFormatEmbed {
@@ -171,33 +167,14 @@ func collectStatus(ctx context.Context, s *discordgo.Session, providers []bot.St
 		if s.State != nil {
 			s.State.RLock()
 			snap.Guilds = len(s.State.Guilds)
-			users := map[string]*userStatus{}
 			for _, g := range s.State.Guilds {
 				name := g.Name
 				if name == "" {
 					name = g.ID
 				}
-				known := 0
-				for _, m := range g.Members {
-					if m == nil || m.User == nil || m.User.Bot {
-						continue
-					}
-					known++
-					u, ok := users[m.User.ID]
-					if !ok {
-						u = &userStatus{Name: statusUserName(m.User)}
-						users[m.User.ID] = u
-					}
-					u.Guilds = append(u.Guilds, name)
-				}
-				snap.GuildList = append(snap.GuildList, guildStatus{Name: name, Members: g.MemberCount, Known: known, Voice: voiceGuilds[g.ID]})
+				snap.GuildList = append(snap.GuildList, guildStatus{ID: g.ID, Name: name, Members: g.MemberCount, Voice: voiceGuilds[g.ID]})
 			}
 			s.State.RUnlock()
-			for _, u := range users {
-				sort.Strings(u.Guilds)
-				snap.Users = append(snap.Users, *u)
-			}
-			sortUsers(snap.Users)
 			sort.Slice(snap.GuildList, func(i, j int) bool {
 				if snap.GuildList[i].Members != snap.GuildList[j].Members {
 					return snap.GuildList[i].Members > snap.GuildList[j].Members
@@ -210,23 +187,6 @@ func collectStatus(ctx context.Context, s *discordgo.Session, providers []bot.St
 	snap.DBFiles = collectDBFiles(dbPaths)
 	snap.Modules = collectModuleStats(ctx, providers, statusProviderTimeout)
 	return snap
-}
-
-func statusUserName(u *discordgo.User) string {
-	if u.GlobalName != "" && u.GlobalName != u.Username {
-		return u.GlobalName + " (" + u.Username + ")"
-	}
-	return u.Username
-}
-
-// sortUsers orders users sharing the most guilds with the bot first.
-func sortUsers(users []userStatus) {
-	sort.Slice(users, func(i, j int) bool {
-		if len(users[i].Guilds) != len(users[j].Guilds) {
-			return len(users[i].Guilds) > len(users[j].Guilds)
-		}
-		return strings.ToLower(users[i].Name) < strings.ToLower(users[j].Name)
-	})
 }
 
 func collectDBFiles(paths []string) []dbFileStatus {
@@ -448,15 +408,7 @@ func (snap statusSnapshot) guildLines() []string {
 		if g.Voice {
 			voice = " · voice"
 		}
-		lines = append(lines, fmt.Sprintf("%-24s %6s members · %s known%s", truncateRunes(g.Name, 24), humanize.Comma(int64(g.Members)), humanize.Comma(int64(g.Known)), voice))
-	}
-	return lines
-}
-
-func (snap statusSnapshot) userLines() []string {
-	lines := make([]string, 0, len(snap.Users))
-	for _, u := range snap.Users {
-		lines = append(lines, truncateRunes(fmt.Sprintf("%-24s %s", truncateRunes(u.Name, 24), strings.Join(u.Guilds, ", ")), 100))
+		lines = append(lines, fmt.Sprintf("%-24s %6s members%s", truncateRunes(g.Name, 24), humanize.Comma(int64(g.Members)), voice))
 	}
 	return lines
 }
@@ -507,10 +459,7 @@ func renderStatusText(snap statusSnapshot, view string, limit int) string {
 		{title: "Modules", lines: snap.moduleLines(detailed), trimmable: true},
 	}
 	if detailed {
-		sections = append(sections,
-			textSection{title: fmt.Sprintf("Guilds (%d)", len(snap.GuildList)), lines: snap.guildLines(), trimmable: true},
-			textSection{title: fmt.Sprintf("Known users (%d)", len(snap.Users)), lines: snap.userLines(), trimmable: true},
-		)
+		sections = append(sections, textSection{title: fmt.Sprintf("Guilds (%d)", len(snap.GuildList)), lines: snap.guildLines(), trimmable: true})
 	}
 	if w := snap.warnings(); len(w) > 0 {
 		for i := range w {
@@ -519,6 +468,12 @@ func renderStatusText(snap statusSnapshot, view string, limit int) string {
 		sections = append(sections, textSection{title: "Warnings", lines: w})
 	}
 
+	return fitSections(snap.headerLines(), sections, limit)
+}
+
+// fitSections renders sections, trimming the last trimmable section line by
+// line until the result fits in limit runes.
+func fitSections(header []string, sections []textSection, limit int) string {
 	// Cap long lists up front so the trim loop below stays cheap.
 	for i := range sections {
 		if sections[i].trimmable && len(sections[i].lines) > statusMaxListLines {
@@ -527,7 +482,6 @@ func renderStatusText(snap statusSnapshot, view string, limit int) string {
 		}
 	}
 
-	header := snap.headerLines()
 	for {
 		out := renderSections(header, sections)
 		if len([]rune(out)) <= limit {
@@ -609,10 +563,7 @@ func statusEmbedResponseData(snap statusSnapshot, view string) *discordgo.Intera
 		fields = append(fields, &discordgo.MessageEmbedField{Name: m.Name, Value: embedValue(lines), Inline: true})
 	}
 	if detailed {
-		fields = append(fields,
-			&discordgo.MessageEmbedField{Name: fmt.Sprintf("Guilds (%d)", len(snap.GuildList)), Value: embedValue(snap.guildLines())},
-			&discordgo.MessageEmbedField{Name: fmt.Sprintf("Known users (%d)", len(snap.Users)), Value: embedValue(snap.userLines())},
-		)
+		fields = append(fields, &discordgo.MessageEmbedField{Name: fmt.Sprintf("Guilds (%d)", len(snap.GuildList)), Value: embedValue(snap.guildLines())})
 	}
 	if len(warnings) > 0 {
 		fields = append(fields, &discordgo.MessageEmbedField{Name: "Warnings", Value: embedValue(warnings)})

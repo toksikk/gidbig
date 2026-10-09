@@ -119,6 +119,14 @@ func onStatusInteractionCreate(s *discordgo.Session, i *discordgo.InteractionCre
 	}
 
 	view, format := statusOptions(data.Options)
+	if view == statusViewUsers {
+		if userID != conf.Discord.OwnerID {
+			respondEphemeral(s, i, "Access denied.")
+			return
+		}
+		respondStatusUsers(s, i, format)
+		return
+	}
 	resp := statusInteractionResponse(userID, conf.Discord.OwnerID, func() *discordgo.InteractionResponseData {
 		snap := collectStatus(context.Background(), s, statusProviders, statusDBPaths)
 		return statusResponseData(snap, view, format)
