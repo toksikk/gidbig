@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"log/slog"
 	"strings"
-	"sync"
 
 	"github.com/bwmarrin/discordgo"
 	// sqlite3 driver
@@ -41,60 +40,48 @@ type LLMChatMessage struct {
 
 const chatHistoryDBFilename = "gippity.db"
 
-var database *sql.DB
-var dbMu sync.Mutex
-var idToNameCache = make(map[string]string)
-
-func initDB() {
+func (m *Module) initDB() error {
 	var err error
-	database, err = sql.Open("sqlite3", chatHistoryDBFilename+"?_journal=WAL&_busy_timeout=5000")
+	m.db, err = sql.Open("sqlite3", m.dbPath+"?_journal=WAL&_busy_timeout=5000")
 	if err != nil {
 		slog.Error("Error while opening database", "error", err)
-		return
+		return err
 	}
 
-	_, err = database.Exec(`CREATE TABLE IF NOT EXISTS chat_history (user_id text, channel_id text, timestamp integer, message text, message_id text, guild_id text)`)
+	_, err = m.db.Exec(`CREATE TABLE IF NOT EXISTS chat_history (user_id text, channel_id text, timestamp integer, message text, message_id text, guild_id text)`)
 	if err != nil {
 		slog.Error("Error while creating chat_history table", "error", err)
 	}
 
 	// idempotent: ignore error if column already exists
-	_, _ = database.Exec(`ALTER TABLE chat_history ADD COLUMN is_bot_mention INTEGER DEFAULT 0`)
+	_, _ = m.db.Exec(`ALTER TABLE chat_history ADD COLUMN is_bot_mention INTEGER DEFAULT 0`)
 
-	_, err = database.Exec(`CREATE TABLE IF NOT EXISTS user_privacy (user_id TEXT PRIMARY KEY, privacy_enabled INTEGER NOT NULL DEFAULT 1)`)
+	_, err = m.db.Exec(`CREATE TABLE IF NOT EXISTS user_privacy (user_id TEXT PRIMARY KEY, privacy_enabled INTEGER NOT NULL DEFAULT 1)`)
 	if err != nil {
 		slog.Error("Error while creating user_privacy table", "error", err)
 	}
 
-	_, err = database.Exec(`CREATE TABLE IF NOT EXISTS chat_attachments (id INTEGER PRIMARY KEY AUTOINCREMENT, message_id TEXT, attachment_url TEXT, image_description TEXT)`)
+	_, err = m.db.Exec(`CREATE TABLE IF NOT EXISTS chat_attachments (id INTEGER PRIMARY KEY AUTOINCREMENT, message_id TEXT, attachment_url TEXT, image_description TEXT)`)
 	if err != nil {
 		slog.Error("Error while creating chat_attachments table", "error", err)
 	}
 	// idempotent: add columns missing from pre-existing migration-created tables
-	_, _ = database.Exec(`ALTER TABLE chat_attachments ADD COLUMN message_id TEXT`)
-	_, _ = database.Exec(`ALTER TABLE chat_attachments ADD COLUMN image_description TEXT`)
+	_, _ = m.db.Exec(`ALTER TABLE chat_attachments ADD COLUMN message_id TEXT`)
+	_, _ = m.db.Exec(`ALTER TABLE chat_attachments ADD COLUMN image_description TEXT`)
 
-	_, err = database.Exec(`CREATE TABLE IF NOT EXISTS chat_history_edits (id INTEGER PRIMARY KEY AUTOINCREMENT, original_message_id TEXT, edited_content TEXT, version INTEGER, edited_at INTEGER)`)
+	_, err = m.db.Exec(`CREATE TABLE IF NOT EXISTS chat_history_edits (id INTEGER PRIMARY KEY AUTOINCREMENT, original_message_id TEXT, edited_content TEXT, version INTEGER, edited_at INTEGER)`)
 	if err != nil {
 		slog.Error("Error while creating chat_history_edits table", "error", err)
 	}
-	_, err = database.Exec(`CREATE INDEX IF NOT EXISTS idx_chat_history_edits_original ON chat_history_edits(original_message_id, version)`)
+	_, err = m.db.Exec(`CREATE INDEX IF NOT EXISTS idx_chat_history_edits_original ON chat_history_edits(original_message_id, version)`)
 	if err != nil {
 		slog.Error("Error while creating index on chat_history_edits", "error", err)
 	}
+	return nil
 }
 
-// CloseDB closes the gippity chat history database.
-func CloseDB() {
-	if database != nil {
-		if err := database.Close(); err != nil {
-			slog.Error("error closing gippity database", "error", err)
-		}
-	}
-}
-
-func addMessageToDatabase(m *discordgo.MessageCreate, isBotMention bool) {
-	stmt, err := database.Prepare("INSERT INTO chat_history (user_id, channel_id, timestamp, message, message_id, guild_id, is_bot_mention) VALUES (?, ?, ?, ?, ?, ?, ?)")
+func (m *Module) addMessageToDatabase(mc *discordgo.MessageCreate, isBotMention bool) {
+	stmt, err := m.db.Prepare("INSERT INTO chat_history (user_id, channel_id, timestamp, message, message_id, guild_id, is_bot_mention) VALUES (?, ?, ?, ?, ?, ?, ?)")
 	if err != nil {
 		slog.Error("Error while preparing statement", "error", err)
 		return
@@ -105,21 +92,21 @@ func addMessageToDatabase(m *discordgo.MessageCreate, isBotMention bool) {
 	if isBotMention {
 		botMentionInt = 1
 	}
-	_, err = stmt.Exec(m.Author.ID, m.ChannelID, util.GetTimestampOfMessage(m.ID).Unix(), m.Content, m.ID, m.GuildID, botMentionInt)
+	_, err = stmt.Exec(mc.Author.ID, mc.ChannelID, util.GetTimestampOfMessage(mc.ID).Unix(), mc.Content, mc.ID, mc.GuildID, botMentionInt)
 	if err != nil {
 		slog.Error("Error while inserting message into database", "error", err)
 	}
 }
 
-func addMessageEditToDatabase(messageID, content string, editedAt int64) {
-	dbMu.Lock()
-	defer dbMu.Unlock()
+func (m *Module) addMessageEditToDatabase(messageID, content string, editedAt int64) {
+	m.dbMu.Lock()
+	defer m.dbMu.Unlock()
 	var maxVersion int
-	if err := database.QueryRow(`SELECT COALESCE(MAX(version), 0) FROM chat_history_edits WHERE original_message_id = ?`, messageID).Scan(&maxVersion); err != nil {
+	if err := m.db.QueryRow(`SELECT COALESCE(MAX(version), 0) FROM chat_history_edits WHERE original_message_id = ?`, messageID).Scan(&maxVersion); err != nil {
 		slog.Error("Error while querying max edit version", "error", err)
 		return
 	}
-	_, err := database.Exec(
+	_, err := m.db.Exec(
 		`INSERT INTO chat_history_edits (original_message_id, edited_content, version, edited_at) VALUES (?, ?, ?, ?)`,
 		messageID, content, maxVersion+1, editedAt,
 	)
@@ -128,10 +115,10 @@ func addMessageEditToDatabase(messageID, content string, editedAt int64) {
 	}
 }
 
-func addAttachmentsToDatabase(messageID string, urls []string, description string) {
-	dbMu.Lock()
-	defer dbMu.Unlock()
-	_, err := database.Exec(
+func (m *Module) addAttachmentsToDatabase(messageID string, urls []string, description string) {
+	m.dbMu.Lock()
+	defer m.dbMu.Unlock()
+	_, err := m.db.Exec(
 		"INSERT INTO chat_attachments (message_id, attachment_url, image_description) VALUES (?, ?, ?)",
 		messageID, strings.Join(urls, ","), description,
 	)
@@ -140,8 +127,8 @@ func addAttachmentsToDatabase(messageID string, urls []string, description strin
 	}
 }
 
-func getLastNMessagesFromDatabase(channelID string, n int) ([]LLMChatMessage, error) {
-	stmt, err := database.Prepare(`
+func (m *Module) getLastNMessagesFromDatabase(channelID string, n int) ([]LLMChatMessage, error) {
+	stmt, err := m.db.Prepare(`
 	SELECT ch.user_id, ch.channel_id, ch.timestamp,
 	       COALESCE((SELECT edited_content FROM chat_history_edits WHERE original_message_id = ch.message_id ORDER BY version DESC LIMIT 1), ch.message) as message,
 	       ch.message_id, ch.guild_id,
@@ -194,19 +181,19 @@ func getLastNMessagesFromDatabase(channelID string, n int) ([]LLMChatMessage, er
 			message.ImageDescriptions = append(message.ImageDescriptions, *imageDescConcat)
 		}
 
-		if idToNameCache[message.UserID] == "" {
-			idToNameCache[message.UserID] = util.GetUsernameForUserIDInGuild(discordSession, message.UserID, message.GuildID)
+		if m.idToNameCache[message.UserID] == "" {
+			m.idToNameCache[message.UserID] = util.GetUsernameForUserIDInGuild(m.session, message.UserID, message.GuildID)
 		}
-		if idToNameCache[message.ChannelID] == "" {
-			idToNameCache[message.ChannelID] = util.GetChannelName(discordSession, message.ChannelID)
+		if m.idToNameCache[message.ChannelID] == "" {
+			m.idToNameCache[message.ChannelID] = util.GetChannelName(m.session, message.ChannelID)
 		}
-		if idToNameCache[message.GuildID] == "" {
-			idToNameCache[message.GuildID] = util.GetGuildName(discordSession, message.GuildID)
+		if m.idToNameCache[message.GuildID] == "" {
+			m.idToNameCache[message.GuildID] = util.GetGuildName(m.session, message.GuildID)
 		}
 
-		message.Username = idToNameCache[message.UserID]
-		message.ChannelName = idToNameCache[message.ChannelID]
-		message.GuildName = idToNameCache[message.GuildID]
+		message.Username = m.idToNameCache[message.UserID]
+		message.ChannelName = m.idToNameCache[message.ChannelID]
+		message.GuildName = m.idToNameCache[message.GuildID]
 		message.TimestampString = util.GetTimestampOfMessage(message.MessageID).Format("2006-01-02 15:04:05")
 
 		llmMessages = append(llmMessages, message)
@@ -215,8 +202,8 @@ func getLastNMessagesFromDatabase(channelID string, n int) ([]LLMChatMessage, er
 	return llmMessages, nil
 }
 
-func getMessageFromDatabase(messageID string) (*LLMChatMessage, error) {
-	stmt, err := database.Prepare(`
+func (m *Module) getMessageFromDatabase(messageID string) (*LLMChatMessage, error) {
+	stmt, err := m.db.Prepare(`
 	SELECT ch.user_id, ch.channel_id, ch.timestamp,
 	       COALESCE((SELECT edited_content FROM chat_history_edits WHERE original_message_id = ch.message_id ORDER BY version DESC LIMIT 1), ch.message) as message,
 	       ch.message_id, ch.guild_id,
@@ -256,27 +243,27 @@ func getMessageFromDatabase(messageID string) (*LLMChatMessage, error) {
 		message.ImageDescriptions = strings.Split(*imageDescConcat, "||")
 	}
 
-	if idToNameCache[message.UserID] == "" {
-		idToNameCache[message.UserID] = util.GetUsernameForUserIDInGuild(discordSession, message.UserID, message.GuildID)
+	if m.idToNameCache[message.UserID] == "" {
+		m.idToNameCache[message.UserID] = util.GetUsernameForUserIDInGuild(m.session, message.UserID, message.GuildID)
 	}
-	if idToNameCache[message.ChannelID] == "" {
-		idToNameCache[message.ChannelID] = util.GetChannelName(discordSession, message.ChannelID)
+	if m.idToNameCache[message.ChannelID] == "" {
+		m.idToNameCache[message.ChannelID] = util.GetChannelName(m.session, message.ChannelID)
 	}
-	if idToNameCache[message.GuildID] == "" {
-		idToNameCache[message.GuildID] = util.GetGuildName(discordSession, message.GuildID)
+	if m.idToNameCache[message.GuildID] == "" {
+		m.idToNameCache[message.GuildID] = util.GetGuildName(m.session, message.GuildID)
 	}
 
-	message.Username = idToNameCache[message.UserID]
-	message.ChannelName = idToNameCache[message.ChannelID]
-	message.GuildName = idToNameCache[message.GuildID]
+	message.Username = m.idToNameCache[message.UserID]
+	message.ChannelName = m.idToNameCache[message.ChannelID]
+	message.GuildName = m.idToNameCache[message.GuildID]
 	message.TimestampString = util.GetTimestampOfMessage(message.MessageID).Format("2006-01-02 15:04:05")
 	return &message, nil
 }
 
 // getUserPrivacy returns true (privacy on) by default; explicit opt-out returns false.
-func getUserPrivacy(userID string) bool {
+func (m *Module) getUserPrivacy(userID string) bool {
 	var enabled int
-	err := database.QueryRow(`SELECT privacy_enabled FROM user_privacy WHERE user_id = ?`, userID).Scan(&enabled)
+	err := m.db.QueryRow(`SELECT privacy_enabled FROM user_privacy WHERE user_id = ?`, userID).Scan(&enabled)
 	if err == sql.ErrNoRows {
 		return true
 	}
@@ -288,12 +275,12 @@ func getUserPrivacy(userID string) bool {
 }
 
 // setUserPrivacy stores or updates the privacy preference for a user.
-func setUserPrivacy(userID string, enabled bool) error {
+func (m *Module) setUserPrivacy(userID string, enabled bool) error {
 	enabledInt := 0
 	if enabled {
 		enabledInt = 1
 	}
-	_, err := database.Exec(
+	_, err := m.db.Exec(
 		`INSERT INTO user_privacy (user_id, privacy_enabled) VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET privacy_enabled = excluded.privacy_enabled`,
 		userID, enabledInt,
 	)

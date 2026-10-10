@@ -9,9 +9,8 @@ import (
 )
 
 func TestEnrichSystemMessage_returnsInputUnchanged(t *testing.T) {
-	prev := seasonFunc
-	t.Cleanup(func() { seasonFunc = prev })
-	seasonFunc = func() util.Season { return util.SeasonNone }
+	m, _ := setupGippityTest(t)
+	m.seasonFunc = func() util.Season { return util.SeasonNone }
 
 	cases := []string{
 		"",
@@ -20,7 +19,7 @@ func TestEnrichSystemMessage_returnsInputUnchanged(t *testing.T) {
 		"multi\nline\nmessage",
 	}
 	for _, input := range cases {
-		got := enrichSystemMessage(input)
+		got := m.enrichSystemMessage(input)
 		if got != input {
 			t.Errorf("enrichSystemMessage(%q) = %q, want %q", input, got, input)
 		}
@@ -28,8 +27,7 @@ func TestEnrichSystemMessage_returnsInputUnchanged(t *testing.T) {
 }
 
 func TestEnrichSystemMessage_seasonal(t *testing.T) {
-	prev := seasonFunc
-	t.Cleanup(func() { seasonFunc = prev })
+	m, _ := setupGippityTest(t)
 
 	const input = "Du bist ein Discord Chatbot."
 	cases := []struct {
@@ -45,8 +43,8 @@ func TestEnrichSystemMessage_seasonal(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			seasonFunc = func() util.Season { return tc.season }
-			got := enrichSystemMessage(input)
+			m.seasonFunc = func() util.Season { return tc.season }
+			got := m.enrichSystemMessage(input)
 			if tc.season == util.SeasonNone {
 				if got != input {
 					t.Errorf("enrichSystemMessage(%q) = %q, want %q", input, got, input)
@@ -100,8 +98,9 @@ func TestRemoveSpoilerTagContentInStringMessage(t *testing.T) {
 }
 
 func TestReplaceAllUserIDsWithUsernamesInStringMessage_NoMentions(t *testing.T) {
+	m, _ := setupGippityTest(t)
 	input := "Hello world"
-	got := replaceAllUserIDsWithUsernamesInStringMessage(input, "guild123")
+	got := m.replaceAllUserIDsWithUsernamesInStringMessage(input, "guild123")
 	if got != input {
 		t.Errorf("replaceAllUserIDsWithUsernamesInStringMessage(%q) = %q, want unchanged", input, got)
 	}
@@ -126,12 +125,12 @@ func TestConvertLLMChatMessageToLLMCompatibleFlowingText(t *testing.T) {
 }
 
 func TestFetchReferencedMessage_FoundInDB(t *testing.T) {
-	setupGippityTest(t)
-	idToNameCache["user-2"] = "Bob"
-	idToNameCache["channel-1"] = "general"
-	idToNameCache["allowed-guild"] = "Test Guild"
+	m, session := setupGippityTest(t)
+	m.idToNameCache["user-2"] = "Bob"
+	m.idToNameCache["channel-1"] = "general"
+	m.idToNameCache["allowed-guild"] = "Test Guild"
 
-	if _, err := database.Exec(`INSERT INTO chat_history (user_id, channel_id, timestamp, message, message_id, guild_id, is_bot_mention) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+	if _, err := m.db.Exec(`INSERT INTO chat_history (user_id, channel_id, timestamp, message, message_id, guild_id, is_bot_mention) VALUES (?, ?, ?, ?, ?, ?, ?)`,
 		"user-2", "channel-1", 1000, "the referenced content", "ref-db-msg", "allowed-guild", 0); err != nil {
 		t.Fatalf("insert: %v", err)
 	}
@@ -141,7 +140,7 @@ func TestFetchReferencedMessage_FoundInDB(t *testing.T) {
 		ChannelID: "channel-1",
 		GuildID:   "allowed-guild",
 	}
-	msg, err := fetchReferencedMessage(discordSession, ref)
+	msg, err := m.fetchReferencedMessage(session, ref)
 	if err != nil {
 		t.Fatalf("fetchReferencedMessage: %v", err)
 	}
@@ -158,12 +157,10 @@ func TestFetchReferencedMessage_FoundInDB(t *testing.T) {
 }
 
 func TestFetchReferencedMessage_NotInDB_FallsBackToAPI(t *testing.T) {
-	setupGippityTest(t)
+	m, session := setupGippityTest(t)
 
 	apiCalled := false
-	prevCMF := channelMessageFunc
-	t.Cleanup(func() { channelMessageFunc = prevCMF })
-	channelMessageFunc = func(_ *discordgo.Session, _, msgID string) (*discordgo.Message, error) {
+	m.channelMessageFunc = func(_ *discordgo.Session, _, msgID string) (*discordgo.Message, error) {
 		apiCalled = true
 		return &discordgo.Message{
 			ID:      msgID,
@@ -178,7 +175,7 @@ func TestFetchReferencedMessage_NotInDB_FallsBackToAPI(t *testing.T) {
 		GuildID:   "allowed-guild",
 	}
 	// "api-msg-id" is not in the DB — fetchReferencedMessage must fall back to channelMessageFunc.
-	msg, err := fetchReferencedMessage(discordSession, ref)
+	msg, err := m.fetchReferencedMessage(session, ref)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

@@ -301,7 +301,16 @@ func StartGidbig() {
 	} else {
 		bgSupervisor.Start(bgCtx, gamerstatusMod.Background()...)
 	}
-	gippity.Start(discord, conf.Gippity.RateLimitMessagesPerHour)
+	gippityMod := gippity.New()
+	if err := gippityMod.Init(bot.Deps{Session: discord, Config: conf}); err != nil {
+		slog.Error("gippity: init failed", "error", err)
+	} else {
+		for _, l := range gippityMod.Listeners() {
+			discord.AddHandler(l)
+		}
+		admin.RegisterProvider(gippityMod)
+		bgSupervisor.Start(bgCtx, gippityMod.Background()...)
+	}
 	leetoMod := leetoclock.New()
 	leetoReady := false
 	if err := leetoMod.Init(bot.Deps{Session: discord, Config: conf}); err != nil {
@@ -347,7 +356,7 @@ func StartGidbig() {
 		}
 	}
 
-	statusProviders = []bot.StatsProvider{soundboardStatsProvider(), gippity.StatsProvider}
+	statusProviders = []bot.StatsProvider{soundboardStatsProvider(), gippityMod}
 	if coffeeReady {
 		statusProviders = append(statusProviders, coffeeMod)
 	}
@@ -359,14 +368,14 @@ func StartGidbig() {
 	if conf.Database.Path != "" {
 		dbPath = conf.Database.Path
 	}
-	statusDBPaths = []string{dbPath, gippity.DBPath()}
+	statusDBPaths = []string{dbPath, gippityMod.DBPath()}
 
 	cmds := []*discordgo.ApplicationCommand{statusCommand()}
 	cmds = append(cmds, coreSlashCommands()...)
 	cmds = append(cmds, admin.Commands()...)
 	cmds = append(cmds, coffeeMod.Commands()...)
 	cmds = append(cmds, esoMod.Commands()...)
-	cmds = append(cmds, gippity.Commands()...)
+	cmds = append(cmds, gippityMod.Commands()...)
 	cmds = appendLeetoCommands(cmds, leetoMod, leetoReady)
 	cmds = append(cmds, anticheatMod.Commands()...)
 	cmds = append(cmds, stollMod.Commands()...)
@@ -407,8 +416,9 @@ func StartGidbig() {
 		if err := discord.Close(); err != nil {
 			slog.Error("error closing discord session", "error", err)
 		}
-		gippity.Shutdown()
-		gippity.CloseDB()
+		if err := gippityMod.Shutdown(); err != nil {
+			slog.Error("gippity: shutdown failed", "error", err)
+		}
 		if leetoReady {
 			if err := leetoMod.Shutdown(); err != nil {
 				slog.Error("leetoclock: shutdown failed", "error", err)

@@ -9,12 +9,7 @@ import (
 	openai "github.com/openai/openai-go/v3"
 )
 
-var describeImagesFunc = describeImages
-var visionCompletionFunc = func(ctx context.Context, params openai.ChatCompletionNewParams) (*openai.ChatCompletion, error) {
-	return llm.GetClient().Chat.Completions.New(ctx, params)
-}
-
-func describeImages(imageURLs []string) (string, error) {
+func (m *Module) describeImages(imageURLs []string) (string, error) {
 	parts := []openai.ChatCompletionContentPartUnionParam{
 		openai.TextContentPart("Describe what is in this image concisely."),
 	}
@@ -26,7 +21,7 @@ func describeImages(imageURLs []string) (string, error) {
 			OfArrayOfContentParts: parts,
 		},
 	}
-	completion, err := visionCompletionFunc(context.Background(), openai.ChatCompletionNewParams{
+	completion, err := m.visionCompletionFunc(context.Background(), openai.ChatCompletionNewParams{
 		Messages: []openai.ChatCompletionMessageParamUnion{
 			{OfUser: &userMsg},
 		},

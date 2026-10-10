@@ -1,6 +1,6 @@
 # gippity
 
-Directory `internal/gippity`. Legacy module: wired via `gippity.Start`, not `bot.Module` (started directly in `core/cmd.go`).
+Directory `internal/gippity`. Implements `bot.Module`, `bot.AdminProvider` and `bot.StatsProvider`; wired via `gippity.New().Init(...)` in `core/cmd.go`.
 
 LLM chat for Discord: answers when the bot is mentioned, keeps per-channel history, describes image attachments, honors per-user privacy, rate-limits mentions.
 
