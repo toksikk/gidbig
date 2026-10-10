@@ -62,6 +62,7 @@ gippity:
     allowed_guilds:
         - "YOUR_DISCORD_GUILD_ID"
     ignored_users: []
+    reply_in_thread: false # answer mentions in a thread instead of the channel
 llm:
     provider: "openai"
     model: "gpt-4o-mini"
@@ -86,7 +87,7 @@ llm:
 
 Set `OPENROUTER_API_KEY` when using OpenRouter. `llm.provider` defaults to `openai`, the OpenAI model defaults to `gpt-4o-mini`, and `llm.vision_model` defaults to `llm.model`. `llm.base_url` can optionally override either provider's API endpoint for an OpenAI-compatible gateway.
 
-The web server starts only when `web.port`, `web.session_secret`, `web.oauth.client_id`, `web.oauth.client_secret`, and `web.oauth.redirect_uri` are set. `gippity.allowed_guilds` restricts guilds where mention-driven AI chat runs.
+The web server starts only when `web.port`, `web.session_secret`, `web.oauth.client_id`, `web.oauth.client_secret`, and `web.oauth.redirect_uri` are set. `gippity.allowed_guilds` restricts guilds where mention-driven AI chat runs. With `gippity.reply_in_thread: true` the bot answers mentions inside a public thread started on the mentioning message instead of the channel itself (requires the Create Public Threads permission; messages already posted in a thread are answered there).
 
 ### 2. Add audio files 🎵
 

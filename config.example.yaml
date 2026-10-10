@@ -18,6 +18,11 @@ gippity:
     ignored_users: []
     # Optional. Max AI replies per user per hour; defaults to 30 when omitted.
     rate_limit_messages_per_hour: 30
+    # Optional. When true, the bot answers mentions inside a public thread
+    # started on the mentioning message instead of posting in the channel.
+    # Requires the Create Public Threads permission in the channel; if the
+    # thread cannot be created the answer falls back to the channel.
+    reply_in_thread: false
 soundboard:
     # Optional. Max sounds queued per guild before new requests are dropped;
     # defaults to 6 when omitted.

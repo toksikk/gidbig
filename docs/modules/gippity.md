@@ -7,6 +7,7 @@ LLM chat for Discord: answers when the bot is mentioned, keeps per-channel histo
 - Command: `/gippity privacy on|off`.
 - Storage: SQLite `gippity.db` (`chat_history`, `chat_history_edits`, `chat_attachments`, privacy).
 - Rate limit: `rate_limit_messages_per_hour` per user.
+- Reply target: `reply_in_thread` (default `false`) posts the answer inside a public thread started on the mentioning message instead of the channel. The thread name is derived from that message (mentions, backticks and control/format characters stripped, clamped to 100 characters). Messages that already arrive in a thread are answered in place, since Discord does not nest threads, and a failed thread start falls back to the channel. Rate-limit notices follow the same setting.
 
 ## Message answer flow
 
@@ -34,7 +35,13 @@ sequenceDiagram
         G->>G: build system prompt (personality, season, reactions, pseudonyms)
         G->>L: Chat.Completions.New
         L-->>G: answer
-        G->>D: ChannelMessageSend(answer)
+        alt reply_in_thread and channel is not a thread
+            G->>D: MessageThreadStartComplex(name from message)
+            D-->>G: thread
+            G->>D: ChannelMessageSend(thread.id, answer)
+        else channel reply
+            G->>D: ChannelMessageSend(channel.id, answer)
+        end
     end
 ```
 
