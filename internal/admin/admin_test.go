@@ -31,7 +31,8 @@ func (stubCoffeeProvider) HandleAdminSubcommand(_ *discordgo.Session, _ *discord
 
 var _ bot.AdminProvider = stubCoffeeProvider{}
 
-// stubGippityProvider mirrors the gippity module's admin subcommand group.
+// stubGippityProvider mirrors gippity.(*Module).AdminSubcommandGroup. Keep it in
+// sync with internal/gippity/admin.go when the gippity admin schema changes.
 type stubGippityProvider struct{}
 
 func (stubGippityProvider) AdminSubcommandGroup() *discordgo.ApplicationCommandOption {

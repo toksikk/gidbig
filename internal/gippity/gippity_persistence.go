@@ -181,19 +181,15 @@ func (m *Module) getLastNMessagesFromDatabase(channelID string, n int) ([]LLMCha
 			message.ImageDescriptions = append(message.ImageDescriptions, *imageDescConcat)
 		}
 
-		if m.idToNameCache[message.UserID] == "" {
-			m.idToNameCache[message.UserID] = util.GetUsernameForUserIDInGuild(m.session, message.UserID, message.GuildID)
-		}
-		if m.idToNameCache[message.ChannelID] == "" {
-			m.idToNameCache[message.ChannelID] = util.GetChannelName(m.session, message.ChannelID)
-		}
-		if m.idToNameCache[message.GuildID] == "" {
-			m.idToNameCache[message.GuildID] = util.GetGuildName(m.session, message.GuildID)
-		}
-
-		message.Username = m.idToNameCache[message.UserID]
-		message.ChannelName = m.idToNameCache[message.ChannelID]
-		message.GuildName = m.idToNameCache[message.GuildID]
+		message.Username = m.cachedName(message.UserID, func() string {
+			return util.GetUsernameForUserIDInGuild(m.session, message.UserID, message.GuildID)
+		})
+		message.ChannelName = m.cachedName(message.ChannelID, func() string {
+			return util.GetChannelName(m.session, message.ChannelID)
+		})
+		message.GuildName = m.cachedName(message.GuildID, func() string {
+			return util.GetGuildName(m.session, message.GuildID)
+		})
 		message.TimestampString = util.GetTimestampOfMessage(message.MessageID).Format("2006-01-02 15:04:05")
 
 		llmMessages = append(llmMessages, message)
@@ -243,19 +239,15 @@ func (m *Module) getMessageFromDatabase(messageID string) (*LLMChatMessage, erro
 		message.ImageDescriptions = strings.Split(*imageDescConcat, "||")
 	}
 
-	if m.idToNameCache[message.UserID] == "" {
-		m.idToNameCache[message.UserID] = util.GetUsernameForUserIDInGuild(m.session, message.UserID, message.GuildID)
-	}
-	if m.idToNameCache[message.ChannelID] == "" {
-		m.idToNameCache[message.ChannelID] = util.GetChannelName(m.session, message.ChannelID)
-	}
-	if m.idToNameCache[message.GuildID] == "" {
-		m.idToNameCache[message.GuildID] = util.GetGuildName(m.session, message.GuildID)
-	}
-
-	message.Username = m.idToNameCache[message.UserID]
-	message.ChannelName = m.idToNameCache[message.ChannelID]
-	message.GuildName = m.idToNameCache[message.GuildID]
+	message.Username = m.cachedName(message.UserID, func() string {
+		return util.GetUsernameForUserIDInGuild(m.session, message.UserID, message.GuildID)
+	})
+	message.ChannelName = m.cachedName(message.ChannelID, func() string {
+		return util.GetChannelName(m.session, message.ChannelID)
+	})
+	message.GuildName = m.cachedName(message.GuildID, func() string {
+		return util.GetGuildName(m.session, message.GuildID)
+	})
 	message.TimestampString = util.GetTimestampOfMessage(message.MessageID).Format("2006-01-02 15:04:05")
 	return &message, nil
 }
