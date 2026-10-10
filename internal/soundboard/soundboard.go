@@ -2,6 +2,7 @@ package soundboard
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"strconv"
 	"sync"
@@ -18,10 +19,13 @@ const defaultMaxQueueSize = 6
 type Module struct {
 	session *discordgo.Session
 
-	mu           sync.Mutex
+	mu sync.Mutex
+	// collections is written once in Init, before listeners are registered or
+	// the web server starts, then treated as read-only. Readers may therefore
+	// access it without holding mu.
 	collections  []*soundCollection
-	queues       map[string]chan *Play
-	nowPlaying   map[string]*Play
+	queues       map[string]chan *play
+	nowPlaying   map[string]*play
 	maxQueueSize int
 
 	// enqueue queues a play asynchronously; overridable in tests.
@@ -31,8 +35,8 @@ type Module struct {
 // New returns a Module with production-default hooks.
 func New() *Module {
 	m := &Module{
-		queues:       make(map[string]chan *Play),
-		nowPlaying:   make(map[string]*Play),
+		queues:       make(map[string]chan *play),
+		nowPlaying:   make(map[string]*play),
 		maxQueueSize: defaultMaxQueueSize,
 	}
 	m.enqueue = func(user *discordgo.User, guild *discordgo.Guild, coll *soundCollection, sound *soundClip) {
@@ -52,7 +56,9 @@ func (m *Module) Init(d bot.Deps) error {
 	}
 
 	slog.Info("Preloading sounds...")
-	m.createCollections()
+	if err := m.createCollections(); err != nil {
+		return fmt.Errorf("soundboard: scan audio directory: %w", err)
+	}
 	for _, coll := range m.collections {
 		coll.Load()
 	}
@@ -118,10 +124,13 @@ func (m *Module) Collections() []Collection {
 	return out
 }
 
-// Enqueue plays a sound from the named collection in the guild where the user
-// is currently in a voice channel. An empty or unknown sound name falls back
-// to a random sound from the collection. It returns false when the collection
-// is unknown or the user/guild is invalid.
+// Enqueue resolves a sound from the named collection and plays it in the guild
+// where the user is currently in a voice channel. An empty or unknown sound
+// name falls back to a random sound from the collection.
+//
+// It reports whether a collection was resolved and an enqueue was attempted,
+// not whether playback will happen: a full queue, a user not in a voice
+// channel, or an empty collection still return true.
 func (m *Module) Enqueue(user *discordgo.User, guild *discordgo.Guild, command, soundname string) bool {
 	if user == nil || guild == nil {
 		return false

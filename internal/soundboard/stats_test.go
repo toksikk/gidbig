@@ -43,9 +43,9 @@ func TestQueueStatus(t *testing.T) {
 		t.Fatalf("QueueStatus() = %#v, want empty", got)
 	}
 
-	m.queues["guild"] = make(chan *Play, 4)
-	m.queues["guild"] <- &Play{Sound: &soundClip{Name: "beep"}}
-	m.nowPlaying["guild"] = &Play{Sound: &soundClip{Name: "boom"}}
+	m.queues["guild"] = make(chan *play, 4)
+	m.queues["guild"] <- &play{Sound: &soundClip{Name: "beep"}}
+	m.nowPlaying["guild"] = &play{Sound: &soundClip{Name: "boom"}}
 
 	got := m.QueueStatus()
 	if len(got) != 1 {

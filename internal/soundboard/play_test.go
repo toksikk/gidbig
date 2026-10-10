@@ -1,6 +1,7 @@
 package soundboard
 
 import (
+	"os"
 	"sync"
 	"testing"
 	"time"
@@ -29,6 +30,9 @@ func TestNew_defaultMaxQueueSize(t *testing.T) {
 
 func TestInit_appliesConfigQueueMaxDepth(t *testing.T) {
 	t.Chdir(t.TempDir())
+	if err := os.MkdirAll("audio", 0o755); err != nil {
+		t.Fatalf("mkdir audio: %v", err)
+	}
 
 	c := &cfg.Config{}
 	c.Soundboard.QueueMaxDepth = 12
@@ -39,6 +43,15 @@ func TestInit_appliesConfigQueueMaxDepth(t *testing.T) {
 	}
 	if m.maxQueueSize != 12 {
 		t.Fatalf("maxQueueSize = %d, want 12", m.maxQueueSize)
+	}
+}
+
+func TestInit_missingAudioDirFails(t *testing.T) {
+	t.Chdir(t.TempDir())
+
+	m := New()
+	if err := m.Init(bot.Deps{}); err == nil {
+		t.Fatal("Init with missing audio dir returned nil, want error")
 	}
 }
 
