@@ -151,8 +151,8 @@ The database mount must match `database.path`. `docker-compose.yml` is also avai
 
 ## 🗺️ Roadmap
 
-- 🔀 **Finish migrating `!`-prefix commands to Discord slash commands** — soundboard and wttrin remain legacy commands
-- 🏗️ **Finish module migration** — move soundboard to `bot.Module` and remove the remaining legacy boot path in `core/cmd.go`
+- 🔀 **Finish migrating `!`-prefix commands to Discord slash commands** — wttrin remains a legacy command
+- 🏗️ **Finish module migration** — remove the remaining legacy boot path in `core/cmd.go`
 
 ## 📄 License
 

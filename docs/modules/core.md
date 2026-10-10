@@ -3,11 +3,14 @@
 Package `gidbig`, directory `internal/core`. Composition root.
 
 - `cmd.go` – `StartGidbig`: builds session, wires modules, registers slash commands, waits for signal, shuts down.
-- `soundboard.go` / `soundboard_init.go` – scan/load `audio/*.dca`, per-guild play queue.
-- `slashcmd.go` – `/list`, `/uptime`, `/play`.
+- `slashcmd.go` – `/uptime`.
+- `status.go` / `status_users.go` – `/status` snapshot collection and rendering.
 - `webserver.go` – optional OAuth session web UI, sound + eso APIs.
 - `wsdeadline.go` – read/write deadlines on discordgo websockets.
 - `version.go`, `discordlog.go`, `structs.go`.
+
+The soundboard lives in `internal/soundboard`; the web server reaches it through
+the module's exported `Collections`, `Enqueue` and `QueueStatus` API.
 
 ## Startup sequence
 
@@ -23,40 +26,14 @@ sequenceDiagram
 
     main->>core: StartGidbig()
     core->>cfg: GetConfig()
-    core->>core: createCollections() + Load()
     core->>dg: New("Bot token") + Open()
     dg-->>core: READY
     core->>llm: Initialize + ResolvePersonality
-    core->>mod: Init(Deps) for coffee/eso/gamerstatus/gippity/leetoclock/stoll/wttrin
+    core->>mod: Init(Deps) for soundboard/coffee/eso/gamerstatus/gippity/leetoclock/stoll/wttrin
     mod-->>core: listeners + background tasks
     core->>dg: ApplicationCommandBulkOverwrite(cmds)
     core->>web: go startWebServer() (if configured)
     core->>core: wait SIGINT/SIGTERM
     core->>mod: cancel ctx, Shutdown()
     core->>dg: Close()
-```
-
-## Sound playback
-
-```mermaid
-sequenceDiagram
-    participant U as User
-    participant core
-    participant q as guild queue
-    participant vc as VoiceConnection
-
-    U->>core: /play collection sound
-    core->>core: deferred respond
-    core->>q: go enqueuePlay(play)
-    alt no active queue
-        core->>vc: ChannelVoiceJoin
-        core->>vc: sleep 250ms (DAVE handshake)
-        core->>vc: Speaking(true)
-        core->>vc: send Opus frames (backpressure paced)
-        core->>vc: Speaking(false)
-        core->>core: play Next / drain queue
-        core->>vc: Disconnect
-    else queue occupies
-        core->>q: push play
-    end
 ```

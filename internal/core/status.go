@@ -255,35 +255,6 @@ func collectModuleStats(ctx context.Context, providers []bot.StatsProvider, time
 	return out
 }
 
-func soundboardStatsProvider() bot.StatsProvider {
-	return bot.StatsFunc{ModuleName: "soundboard", Fn: func(context.Context) (bot.ModuleStats, error) {
-		sounds := 0
-		for _, c := range COLLECTIONS {
-			sounds += len(c.Sounds)
-		}
-		mutex.Lock()
-		queued, active := 0, len(queues)
-		for _, q := range queues {
-			queued += len(q)
-		}
-		playing := len(nowPlaying)
-		mutex.Unlock()
-
-		return bot.ModuleStats{
-			Summary: []bot.Stat{
-				{Name: "sounds", Value: strconv.Itoa(sounds)},
-				{Name: "collections", Value: strconv.Itoa(len(COLLECTIONS))},
-				{Name: "queued", Value: strconv.Itoa(queued)},
-			},
-			Detail: []bot.Stat{
-				{Name: "playing", Value: strconv.Itoa(playing)},
-				{Name: "active queues", Value: strconv.Itoa(active)},
-				{Name: "max queue", Value: strconv.Itoa(maxQueueSize)},
-			},
-		}, nil
-	}}
-}
-
 // ---- rendering ----
 
 func formatUptime(d time.Duration) string {

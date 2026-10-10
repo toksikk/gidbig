@@ -24,6 +24,7 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/simplesurance/go-ip-anonymizer/ipanonymizer"
 	"github.com/toksikk/gidbig/internal/cfg"
+	"github.com/toksikk/gidbig/internal/soundboard"
 	"golang.org/x/oauth2"
 )
 
@@ -220,7 +221,6 @@ func handlePlaySound(w http.ResponseWriter, r *http.Request) {
 		slog.Error("could not ParseForm", "error", err)
 		return
 	}
-	sound, soundCollection := findSoundAndCollection(r.FormValue("command"), r.FormValue("soundname"))
 	session := store.Get(r)
 	userID := session.DiscordUserID
 	if userID == "" {
@@ -236,12 +236,7 @@ func handlePlaySound(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	if user != nil && guild != nil && soundCollection != nil {
-		if sound != nil {
-			go enqueuePlay(user, guild, soundCollection, sound)
-		} else {
-			go enqueuePlay(user, guild, soundCollection, soundCollection.Random())
-		}
+	if soundboardMod != nil && soundboardMod.Enqueue(user, guild, r.FormValue("command"), r.FormValue("soundname")) {
 		http.Error(w, http.StatusText(200), 200)
 	} else {
 		http.Error(w, http.StatusText(500), 500)
@@ -262,18 +257,15 @@ func handleAPIQueue(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var guilds []guildQueueStatus
-	mutex.Lock()
-	for guildID, ch := range queues {
-		gs := guildQueueStatus{
-			GuildID:     guildID,
-			QueueLength: len(ch),
+	if soundboardMod != nil {
+		for _, qs := range soundboardMod.QueueStatus() {
+			guilds = append(guilds, guildQueueStatus{
+				GuildID:     qs.GuildID,
+				NowPlaying:  qs.NowPlaying,
+				QueueLength: qs.QueueLength,
+			})
 		}
-		if np, ok := nowPlaying[guildID]; ok && np != nil && np.Sound != nil {
-			gs.NowPlaying = np.Sound.Name
-		}
-		guilds = append(guilds, gs)
 	}
-	mutex.Unlock()
 
 	if guilds == nil {
 		guilds = []guildQueueStatus{}
@@ -360,7 +352,11 @@ func handleMain(w http.ResponseWriter, r *http.Request) {
 
 		var prefixes []string
 		var si []soundItem
-		for _, sc := range COLLECTIONS {
+		var collections []soundboard.Collection
+		if soundboardMod != nil {
+			collections = soundboardMod.Collections()
+		}
+		for _, sc := range collections {
 			newSoundItemRandom := soundItem{
 				Itemprefix:    sc.Prefix,
 				Itemcommand:   "!" + sc.Prefix,

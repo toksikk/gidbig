@@ -5,7 +5,6 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
-	"sync"
 	"syscall"
 	"time"
 
@@ -20,6 +19,7 @@ import (
 	"github.com/toksikk/gidbig/internal/gippity"
 	"github.com/toksikk/gidbig/internal/leetoclock"
 	"github.com/toksikk/gidbig/internal/llm"
+	"github.com/toksikk/gidbig/internal/soundboard"
 	"github.com/toksikk/gidbig/internal/stoll"
 	"github.com/toksikk/gidbig/internal/wardogs"
 	"github.com/toksikk/gidbig/internal/wttrin"
@@ -32,14 +32,14 @@ var (
 	// Config struct to pass around
 	conf *cfg.Config
 
-	// mutex for checking if voice connection already exists
-	mutex = &sync.Mutex{}
-
 	// Start time for uptime calculation
 	startTime = time.Now()
 
 	// Eso module instance for web server access
 	esoMod *eso.Module
+
+	// Soundboard module instance for web server access
+	soundboardMod *soundboard.Module
 )
 
 func onReady(s *discordgo.Session, event *discordgo.Ready) {
@@ -73,15 +73,6 @@ func onDisconnect(s *discordgo.Session, event *discordgo.Disconnect) {
 
 func onResumed(s *discordgo.Session, event *discordgo.Resumed) {
 	slog.Info("Discord session resumed")
-}
-
-func scontains(key string, options ...string) bool {
-	for _, item := range options {
-		if item == key {
-			return true
-		}
-	}
-	return false
 }
 
 // statusInteractionResponse builds the ephemeral interaction response for /status.
@@ -195,16 +186,6 @@ func StartGidbig() {
 	LogVersion()
 	var err error
 
-	// create SoundCollections by scanning the audio folder
-	createCollections()
-	SetMaxQueueSize(conf.Soundboard.QueueMaxDepth)
-
-	// Preload all the sounds
-	slog.Info("Preloading sounds...")
-	for _, coll := range COLLECTIONS {
-		coll.Load()
-	}
-
 	// Create a discord session
 	slog.Info("Starting discord session...")
 	discord, err = discordgo.New("Bot " + conf.Discord.Token)
@@ -270,6 +251,14 @@ func StartGidbig() {
 		return
 	}
 	llm.ResolvePersonality(conf.LLM.Personality, conf.LLM.Preset)
+	soundboardMod = soundboard.New()
+	if err := soundboardMod.Init(bot.Deps{Session: discord, Config: conf}); err != nil {
+		slog.Error("soundboard: init failed", "error", err)
+	} else {
+		for _, l := range soundboardMod.Listeners() {
+			discord.AddHandler(l)
+		}
+	}
 	coffeeMod := coffee.New()
 	coffeeReady := false
 	if err := coffeeMod.Init(bot.Deps{Session: discord, Config: conf}); err != nil {
@@ -358,7 +347,7 @@ func StartGidbig() {
 		}
 	}
 
-	statusProviders = []bot.StatsProvider{soundboardStatsProvider()}
+	statusProviders = []bot.StatsProvider{soundboardMod}
 	if coffeeReady {
 		statusProviders = append(statusProviders, coffeeMod)
 	}
@@ -380,6 +369,7 @@ func StartGidbig() {
 
 	cmds := []*discordgo.ApplicationCommand{statusCommand()}
 	cmds = append(cmds, coreSlashCommands()...)
+	cmds = append(cmds, soundboardMod.Commands()...)
 	cmds = append(cmds, admin.Commands()...)
 	cmds = append(cmds, coffeeMod.Commands()...)
 	cmds = append(cmds, esoMod.Commands()...)

@@ -6,7 +6,8 @@ One file per internal package. Each doc: what it does + sequence diagram of the 
 
 | Module | Slash commands | Purpose |
 | --- | --- | --- |
-| [core](core.md) | `/status` `/uptime` `/list` `/play` | Composition root, soundboard, web server, Discord lifecycle |
+| [core](core.md) | `/status` `/uptime` | Composition root, web server, Discord lifecycle |
+| [soundboard](soundboard.md) | `/list` `/play` | Audio collection loading, per-guild voice playback queue |
 | [coffee](coffee.md) | `/brew` `/coffeemachine` `/setbeverage` | Coffee machine economy, orders, stats |
 | [gippity](gippity.md) | `/gippity` | LLM chat over Discord messages, vision, privacy |
 | [leetoclock](leetoclock.md) | – | Daily reaction-time game + scoreboard |

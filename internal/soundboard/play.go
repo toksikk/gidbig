@@ -1,4 +1,4 @@
-package gidbig
+package soundboard
 
 import (
 	"context"
@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/bwmarrin/discordgo"
-	"github.com/toksikk/gidbig/internal/util"
 )
 
 // playStartDelay matches the pre-roll used by the upstream airhorn example.
@@ -15,56 +14,6 @@ import (
 // finishes a few hundred ms after Ready.  A short pause here gives that
 // handshake time to complete before the first frame is queued.
 const playStartDelay = 250 * time.Millisecond
-
-var (
-	// Map of Guild id's to *Play channels, used for queuing and rate-limiting guilds
-	queues = make(map[string]chan *Play)
-
-	// nowPlaying tracks the sound currently being played per guild
-	nowPlaying = make(map[string]*Play)
-
-	// maxQueueSize Sound encoding settings
-	maxQueueSize = 6
-)
-
-// SetMaxQueueSize overrides the per-guild sound queue depth.
-func SetMaxQueueSize(size int) {
-	maxQueueSize = size
-}
-
-// Random select sound
-func (sc *soundCollection) Random() *soundClip {
-	if len(sc.Sounds) == 0 {
-		return nil
-	}
-	var (
-		i      int
-		number = util.RandomRange(0, sc.soundRange)
-	)
-
-	for _, sound := range sc.Sounds {
-		i += sound.Weight
-
-		if number < i {
-			return sound
-		}
-	}
-	return nil
-}
-
-func findSoundAndCollection(command string, soundname string) (*soundClip, *soundCollection) {
-	for _, c := range COLLECTIONS {
-		if scontains(command, c.Commands...) {
-			for _, s := range c.Sounds {
-				if soundname == s.Name {
-					return s, c
-				}
-			}
-			return nil, c
-		}
-	}
-	return nil, nil
-}
 
 // Play plays this sound over the specified VoiceConnection.
 //
@@ -99,21 +48,22 @@ func (s *soundClip) Play(vc *discordgo.VoiceConnection) {
 	slog.Debug("Play done", "frames", len(s.buffer), "guildID", vc.GuildID)
 }
 
-// Attempts to find the current users voice channel inside a given guild
-func getCurrentVoiceChannel(user *discordgo.User, guild *discordgo.Guild) *discordgo.Channel {
+// getCurrentVoiceChannel attempts to find the current user's voice channel
+// inside a given guild.
+func (m *Module) getCurrentVoiceChannel(user *discordgo.User, guild *discordgo.Guild) *discordgo.Channel {
 	for _, vs := range guild.VoiceStates {
 		if vs.UserID == user.ID {
-			channel, _ := discord.State.Channel(vs.ChannelID)
+			channel, _ := m.session.State.Channel(vs.ChannelID)
 			return channel
 		}
 	}
 	return nil
 }
 
-// Prepares a play
-func createPlay(user *discordgo.User, guild *discordgo.Guild, coll *soundCollection, sound *soundClip) *Play {
+// createPlay prepares a play.
+func (m *Module) createPlay(user *discordgo.User, guild *discordgo.Guild, coll *soundCollection, sound *soundClip) *Play {
 	// Grab the users voice channel
-	channel := getCurrentVoiceChannel(user, guild)
+	channel := m.getCurrentVoiceChannel(user, guild)
 	if channel == nil {
 		slog.Warn("Failed to find channel to play sound in", "user", user.ID, "guild", guild.ID)
 		return nil
@@ -157,9 +107,9 @@ func createPlay(user *discordgo.User, guild *discordgo.Guild, coll *soundCollect
 	return play
 }
 
-// Prepares and enqueues a play into the ratelimit/buffer guild queue
-func enqueuePlay(user *discordgo.User, guild *discordgo.Guild, coll *soundCollection, sound *soundClip) {
-	play := createPlay(user, guild, coll, sound)
+// enqueuePlay prepares and enqueues a play into the ratelimit/buffer guild queue.
+func (m *Module) enqueuePlay(user *discordgo.User, guild *discordgo.Guild, coll *soundCollection, sound *soundClip) {
+	play := m.createPlay(user, guild, coll, sound)
 	if play == nil {
 		return
 	}
@@ -170,29 +120,29 @@ func enqueuePlay(user *discordgo.User, guild *discordgo.Guild, coll *soundCollec
 	}
 	// Check if we already have a connection to this guild
 	// this should be threadsafe
-	mutex.Lock()
-	_, exists := queues[guild.ID]
-	mutex.Unlock()
+	m.mu.Lock()
+	_, exists := m.queues[guild.ID]
+	m.mu.Unlock()
 
 	if exists {
-		if len(queues[guild.ID]) < maxQueueSize {
-			mutex.Lock()
-			queues[guild.ID] <- play
-			mutex.Unlock()
+		if len(m.queues[guild.ID]) < m.maxQueueSize {
+			m.mu.Lock()
+			m.queues[guild.ID] <- play
+			m.mu.Unlock()
 		}
 	} else {
-		mutex.Lock()
-		queues[guild.ID] = make(chan *Play, maxQueueSize)
-		mutex.Unlock()
-		_, _, err := playSound(play, nil, "")
+		m.mu.Lock()
+		m.queues[guild.ID] = make(chan *Play, m.maxQueueSize)
+		m.mu.Unlock()
+		_, _, err := m.playSound(play, nil, "")
 		if err != nil {
 			slog.Error("could not playSound", "error", err)
 		}
 	}
 }
 
-// Play a sound
-func playSound(play *Play, vc *discordgo.VoiceConnection, vcChannelID string) (retVC *discordgo.VoiceConnection, retChannelID string, err error) {
+// playSound plays a sound, joining or moving voice connections as needed.
+func (m *Module) playSound(play *Play, vc *discordgo.VoiceConnection, vcChannelID string) (retVC *discordgo.VoiceConnection, retChannelID string, err error) {
 	slog.Info("Playing sound", "play", play)
 
 	ctx := context.Background()
@@ -208,12 +158,12 @@ func playSound(play *Play, vc *discordgo.VoiceConnection, vcChannelID string) (r
 	}
 
 	if vc == nil {
-		vc, err = discord.ChannelVoiceJoin(ctx, play.GuildID, play.ChannelID, false, true)
+		vc, err = m.session.ChannelVoiceJoin(ctx, play.GuildID, play.ChannelID, false, true)
 		if err != nil {
 			slog.Error("Failed to play sound", "error", err)
-			mutex.Lock()
-			delete(queues, play.GuildID)
-			mutex.Unlock()
+			m.mu.Lock()
+			delete(m.queues, play.GuildID)
+			m.mu.Unlock()
 			return nil, "", err
 		}
 		vcChannelID = play.ChannelID
@@ -225,41 +175,41 @@ func playSound(play *Play, vc *discordgo.VoiceConnection, vcChannelID string) (r
 		if disconnErr := vc.Disconnect(ctx); disconnErr != nil {
 			slog.Error("could not disconnect voice connection", "error", disconnErr)
 		}
-		vc, err = discord.ChannelVoiceJoin(ctx, play.GuildID, play.ChannelID, false, true)
+		vc, err = m.session.ChannelVoiceJoin(ctx, play.GuildID, play.ChannelID, false, true)
 		if err != nil {
 			slog.Error("could not join voice channel", "error", err)
-			mutex.Lock()
-			delete(queues, play.GuildID)
-			mutex.Unlock()
+			m.mu.Lock()
+			delete(m.queues, play.GuildID)
+			m.mu.Unlock()
 			return nil, "", err
 		}
 		vcChannelID = play.ChannelID
 		time.Sleep(playStartDelay)
 	}
 
-	mutex.Lock()
-	nowPlaying[play.GuildID] = play
-	mutex.Unlock()
+	m.mu.Lock()
+	m.nowPlaying[play.GuildID] = play
+	m.mu.Unlock()
 
 	// Play the sound
 	play.Sound.Play(vc)
 
-	mutex.Lock()
-	delete(nowPlaying, play.GuildID)
-	mutex.Unlock()
+	m.mu.Lock()
+	delete(m.nowPlaying, play.GuildID)
+	m.mu.Unlock()
 
 	// If this is chained, play the chained sound
 	if play.Next != nil {
-		vc, vcChannelID, err = playSound(play.Next, vc, vcChannelID)
+		vc, vcChannelID, err = m.playSound(play.Next, vc, vcChannelID)
 		if err != nil {
 			slog.Error("could not playSound", "error", err)
 		}
 	}
 
 	// If there is another song in the queue, recurse and play that
-	if len(queues[play.GuildID]) > 0 {
-		play = <-queues[play.GuildID]
-		vc, vcChannelID, err = playSound(play, vc, vcChannelID)
+	if len(m.queues[play.GuildID]) > 0 {
+		play = <-m.queues[play.GuildID]
+		vc, vcChannelID, err = m.playSound(play, vc, vcChannelID)
 		if err != nil {
 			slog.Error("could not playSound", "error", err)
 		}
@@ -268,11 +218,11 @@ func playSound(play *Play, vc *discordgo.VoiceConnection, vcChannelID string) (r
 
 	// If the queue is empty, delete it
 	time.Sleep(time.Millisecond * time.Duration(play.Sound.PartDelay))
-	mutex.Lock()
-	delete(queues, play.GuildID)
+	m.mu.Lock()
+	delete(m.queues, play.GuildID)
 	if disconnErr := vc.Disconnect(context.Background()); disconnErr != nil {
 		slog.Error("could not disconnect voice connection", "error", disconnErr)
 	}
-	mutex.Unlock()
+	m.mu.Unlock()
 	return nil, "", nil
 }
