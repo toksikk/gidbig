@@ -252,9 +252,11 @@ func StartGidbig() {
 	}
 	llm.ResolvePersonality(conf.LLM.Personality, conf.LLM.Preset)
 	soundboardMod = soundboard.New()
+	soundboardReady := false
 	if err := soundboardMod.Init(bot.Deps{Session: discord, Config: conf}); err != nil {
 		slog.Error("soundboard: init failed", "error", err)
 	} else {
+		soundboardReady = true
 		for _, l := range soundboardMod.Listeners() {
 			discord.AddHandler(l)
 		}
@@ -347,7 +349,10 @@ func StartGidbig() {
 		}
 	}
 
-	statusProviders = []bot.StatsProvider{soundboardMod}
+	statusProviders = nil
+	if soundboardReady {
+		statusProviders = append(statusProviders, soundboardMod)
+	}
 	if coffeeReady {
 		statusProviders = append(statusProviders, coffeeMod)
 	}
@@ -369,7 +374,9 @@ func StartGidbig() {
 
 	cmds := []*discordgo.ApplicationCommand{statusCommand()}
 	cmds = append(cmds, coreSlashCommands()...)
-	cmds = append(cmds, soundboardMod.Commands()...)
+	if soundboardReady {
+		cmds = append(cmds, soundboardMod.Commands()...)
+	}
 	cmds = append(cmds, admin.Commands()...)
 	cmds = append(cmds, coffeeMod.Commands()...)
 	cmds = append(cmds, esoMod.Commands()...)

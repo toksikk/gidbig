@@ -241,7 +241,9 @@ func TestCreateCollections_scansAudioDir(t *testing.T) {
 	writeDCAFile(t, "beta", "three", [][]byte{{0x03}})
 
 	m := New()
-	m.createCollections()
+	if err := m.createCollections(); err != nil {
+		t.Fatalf("createCollections returned error: %v", err)
+	}
 
 	if len(m.collections) != 2 {
 		t.Fatalf("collections = %d, want 2", len(m.collections))

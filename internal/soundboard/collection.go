@@ -23,15 +23,15 @@ type Sound struct {
 	Name string
 }
 
-// Play represents an individual queued sound playback.
-type Play struct {
+// play represents an individual queued sound playback.
+type play struct {
 	GuildID   string
 	ChannelID string
 	UserID    string
 	Sound     *soundClip
 
 	// The next play to occur after this, only used for chaining sounds like anotha
-	Next *Play
+	Next *play
 
 	// If true, this was a forced play using a specific sound name
 	Forced bool
@@ -82,8 +82,13 @@ func scontains(key string, options ...string) bool {
 }
 
 // createCollections scans ./audio for .dca files and builds the sound collections.
-func (m *Module) createCollections() {
-	files, _ := os.ReadDir("./audio")
+// It returns an error only when the audio directory cannot be read; individual
+// files that fail to load are reported by Load and skipped.
+func (m *Module) createCollections() error {
+	files, err := os.ReadDir("./audio")
+	if err != nil {
+		return err
+	}
 	for _, f := range files {
 		if strings.Contains(f.Name(), ".dca") {
 			soundfile := strings.Split(strings.ReplaceAll(f.Name(), ".dca", ""), "_")
@@ -111,6 +116,7 @@ func (m *Module) createCollections() {
 			}
 		}
 	}
+	return nil
 }
 
 func (m *Module) addNewSoundCollection(prefix string, soundname string) {
