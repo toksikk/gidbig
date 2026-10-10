@@ -77,12 +77,12 @@ func extractImageURLs(attachments []*discordgo.MessageAttachment) []string {
 }
 
 func (m *Module) convertDiscordMessageToLLMCompatibleFlowingText(mc *discordgo.MessageCreate) string {
-	if m.idToNameCache[mc.Author.ID] == "" {
-		m.idToNameCache[mc.Author.ID] = util.GetUsernameInGuild(m.session, mc)
-	}
+	username := m.cachedName(mc.Author.ID, func() string {
+		return util.GetUsernameInGuild(m.session, mc)
+	})
 	llmChatMessage := LLMChatMessage{
 		Message:         mc.Content,
-		Username:        m.idToNameCache[mc.Author.ID],
+		Username:        username,
 		TimestampString: mc.Timestamp.Format("2006-01-02 15:04:05"),
 	}
 	return convertLLMChatMessageToLLMCompatibleFlowingText(llmChatMessage)

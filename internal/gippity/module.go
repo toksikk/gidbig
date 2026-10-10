@@ -25,6 +25,10 @@ type Module struct {
 	dbMu   sync.Mutex
 	dbPath string
 
+	// stateMu guards idToNameCache and the per-user mention counters, which are
+	// touched by concurrent Discord handlers and the cache-reset background task.
+	stateMu sync.Mutex
+
 	idToNameCache map[string]string
 
 	allowedGuildIDs map[string]bool
@@ -172,7 +176,33 @@ func (m *Module) idToNameCacheResetLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			m.stateMu.Lock()
 			m.idToNameCache = make(map[string]string)
+			m.stateMu.Unlock()
 		}
 	}
+}
+
+// cachedName returns a cached id→name lookup, computing and storing it on a
+// miss. compute runs without the lock held so slow Discord API lookups never
+// serialize other handlers.
+func (m *Module) cachedName(key string, compute func() string) string {
+	m.stateMu.Lock()
+	v, ok := m.idToNameCache[key]
+	m.stateMu.Unlock()
+	if ok && v != "" {
+		return v
+	}
+	v = compute()
+	m.stateMu.Lock()
+	m.idToNameCache[key] = v
+	m.stateMu.Unlock()
+	return v
+}
+
+// mentionState returns the per-user mention counter and its reset time.
+func (m *Module) mentionState(userID string) (int, time.Time) {
+	m.stateMu.Lock()
+	defer m.stateMu.Unlock()
+	return m.userMessageCount[userID], m.userMessageCountLastReset[userID]
 }

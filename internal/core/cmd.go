@@ -302,9 +302,11 @@ func StartGidbig() {
 		bgSupervisor.Start(bgCtx, gamerstatusMod.Background()...)
 	}
 	gippityMod := gippity.New()
+	gippityReady := false
 	if err := gippityMod.Init(bot.Deps{Session: discord, Config: conf}); err != nil {
 		slog.Error("gippity: init failed", "error", err)
 	} else {
+		gippityReady = true
 		for _, l := range gippityMod.Listeners() {
 			discord.AddHandler(l)
 		}
@@ -356,9 +358,12 @@ func StartGidbig() {
 		}
 	}
 
-	statusProviders = []bot.StatsProvider{soundboardStatsProvider(), gippityMod}
+	statusProviders = []bot.StatsProvider{soundboardStatsProvider()}
 	if coffeeReady {
 		statusProviders = append(statusProviders, coffeeMod)
+	}
+	if gippityReady {
+		statusProviders = append(statusProviders, gippityMod)
 	}
 	if leetoReady {
 		statusProviders = append(statusProviders, leetoMod)
@@ -368,14 +373,19 @@ func StartGidbig() {
 	if conf.Database.Path != "" {
 		dbPath = conf.Database.Path
 	}
-	statusDBPaths = []string{dbPath, gippityMod.DBPath()}
+	statusDBPaths = []string{dbPath}
+	if gippityReady {
+		statusDBPaths = append(statusDBPaths, gippityMod.DBPath())
+	}
 
 	cmds := []*discordgo.ApplicationCommand{statusCommand()}
 	cmds = append(cmds, coreSlashCommands()...)
 	cmds = append(cmds, admin.Commands()...)
 	cmds = append(cmds, coffeeMod.Commands()...)
 	cmds = append(cmds, esoMod.Commands()...)
-	cmds = append(cmds, gippityMod.Commands()...)
+	if gippityReady {
+		cmds = append(cmds, gippityMod.Commands()...)
+	}
 	cmds = appendLeetoCommands(cmds, leetoMod, leetoReady)
 	cmds = append(cmds, anticheatMod.Commands()...)
 	cmds = append(cmds, stollMod.Commands()...)

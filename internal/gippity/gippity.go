@@ -14,6 +14,9 @@ import (
 )
 
 func (m *Module) isLimitedUser(mc *discordgo.MessageCreate) bool {
+	m.stateMu.Lock()
+	defer m.stateMu.Unlock()
+
 	if _, exists := m.userMessageCount[mc.Author.ID]; !exists {
 		m.userMessageCountLastReset[mc.Author.ID] = time.Now()
 		m.userMessageCount[mc.Author.ID] = 0
@@ -52,7 +55,8 @@ func (m *Module) limited(mc *discordgo.MessageCreate) bool {
 
 	if m.isMentioned(mc) {
 		if m.isLimitedUser(mc) {
-			slog.Info("not answering because of user limitation", "userMessageCount", m.userMessageCount[mc.Author.ID], "userMessageLimit", m.userMessageLimit, "userMessageCountLastReset", m.userMessageCountLastReset[mc.Author.ID])
+			count, reset := m.mentionState(mc.Author.ID)
+			slog.Info("not answering because of user limitation", "userMessageCount", count, "userMessageLimit", m.userMessageLimit, "userMessageCountLastReset", reset)
 			_, err := m.session.ChannelMessageSend(mc.ChannelID, "Du hast heute schon genug Nachrichten geschrieben. Komm wann anders wieder.")
 			if err != nil {
 				slog.Info("Error while sending message", "error", err)

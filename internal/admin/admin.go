@@ -14,7 +14,7 @@ var (
 )
 
 // RegisterProvider registers a module as an admin subcommand provider.
-// Must be called before Start.
+// Must be called before Commands() (the command tree is built from providers).
 func RegisterProvider(p bot.AdminProvider) {
 	providers = append(providers, p)
 }
