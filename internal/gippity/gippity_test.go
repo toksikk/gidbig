@@ -12,24 +12,8 @@ import (
 	"github.com/toksikk/gidbig/internal/llm"
 )
 
-var previousDescribeImagesFunc func([]string) (string, error)
-
-func setupGippityTest(t *testing.T) *discordgo.Session {
+func setupGippityTest(t *testing.T) (*Module, *discordgo.Session) {
 	t.Helper()
-
-	previousDatabase := database
-	previousDiscordSession := discordSession
-	previousAllowedGuildIDs := allowedGuildIDs
-	previousIgnoredUserIDs := ignoredUserIDs
-	previousUserMessageCount := userMessageCount
-	previousUserMessageCountLastReset := userMessageCountLastReset
-	previousUserMessageLimit := userMessageLimit
-	previousGenerateAnswerFunc := generateAnswerFunc
-	previousDescribeImagesFunc = describeImagesFunc
-	previousChatCompletionFunc := chatCompletionFunc
-	previousVisionCompletionFunc := visionCompletionFunc
-	previousChannelTypingFunc := channelTypingFunc
-	previousFetchMessageReactionsFunc := fetchMessageReactionsFunc
 
 	testDB, err := sql.Open("sqlite3", ":memory:")
 	if err != nil {
@@ -54,65 +38,53 @@ func setupGippityTest(t *testing.T) *discordgo.Session {
 	}
 	session.State.User = &discordgo.User{ID: "bot-user"}
 
-	database = testDB
-	discordSession = session
-	allowedGuildIDs = map[string]bool{"allowed-guild": true}
-	ignoredUserIDs = map[string]bool{}
-	userMessageCount = map[string]int{}
-	userMessageCountLastReset = map[string]time.Time{}
-	generateAnswerFunc = generateAnswer
-	channelTypingFunc = func(_ *discordgo.Session, _ string) {}
-	fetchMessageReactionsFunc = func(_ *discordgo.Session, _, _ string) (*discordgo.Message, error) {
+	m := New()
+	m.db = testDB
+	m.session = session
+	m.allowedGuildIDs = map[string]bool{"allowed-guild": true}
+	m.ignoredUserIDs = map[string]bool{}
+	m.userMessageCount = map[string]int{}
+	m.userMessageCountLastReset = map[string]time.Time{}
+	m.generateAnswerFunc = m.generateAnswer
+	m.channelTypingFunc = func(_ *discordgo.Session, _ string) {}
+	m.fetchMessageReactionsFunc = func(_ *discordgo.Session, _, _ string) (*discordgo.Message, error) {
 		return &discordgo.Message{}, nil
 	}
 
 	t.Cleanup(func() {
 		_ = testDB.Close()
-		database = previousDatabase
-		discordSession = previousDiscordSession
-		allowedGuildIDs = previousAllowedGuildIDs
-		ignoredUserIDs = previousIgnoredUserIDs
-		userMessageCount = previousUserMessageCount
-		userMessageCountLastReset = previousUserMessageCountLastReset
-		userMessageLimit = previousUserMessageLimit
-		generateAnswerFunc = previousGenerateAnswerFunc
-		describeImagesFunc = previousDescribeImagesFunc
-		chatCompletionFunc = previousChatCompletionFunc
-		visionCompletionFunc = previousVisionCompletionFunc
-		channelTypingFunc = previousChannelTypingFunc
-		fetchMessageReactionsFunc = previousFetchMessageReactionsFunc
 	})
 
-	return session
+	return m, session
 }
 
 func TestIsLimitedUserUsesConfiguredLimit(t *testing.T) {
-	setupGippityTest(t)
-	userMessageLimit = 2
+	m, _ := setupGippityTest(t)
+	m.userMessageLimit = 2
 	message := &discordgo.MessageCreate{Message: &discordgo.Message{Author: &discordgo.User{ID: "user"}}}
 
-	if isLimitedUser(message) {
+	if m.isLimitedUser(message) {
 		t.Fatal("first message was limited")
 	}
-	if isLimitedUser(message) {
+	if m.isLimitedUser(message) {
 		t.Fatal("second message was limited")
 	}
-	if !isLimitedUser(message) {
+	if !m.isLimitedUser(message) {
 		t.Fatal("third message was not limited")
 	}
 }
 
 func TestDescribeImagesUsesConfiguredVisionModel(t *testing.T) {
-	setupGippityTest(t)
+	m, _ := setupGippityTest(t)
 	var model string
-	visionCompletionFunc = func(_ context.Context, params openai.ChatCompletionNewParams) (*openai.ChatCompletion, error) {
+	m.visionCompletionFunc = func(_ context.Context, params openai.ChatCompletionNewParams) (*openai.ChatCompletion, error) {
 		model = params.Model
 		return &openai.ChatCompletion{
 			Choices: []openai.ChatCompletionChoice{{Message: openai.ChatCompletionMessage{Content: "description"}}},
 		}, nil
 	}
 
-	got, err := describeImages([]string{"https://example.com/image.png"})
+	got, err := m.describeImages([]string{"https://example.com/image.png"})
 	if err != nil {
 		t.Fatalf("describeImages: %v", err)
 	}
@@ -141,59 +113,59 @@ func gippityTestMessage(content string, mentions ...*discordgo.User) *discordgo.
 }
 
 func TestOnMessageCreate_StoresNonMentionedMessageWithoutGeneratingAnswer(t *testing.T) {
-	session := setupGippityTest(t)
-	generateAnswerFunc = func(_ *discordgo.MessageCreate, _ []string) (string, error) {
+	m, session := setupGippityTest(t)
+	m.generateAnswerFunc = func(_ *discordgo.MessageCreate, _ []string) (string, error) {
 		t.Fatal("generateAnswerFunc should not be called for non-mentioned messages")
 		return "", nil
 	}
 
-	onMessageCreate(session, gippityTestMessage("ordinary channel message"))
+	m.onMessageCreate(session, gippityTestMessage("ordinary channel message"))
 
 	var message string
-	err := database.QueryRow("SELECT message FROM chat_history WHERE message_id = ?", "1367540149316120650").Scan(&message)
+	err := m.db.QueryRow("SELECT message FROM chat_history WHERE message_id = ?", "1367540149316120650").Scan(&message)
 	if err != nil {
 		t.Fatalf("expected non-mentioned message to be stored: %v", err)
 	}
 	if message != "ordinary channel message" {
 		t.Errorf("stored message = %q, want %q", message, "ordinary channel message")
 	}
-	if len(userMessageCount) != 0 {
-		t.Errorf("non-mentioned message should not count toward mention rate limit, got %d users", len(userMessageCount))
+	if len(m.userMessageCount) != 0 {
+		t.Errorf("non-mentioned message should not count toward mention rate limit, got %d users", len(m.userMessageCount))
 	}
 }
 
 func TestLimited_AllowsMentionedMessageInAllowedGuild(t *testing.T) {
-	setupGippityTest(t)
+	m, _ := setupGippityTest(t)
 
-	m := gippityTestMessage("hey <@bot-user>", &discordgo.User{ID: "bot-user"})
+	msg := gippityTestMessage("hey <@bot-user>", &discordgo.User{ID: "bot-user"})
 
-	if limited(m) {
+	if m.limited(msg) {
 		t.Fatal("mentioned message in allowed guild should not be limited")
 	}
 }
 
 func TestLimited_BlocksNonMentionedMessageInAllowedGuild(t *testing.T) {
-	setupGippityTest(t)
+	m, _ := setupGippityTest(t)
 
-	if !limited(gippityTestMessage("ordinary channel message")) {
+	if !m.limited(gippityTestMessage("ordinary channel message")) {
 		t.Fatal("non-mentioned message in allowed guild should be limited")
 	}
 }
 
 func TestOnMessageCreate_StoresBotMentionFlag(t *testing.T) {
-	session := setupGippityTest(t)
-	generateAnswerFunc = func(_ *discordgo.MessageCreate, _ []string) (string, error) {
+	m, session := setupGippityTest(t)
+	m.generateAnswerFunc = func(_ *discordgo.MessageCreate, _ []string) (string, error) {
 		return "", nil
 	}
 
 	botUser := &discordgo.User{ID: "bot-user"}
-	m := gippityTestMessage("hey <@bot-user>", botUser)
-	m.ID = "mention-msg-id"
+	msg := gippityTestMessage("hey <@bot-user>", botUser)
+	msg.ID = "mention-msg-id"
 
-	onMessageCreate(session, m)
+	m.onMessageCreate(session, msg)
 
 	var isBotMention int
-	err := database.QueryRow("SELECT is_bot_mention FROM chat_history WHERE message_id = ?", "mention-msg-id").Scan(&isBotMention)
+	err := m.db.QueryRow("SELECT is_bot_mention FROM chat_history WHERE message_id = ?", "mention-msg-id").Scan(&isBotMention)
 	if err != nil {
 		t.Fatalf("expected message to be stored: %v", err)
 	}
@@ -203,18 +175,18 @@ func TestOnMessageCreate_StoresBotMentionFlag(t *testing.T) {
 }
 
 func TestOnMessageCreate_StoresNonMentionWithZeroFlag(t *testing.T) {
-	session := setupGippityTest(t)
-	generateAnswerFunc = func(_ *discordgo.MessageCreate, _ []string) (string, error) {
+	m, session := setupGippityTest(t)
+	m.generateAnswerFunc = func(_ *discordgo.MessageCreate, _ []string) (string, error) {
 		return "", nil
 	}
 
-	m := gippityTestMessage("just chatting")
-	m.ID = "non-mention-msg-id"
+	msg := gippityTestMessage("just chatting")
+	msg.ID = "non-mention-msg-id"
 
-	onMessageCreate(session, m)
+	m.onMessageCreate(session, msg)
 
 	var isBotMention int
-	err := database.QueryRow("SELECT is_bot_mention FROM chat_history WHERE message_id = ?", "non-mention-msg-id").Scan(&isBotMention)
+	err := m.db.QueryRow("SELECT is_bot_mention FROM chat_history WHERE message_id = ?", "non-mention-msg-id").Scan(&isBotMention)
 	if err != nil {
 		t.Fatalf("expected message to be stored: %v", err)
 	}
@@ -224,27 +196,27 @@ func TestOnMessageCreate_StoresNonMentionWithZeroFlag(t *testing.T) {
 }
 
 func TestGetUserPrivacy_DefaultsToTrue(t *testing.T) {
-	setupGippityTest(t)
+	m, _ := setupGippityTest(t)
 
-	if !getUserPrivacy("unknown-user") {
+	if !m.getUserPrivacy("unknown-user") {
 		t.Error("getUserPrivacy for unknown user should default to true (privacy on)")
 	}
 }
 
 func TestSetAndGetUserPrivacy(t *testing.T) {
-	setupGippityTest(t)
+	m, _ := setupGippityTest(t)
 
-	if err := setUserPrivacy("user-a", false); err != nil {
+	if err := m.setUserPrivacy("user-a", false); err != nil {
 		t.Fatalf("setUserPrivacy: %v", err)
 	}
-	if getUserPrivacy("user-a") {
+	if m.getUserPrivacy("user-a") {
 		t.Error("getUserPrivacy should return false after setting privacy off")
 	}
 
-	if err := setUserPrivacy("user-a", true); err != nil {
+	if err := m.setUserPrivacy("user-a", true); err != nil {
 		t.Fatalf("setUserPrivacy: %v", err)
 	}
-	if !getUserPrivacy("user-a") {
+	if !m.getUserPrivacy("user-a") {
 		t.Error("getUserPrivacy should return true after re-enabling privacy")
 	}
 }
@@ -272,13 +244,13 @@ func gippityTestMessageWithImage(content string, imageURL string) *discordgo.Mes
 }
 
 func TestOnMessageCreate_DescribesImageForNonMentionMessage(t *testing.T) {
-	session := setupGippityTest(t)
-	generateAnswerFunc = func(_ *discordgo.MessageCreate, _ []string) (string, error) {
+	m, session := setupGippityTest(t)
+	m.generateAnswerFunc = func(_ *discordgo.MessageCreate, _ []string) (string, error) {
 		t.Fatal("generateAnswerFunc should not be called for non-mention message")
 		return "", nil
 	}
 	describeCalled := false
-	describeImagesFunc = func(urls []string) (string, error) {
+	m.describeImagesFunc = func(urls []string) (string, error) {
 		describeCalled = true
 		if len(urls) != 1 || urls[0] != "https://cdn.example.com/photo.png" {
 			t.Errorf("unexpected image URLs: %v", urls)
@@ -286,16 +258,16 @@ func TestOnMessageCreate_DescribesImageForNonMentionMessage(t *testing.T) {
 		return "a cat on a mat", nil
 	}
 
-	m := gippityTestMessageWithImage("check this out", "https://cdn.example.com/photo.png")
+	msg := gippityTestMessageWithImage("check this out", "https://cdn.example.com/photo.png")
 
-	onMessageCreate(session, m)
+	m.onMessageCreate(session, msg)
 
 	if !describeCalled {
 		t.Error("describeImagesFunc should have been called for image attachment")
 	}
 
 	var url, desc string
-	err := database.QueryRow("SELECT attachment_url, image_description FROM chat_attachments WHERE message_id = ?", "img-msg-id").Scan(&url, &desc)
+	err := m.db.QueryRow("SELECT attachment_url, image_description FROM chat_attachments WHERE message_id = ?", "img-msg-id").Scan(&url, &desc)
 	if err != nil {
 		t.Fatalf("expected attachment row to exist: %v", err)
 	}
@@ -308,17 +280,17 @@ func TestOnMessageCreate_DescribesImageForNonMentionMessage(t *testing.T) {
 }
 
 func TestGetMessageFromDatabase_Found(t *testing.T) {
-	setupGippityTest(t)
-	idToNameCache["user-1"] = "Alice"
-	idToNameCache["channel-1"] = "general"
-	idToNameCache["allowed-guild"] = "Test Guild"
+	m, _ := setupGippityTest(t)
+	m.idToNameCache["user-1"] = "Alice"
+	m.idToNameCache["channel-1"] = "general"
+	m.idToNameCache["allowed-guild"] = "Test Guild"
 
-	if _, err := database.Exec(`INSERT INTO chat_history (user_id, channel_id, timestamp, message, message_id, guild_id, is_bot_mention) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+	if _, err := m.db.Exec(`INSERT INTO chat_history (user_id, channel_id, timestamp, message, message_id, guild_id, is_bot_mention) VALUES (?, ?, ?, ?, ?, ?, ?)`,
 		"user-1", "channel-1", 1000, "hello from db", "db-msg-id", "allowed-guild", 0); err != nil {
 		t.Fatalf("insert: %v", err)
 	}
 
-	msg, err := getMessageFromDatabase("db-msg-id")
+	msg, err := m.getMessageFromDatabase("db-msg-id")
 	if err != nil {
 		t.Fatalf("getMessageFromDatabase: %v", err)
 	}
@@ -335,9 +307,9 @@ func TestGetMessageFromDatabase_Found(t *testing.T) {
 }
 
 func TestGetMessageFromDatabase_NotFound(t *testing.T) {
-	setupGippityTest(t)
+	m, _ := setupGippityTest(t)
 
-	msg, err := getMessageFromDatabase("nonexistent-msg-id")
+	msg, err := m.getMessageFromDatabase("nonexistent-msg-id")
 	if err != nil {
 		t.Fatalf("getMessageFromDatabase returned unexpected error: %v", err)
 	}
@@ -347,19 +319,17 @@ func TestGetMessageFromDatabase_NotFound(t *testing.T) {
 }
 
 func TestGenerateAnswer_NoReference_NoSystemNoteInjected(t *testing.T) {
-	setupGippityTest(t)
+	m, _ := setupGippityTest(t)
 
 	fetchCalled := false
-	prev := fetchReferencedMessageFunc
-	t.Cleanup(func() { fetchReferencedMessageFunc = prev })
-	fetchReferencedMessageFunc = func(_ *discordgo.Session, _ *discordgo.MessageReference) (*discordgo.Message, error) {
+	m.fetchReferencedMessageFunc = func(_ *discordgo.Session, _ *discordgo.MessageReference) (*discordgo.Message, error) {
 		fetchCalled = true
 		return nil, nil
 	}
 
 	var capturedMessages []openai.ChatCompletionMessageParamUnion
 	var capturedModel string
-	chatCompletionFunc = func(_ context.Context, params openai.ChatCompletionNewParams) (*openai.ChatCompletion, error) {
+	m.chatCompletionFunc = func(_ context.Context, params openai.ChatCompletionNewParams) (*openai.ChatCompletion, error) {
 		capturedMessages = params.Messages
 		capturedModel = params.Model
 		return &openai.ChatCompletion{
@@ -367,7 +337,7 @@ func TestGenerateAnswer_NoReference_NoSystemNoteInjected(t *testing.T) {
 		}, nil
 	}
 
-	m := &discordgo.MessageCreate{
+	msg := &discordgo.MessageCreate{
 		Message: &discordgo.Message{
 			ID:        "msg-no-ref",
 			ChannelID: "channel-1",
@@ -378,7 +348,7 @@ func TestGenerateAnswer_NoReference_NoSystemNoteInjected(t *testing.T) {
 		},
 	}
 
-	if _, err := generateAnswer(m, nil); err != nil {
+	if _, err := m.generateAnswer(msg, nil); err != nil {
 		t.Fatalf("generateAnswer: %v", err)
 	}
 
@@ -399,15 +369,13 @@ func TestGenerateAnswer_NoReference_NoSystemNoteInjected(t *testing.T) {
 }
 
 func TestGenerateAnswer_ReferencedMessageOptedOutAuthor_PlaceholderInjected(t *testing.T) {
-	setupGippityTest(t)
+	m, _ := setupGippityTest(t)
 
-	if !getUserPrivacy("opted-out-user") {
+	if !m.getUserPrivacy("opted-out-user") {
 		t.Fatal("test precondition: opted-out-user should have privacy ON by default")
 	}
 
-	prev := fetchReferencedMessageFunc
-	t.Cleanup(func() { fetchReferencedMessageFunc = prev })
-	fetchReferencedMessageFunc = func(_ *discordgo.Session, _ *discordgo.MessageReference) (*discordgo.Message, error) {
+	m.fetchReferencedMessageFunc = func(_ *discordgo.Session, _ *discordgo.MessageReference) (*discordgo.Message, error) {
 		return &discordgo.Message{
 			ID:      "ref-id",
 			Content: "secret content",
@@ -416,14 +384,14 @@ func TestGenerateAnswer_ReferencedMessageOptedOutAuthor_PlaceholderInjected(t *t
 	}
 
 	var capturedMessages []openai.ChatCompletionMessageParamUnion
-	chatCompletionFunc = func(_ context.Context, params openai.ChatCompletionNewParams) (*openai.ChatCompletion, error) {
+	m.chatCompletionFunc = func(_ context.Context, params openai.ChatCompletionNewParams) (*openai.ChatCompletion, error) {
 		capturedMessages = params.Messages
 		return &openai.ChatCompletion{
 			Choices: []openai.ChatCompletionChoice{{Message: openai.ChatCompletionMessage{Content: "ok"}}},
 		}, nil
 	}
 
-	m := &discordgo.MessageCreate{
+	msg := &discordgo.MessageCreate{
 		Message: &discordgo.Message{
 			ID:        "msg-with-ref",
 			ChannelID: "channel-1",
@@ -439,7 +407,7 @@ func TestGenerateAnswer_ReferencedMessageOptedOutAuthor_PlaceholderInjected(t *t
 		},
 	}
 
-	if _, err := generateAnswer(m, nil); err != nil {
+	if _, err := m.generateAnswer(msg, nil); err != nil {
 		t.Fatalf("generateAnswer: %v", err)
 	}
 
@@ -459,15 +427,13 @@ func TestGenerateAnswer_ReferencedMessageOptedOutAuthor_PlaceholderInjected(t *t
 }
 
 func TestGenerateAnswer_ReferencedMessageOptInAuthor_ContentInjected(t *testing.T) {
-	setupGippityTest(t)
+	m, _ := setupGippityTest(t)
 
-	if err := setUserPrivacy("optin-user", false); err != nil {
+	if err := m.setUserPrivacy("optin-user", false); err != nil {
 		t.Fatalf("setUserPrivacy: %v", err)
 	}
 
-	prev := fetchReferencedMessageFunc
-	t.Cleanup(func() { fetchReferencedMessageFunc = prev })
-	fetchReferencedMessageFunc = func(_ *discordgo.Session, _ *discordgo.MessageReference) (*discordgo.Message, error) {
+	m.fetchReferencedMessageFunc = func(_ *discordgo.Session, _ *discordgo.MessageReference) (*discordgo.Message, error) {
 		return &discordgo.Message{
 			ID:      "ref-id",
 			Content: "visible content",
@@ -476,14 +442,14 @@ func TestGenerateAnswer_ReferencedMessageOptInAuthor_ContentInjected(t *testing.
 	}
 
 	var capturedMessages []openai.ChatCompletionMessageParamUnion
-	chatCompletionFunc = func(_ context.Context, params openai.ChatCompletionNewParams) (*openai.ChatCompletion, error) {
+	m.chatCompletionFunc = func(_ context.Context, params openai.ChatCompletionNewParams) (*openai.ChatCompletion, error) {
 		capturedMessages = params.Messages
 		return &openai.ChatCompletion{
 			Choices: []openai.ChatCompletionChoice{{Message: openai.ChatCompletionMessage{Content: "ok"}}},
 		}, nil
 	}
 
-	m := &discordgo.MessageCreate{
+	msg := &discordgo.MessageCreate{
 		Message: &discordgo.Message{
 			ID:        "msg-with-ref-optin",
 			ChannelID: "channel-1",
@@ -499,7 +465,7 @@ func TestGenerateAnswer_ReferencedMessageOptInAuthor_ContentInjected(t *testing.
 		},
 	}
 
-	if _, err := generateAnswer(m, nil); err != nil {
+	if _, err := m.generateAnswer(msg, nil); err != nil {
 		t.Fatalf("generateAnswer: %v", err)
 	}
 
@@ -533,18 +499,18 @@ func gippityTestMessageUpdate(msgID, content, guildID, authorID string) *discord
 }
 
 func TestOnMessageUpdate_PrivacyEnabledUser_EditNotPersisted(t *testing.T) {
-	session := setupGippityTest(t)
+	m, session := setupGippityTest(t)
 
-	if _, err := database.Exec(`INSERT INTO chat_history (user_id, channel_id, timestamp, message, message_id, guild_id, is_bot_mention) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+	if _, err := m.db.Exec(`INSERT INTO chat_history (user_id, channel_id, timestamp, message, message_id, guild_id, is_bot_mention) VALUES (?, ?, ?, ?, ?, ?, ?)`,
 		"user-1", "channel-1", 1000, "original", "edit-msg-id", "allowed-guild", 0); err != nil {
 		t.Fatalf("insert: %v", err)
 	}
 
 	// privacy on by default for user-1
-	onMessageUpdate(session, gippityTestMessageUpdate("edit-msg-id", "edited content", "allowed-guild", "user-1"))
+	m.onMessageUpdate(session, gippityTestMessageUpdate("edit-msg-id", "edited content", "allowed-guild", "user-1"))
 
 	var count int
-	if err := database.QueryRow(`SELECT COUNT(*) FROM chat_history_edits WHERE original_message_id = ?`, "edit-msg-id").Scan(&count); err != nil {
+	if err := m.db.QueryRow(`SELECT COUNT(*) FROM chat_history_edits WHERE original_message_id = ?`, "edit-msg-id").Scan(&count); err != nil {
 		t.Fatalf("query: %v", err)
 	}
 	if count != 0 {
@@ -553,21 +519,21 @@ func TestOnMessageUpdate_PrivacyEnabledUser_EditNotPersisted(t *testing.T) {
 }
 
 func TestOnMessageUpdate_PrivacyDisabledUser_EditPersisted(t *testing.T) {
-	session := setupGippityTest(t)
+	m, session := setupGippityTest(t)
 
-	if err := setUserPrivacy("user-1", false); err != nil {
+	if err := m.setUserPrivacy("user-1", false); err != nil {
 		t.Fatalf("setUserPrivacy: %v", err)
 	}
-	if _, err := database.Exec(`INSERT INTO chat_history (user_id, channel_id, timestamp, message, message_id, guild_id, is_bot_mention) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+	if _, err := m.db.Exec(`INSERT INTO chat_history (user_id, channel_id, timestamp, message, message_id, guild_id, is_bot_mention) VALUES (?, ?, ?, ?, ?, ?, ?)`,
 		"user-1", "channel-1", 1000, "original", "edit-msg-id2", "allowed-guild", 0); err != nil {
 		t.Fatalf("insert: %v", err)
 	}
 
-	onMessageUpdate(session, gippityTestMessageUpdate("edit-msg-id2", "first edit", "allowed-guild", "user-1"))
-	onMessageUpdate(session, gippityTestMessageUpdate("edit-msg-id2", "second edit", "allowed-guild", "user-1"))
+	m.onMessageUpdate(session, gippityTestMessageUpdate("edit-msg-id2", "first edit", "allowed-guild", "user-1"))
+	m.onMessageUpdate(session, gippityTestMessageUpdate("edit-msg-id2", "second edit", "allowed-guild", "user-1"))
 
 	var count int
-	if err := database.QueryRow(`SELECT COUNT(*) FROM chat_history_edits WHERE original_message_id = ?`, "edit-msg-id2").Scan(&count); err != nil {
+	if err := m.db.QueryRow(`SELECT COUNT(*) FROM chat_history_edits WHERE original_message_id = ?`, "edit-msg-id2").Scan(&count); err != nil {
 		t.Fatalf("query: %v", err)
 	}
 	if count != 2 {
@@ -576,7 +542,7 @@ func TestOnMessageUpdate_PrivacyDisabledUser_EditPersisted(t *testing.T) {
 
 	var version int
 	var content string
-	if err := database.QueryRow(`SELECT version, edited_content FROM chat_history_edits WHERE original_message_id = ? ORDER BY version DESC LIMIT 1`, "edit-msg-id2").Scan(&version, &content); err != nil {
+	if err := m.db.QueryRow(`SELECT version, edited_content FROM chat_history_edits WHERE original_message_id = ? ORDER BY version DESC LIMIT 1`, "edit-msg-id2").Scan(&version, &content); err != nil {
 		t.Fatalf("query latest edit: %v", err)
 	}
 	if version != 2 {
@@ -588,9 +554,9 @@ func TestOnMessageUpdate_PrivacyDisabledUser_EditPersisted(t *testing.T) {
 }
 
 func TestOnMessageUpdate_NilAuthor_Skipped(t *testing.T) {
-	session := setupGippityTest(t)
+	m, session := setupGippityTest(t)
 
-	m := &discordgo.MessageUpdate{
+	msg := &discordgo.MessageUpdate{
 		Message: &discordgo.Message{
 			ID:        "nil-author-msg",
 			ChannelID: "channel-1",
@@ -599,10 +565,10 @@ func TestOnMessageUpdate_NilAuthor_Skipped(t *testing.T) {
 			Author:    nil,
 		},
 	}
-	onMessageUpdate(session, m)
+	m.onMessageUpdate(session, msg)
 
 	var count int
-	if err := database.QueryRow(`SELECT COUNT(*) FROM chat_history_edits WHERE original_message_id = ?`, "nil-author-msg").Scan(&count); err != nil {
+	if err := m.db.QueryRow(`SELECT COUNT(*) FROM chat_history_edits WHERE original_message_id = ?`, "nil-author-msg").Scan(&count); err != nil {
 		t.Fatalf("query: %v", err)
 	}
 	if count != 0 {
@@ -611,16 +577,16 @@ func TestOnMessageUpdate_NilAuthor_Skipped(t *testing.T) {
 }
 
 func TestOnMessageUpdate_MessageNotInHistory_Skipped(t *testing.T) {
-	session := setupGippityTest(t)
+	m, session := setupGippityTest(t)
 
-	if err := setUserPrivacy("user-1", false); err != nil {
+	if err := m.setUserPrivacy("user-1", false); err != nil {
 		t.Fatalf("setUserPrivacy: %v", err)
 	}
 
-	onMessageUpdate(session, gippityTestMessageUpdate("unknown-msg-id", "edit of unknown", "allowed-guild", "user-1"))
+	m.onMessageUpdate(session, gippityTestMessageUpdate("unknown-msg-id", "edit of unknown", "allowed-guild", "user-1"))
 
 	var count int
-	if err := database.QueryRow(`SELECT COUNT(*) FROM chat_history_edits WHERE original_message_id = ?`, "unknown-msg-id").Scan(&count); err != nil {
+	if err := m.db.QueryRow(`SELECT COUNT(*) FROM chat_history_edits WHERE original_message_id = ?`, "unknown-msg-id").Scan(&count); err != nil {
 		t.Fatalf("query: %v", err)
 	}
 	if count != 0 {
@@ -629,25 +595,25 @@ func TestOnMessageUpdate_MessageNotInHistory_Skipped(t *testing.T) {
 }
 
 func TestGetLastNMessagesFromDatabase_ShowsLatestEdit(t *testing.T) {
-	setupGippityTest(t)
-	idToNameCache["user-1"] = "Alice"
-	idToNameCache["channel-1"] = "general"
-	idToNameCache["allowed-guild"] = "Test Guild"
+	m, _ := setupGippityTest(t)
+	m.idToNameCache["user-1"] = "Alice"
+	m.idToNameCache["channel-1"] = "general"
+	m.idToNameCache["allowed-guild"] = "Test Guild"
 
-	if _, err := database.Exec(`INSERT INTO chat_history (user_id, channel_id, timestamp, message, message_id, guild_id, is_bot_mention) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+	if _, err := m.db.Exec(`INSERT INTO chat_history (user_id, channel_id, timestamp, message, message_id, guild_id, is_bot_mention) VALUES (?, ?, ?, ?, ?, ?, ?)`,
 		"user-1", "channel-1", 1000, "original message", "edited-hist-msg", "allowed-guild", 0); err != nil {
 		t.Fatalf("insert chat_history: %v", err)
 	}
-	if _, err := database.Exec(`INSERT INTO chat_history_edits (original_message_id, edited_content, version, edited_at) VALUES (?, ?, ?, ?)`,
+	if _, err := m.db.Exec(`INSERT INTO chat_history_edits (original_message_id, edited_content, version, edited_at) VALUES (?, ?, ?, ?)`,
 		"edited-hist-msg", "v1 edit", 1, 1001); err != nil {
 		t.Fatalf("insert edit v1: %v", err)
 	}
-	if _, err := database.Exec(`INSERT INTO chat_history_edits (original_message_id, edited_content, version, edited_at) VALUES (?, ?, ?, ?)`,
+	if _, err := m.db.Exec(`INSERT INTO chat_history_edits (original_message_id, edited_content, version, edited_at) VALUES (?, ?, ?, ?)`,
 		"edited-hist-msg", "v2 edit", 2, 1002); err != nil {
 		t.Fatalf("insert edit v2: %v", err)
 	}
 
-	msgs, err := getLastNMessagesFromDatabase("channel-1", 10)
+	msgs, err := m.getLastNMessagesFromDatabase("channel-1", 10)
 	if err != nil {
 		t.Fatalf("getLastNMessagesFromDatabase: %v", err)
 	}
@@ -660,22 +626,22 @@ func TestGetLastNMessagesFromDatabase_ShowsLatestEdit(t *testing.T) {
 }
 
 func TestGetMessageFromDatabase_ShowsLatestEdit(t *testing.T) {
-	setupGippityTest(t)
+	m, _ := setupGippityTest(t)
 
-	if _, err := database.Exec(`INSERT INTO chat_history (user_id, channel_id, timestamp, message, message_id, guild_id, is_bot_mention) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+	if _, err := m.db.Exec(`INSERT INTO chat_history (user_id, channel_id, timestamp, message, message_id, guild_id, is_bot_mention) VALUES (?, ?, ?, ?, ?, ?, ?)`,
 		"user-1", "channel-1", 1000, "original message", "getmsg-edit-id", "allowed-guild", 0); err != nil {
 		t.Fatalf("insert chat_history: %v", err)
 	}
-	if _, err := database.Exec(`INSERT INTO chat_history_edits (original_message_id, edited_content, version, edited_at) VALUES (?, ?, ?, ?)`,
+	if _, err := m.db.Exec(`INSERT INTO chat_history_edits (original_message_id, edited_content, version, edited_at) VALUES (?, ?, ?, ?)`,
 		"getmsg-edit-id", "v1 edit", 1, 1001); err != nil {
 		t.Fatalf("insert edit v1: %v", err)
 	}
-	if _, err := database.Exec(`INSERT INTO chat_history_edits (original_message_id, edited_content, version, edited_at) VALUES (?, ?, ?, ?)`,
+	if _, err := m.db.Exec(`INSERT INTO chat_history_edits (original_message_id, edited_content, version, edited_at) VALUES (?, ?, ?, ?)`,
 		"getmsg-edit-id", "v2 edit", 2, 1002); err != nil {
 		t.Fatalf("insert edit v2: %v", err)
 	}
 
-	msg, err := getMessageFromDatabase("getmsg-edit-id")
+	msg, err := m.getMessageFromDatabase("getmsg-edit-id")
 	if err != nil {
 		t.Fatalf("getMessageFromDatabase: %v", err)
 	}
@@ -684,10 +650,10 @@ func TestGetMessageFromDatabase_ShowsLatestEdit(t *testing.T) {
 	}
 }
 
-func captureChatCompletion(t *testing.T) *[]openai.ChatCompletionMessageParamUnion {
+func captureChatCompletion(m *Module, t *testing.T) *[]openai.ChatCompletionMessageParamUnion {
 	t.Helper()
 	captured := &[]openai.ChatCompletionMessageParamUnion{}
-	chatCompletionFunc = func(_ context.Context, params openai.ChatCompletionNewParams) (*openai.ChatCompletion, error) {
+	m.chatCompletionFunc = func(_ context.Context, params openai.ChatCompletionNewParams) (*openai.ChatCompletion, error) {
 		*captured = params.Messages
 		return &openai.ChatCompletion{
 			Choices: []openai.ChatCompletionChoice{{Message: openai.ChatCompletionMessage{Content: "ok"}}},
@@ -725,9 +691,9 @@ func assertCapturedContains(t *testing.T, captured []openai.ChatCompletionMessag
 	t.Errorf("captured messages do not contain %q", want)
 }
 
-func insertHistoryMessage(t *testing.T, messageID, content string) {
+func insertHistoryMessage(m *Module, t *testing.T, messageID, content string) {
 	t.Helper()
-	if _, err := database.Exec(
+	if _, err := m.db.Exec(
 		`INSERT INTO chat_history (user_id, channel_id, timestamp, message, message_id, guild_id, is_bot_mention) VALUES (?, ?, ?, ?, ?, ?, ?)`,
 		"user-1", "channel-1", 1000, content, messageID, "allowed-guild", 0,
 	); err != nil {
@@ -749,16 +715,16 @@ func testGenerateMessage(messageID string) *discordgo.MessageCreate {
 }
 
 func TestGenerateAnswer_HistoryIncludesReactionSummary(t *testing.T) {
-	setupGippityTest(t)
-	idToNameCache["user-1"] = "Alice"
-	idToNameCache["channel-1"] = "general"
-	idToNameCache["allowed-guild"] = "Test Guild"
-	if err := setUserPrivacy("user-1", false); err != nil {
+	m, _ := setupGippityTest(t)
+	m.idToNameCache["user-1"] = "Alice"
+	m.idToNameCache["channel-1"] = "general"
+	m.idToNameCache["allowed-guild"] = "Test Guild"
+	if err := m.setUserPrivacy("user-1", false); err != nil {
 		t.Fatalf("setUserPrivacy: %v", err)
 	}
 
-	insertHistoryMessage(t, "hist-1", "hello there")
-	fetchMessageReactionsFunc = func(_ *discordgo.Session, _, messageID string) (*discordgo.Message, error) {
+	insertHistoryMessage(m, t, "hist-1", "hello there")
+	m.fetchMessageReactionsFunc = func(_ *discordgo.Session, _, messageID string) (*discordgo.Message, error) {
 		if messageID != "hist-1" {
 			return &discordgo.Message{}, nil
 		}
@@ -767,25 +733,23 @@ func TestGenerateAnswer_HistoryIncludesReactionSummary(t *testing.T) {
 			&discordgo.MessageReactions{Count: 3, Emoji: &discordgo.Emoji{Name: "👍"}},
 		), nil
 	}
-	captured := captureChatCompletion(t)
+	captured := captureChatCompletion(m, t)
 
-	if _, err := generateAnswer(testGenerateMessage("current-msg"), nil); err != nil {
+	if _, err := m.generateAnswer(testGenerateMessage("current-msg"), nil); err != nil {
 		t.Fatalf("generateAnswer: %v", err)
 	}
 	assertCapturedContains(t, *captured, "hello there [reactions: 👍×3 😂×1]")
 }
 
 func TestGenerateAnswer_ReferencedMessageIncludesReactionSummary(t *testing.T) {
-	setupGippityTest(t)
-	idToNameCache["channel-1"] = "general"
-	idToNameCache["allowed-guild"] = "Test Guild"
-	if err := setUserPrivacy("other-user", false); err != nil {
+	m, _ := setupGippityTest(t)
+	m.idToNameCache["channel-1"] = "general"
+	m.idToNameCache["allowed-guild"] = "Test Guild"
+	if err := m.setUserPrivacy("other-user", false); err != nil {
 		t.Fatalf("setUserPrivacy: %v", err)
 	}
 
-	prevFetchRef := fetchReferencedMessageFunc
-	t.Cleanup(func() { fetchReferencedMessageFunc = prevFetchRef })
-	fetchReferencedMessageFunc = func(_ *discordgo.Session, _ *discordgo.MessageReference) (*discordgo.Message, error) {
+	m.fetchReferencedMessageFunc = func(_ *discordgo.Session, _ *discordgo.MessageReference) (*discordgo.Message, error) {
 		return &discordgo.Message{
 			ID:        "ref-id",
 			ChannelID: "channel-1",
@@ -793,39 +757,39 @@ func TestGenerateAnswer_ReferencedMessageIncludesReactionSummary(t *testing.T) {
 			Author:    &discordgo.User{ID: "other-user", Username: "Bob"},
 		}, nil
 	}
-	fetchMessageReactionsFunc = func(_ *discordgo.Session, _, messageID string) (*discordgo.Message, error) {
+	m.fetchMessageReactionsFunc = func(_ *discordgo.Session, _, messageID string) (*discordgo.Message, error) {
 		if messageID != "ref-id" {
 			return &discordgo.Message{}, nil
 		}
 		return reactionMessage(&discordgo.MessageReactions{Count: 2, Emoji: &discordgo.Emoji{Name: "✅"}}), nil
 	}
-	captured := captureChatCompletion(t)
+	captured := captureChatCompletion(m, t)
 
-	m := testGenerateMessage("current-ref-msg")
-	m.MessageReference = &discordgo.MessageReference{MessageID: "ref-id", ChannelID: "channel-1", GuildID: "allowed-guild"}
+	msg := testGenerateMessage("current-ref-msg")
+	msg.MessageReference = &discordgo.MessageReference{MessageID: "ref-id", ChannelID: "channel-1", GuildID: "allowed-guild"}
 
-	if _, err := generateAnswer(m, nil); err != nil {
+	if _, err := m.generateAnswer(msg, nil); err != nil {
 		t.Fatalf("generateAnswer: %v", err)
 	}
 	assertCapturedContains(t, *captured, "[System note: User is replying to a message from Bob: referenced text] [reactions: ✅×2]")
 }
 
 func TestGenerateAnswer_ReactionFetchError_OmitsReactionContext(t *testing.T) {
-	setupGippityTest(t)
-	idToNameCache["user-1"] = "Alice"
-	idToNameCache["channel-1"] = "general"
-	idToNameCache["allowed-guild"] = "Test Guild"
-	if err := setUserPrivacy("user-1", false); err != nil {
+	m, _ := setupGippityTest(t)
+	m.idToNameCache["user-1"] = "Alice"
+	m.idToNameCache["channel-1"] = "general"
+	m.idToNameCache["allowed-guild"] = "Test Guild"
+	if err := m.setUserPrivacy("user-1", false); err != nil {
 		t.Fatalf("setUserPrivacy: %v", err)
 	}
 
-	insertHistoryMessage(t, "err-msg", "some content")
-	fetchMessageReactionsFunc = func(_ *discordgo.Session, _, _ string) (*discordgo.Message, error) {
+	insertHistoryMessage(m, t, "err-msg", "some content")
+	m.fetchMessageReactionsFunc = func(_ *discordgo.Session, _, _ string) (*discordgo.Message, error) {
 		return nil, sql.ErrConnDone
 	}
-	captured := captureChatCompletion(t)
+	captured := captureChatCompletion(m, t)
 
-	if _, err := generateAnswer(testGenerateMessage("current-err"), nil); err != nil {
+	if _, err := m.generateAnswer(testGenerateMessage("current-err"), nil); err != nil {
 		t.Fatalf("generateAnswer must not fail on reaction fetch error: %v", err)
 	}
 	for _, msg := range *captured {
@@ -836,18 +800,18 @@ func TestGenerateAnswer_ReactionFetchError_OmitsReactionContext(t *testing.T) {
 }
 
 func TestGenerateAnswer_NoReactions_NoSummary(t *testing.T) {
-	setupGippityTest(t)
-	idToNameCache["user-1"] = "Alice"
-	idToNameCache["channel-1"] = "general"
-	idToNameCache["allowed-guild"] = "Test Guild"
-	if err := setUserPrivacy("user-1", false); err != nil {
+	m, _ := setupGippityTest(t)
+	m.idToNameCache["user-1"] = "Alice"
+	m.idToNameCache["channel-1"] = "general"
+	m.idToNameCache["allowed-guild"] = "Test Guild"
+	if err := m.setUserPrivacy("user-1", false); err != nil {
 		t.Fatalf("setUserPrivacy: %v", err)
 	}
 
-	insertHistoryMessage(t, "no-react-msg", "plain content")
-	captured := captureChatCompletion(t)
+	insertHistoryMessage(m, t, "no-react-msg", "plain content")
+	captured := captureChatCompletion(m, t)
 
-	if _, err := generateAnswer(testGenerateMessage("current-no-react"), nil); err != nil {
+	if _, err := m.generateAnswer(testGenerateMessage("current-no-react"), nil); err != nil {
 		t.Fatalf("generateAnswer: %v", err)
 	}
 	for _, msg := range *captured {
@@ -858,21 +822,21 @@ func TestGenerateAnswer_NoReactions_NoSummary(t *testing.T) {
 }
 
 func TestGenerateAnswer_PrivacyUser_ReactionCountWithoutAttribution(t *testing.T) {
-	setupGippityTest(t)
-	idToNameCache["user-1"] = "Alice"
-	idToNameCache["channel-1"] = "general"
-	idToNameCache["allowed-guild"] = "Test Guild"
+	m, _ := setupGippityTest(t)
+	m.idToNameCache["user-1"] = "Alice"
+	m.idToNameCache["channel-1"] = "general"
+	m.idToNameCache["allowed-guild"] = "Test Guild"
 
-	insertHistoryMessage(t, "private-msg", "secret content")
-	fetchMessageReactionsFunc = func(_ *discordgo.Session, _, messageID string) (*discordgo.Message, error) {
+	insertHistoryMessage(m, t, "private-msg", "secret content")
+	m.fetchMessageReactionsFunc = func(_ *discordgo.Session, _, messageID string) (*discordgo.Message, error) {
 		if messageID != "private-msg" {
 			return &discordgo.Message{}, nil
 		}
 		return reactionMessage(&discordgo.MessageReactions{Count: 5, Emoji: &discordgo.Emoji{Name: "👍"}}), nil
 	}
-	captured := captureChatCompletion(t)
+	captured := captureChatCompletion(m, t)
 
-	if _, err := generateAnswer(testGenerateMessage("current-private"), nil); err != nil {
+	if _, err := m.generateAnswer(testGenerateMessage("current-private"), nil); err != nil {
 		t.Fatalf("generateAnswer: %v", err)
 	}
 	assertCapturedContains(t, *captured, "[Anonymisierte Nachricht] [reactions: 👍×5]")
@@ -884,18 +848,16 @@ func TestGenerateAnswer_PrivacyUser_ReactionCountWithoutAttribution(t *testing.T
 }
 
 func TestGenerateAnswer_DeduplicatesReactionFetchForReferencedMessage(t *testing.T) {
-	setupGippityTest(t)
-	idToNameCache["user-1"] = "Alice"
-	idToNameCache["channel-1"] = "general"
-	idToNameCache["allowed-guild"] = "Test Guild"
-	if err := setUserPrivacy("user-1", false); err != nil {
+	m, _ := setupGippityTest(t)
+	m.idToNameCache["user-1"] = "Alice"
+	m.idToNameCache["channel-1"] = "general"
+	m.idToNameCache["allowed-guild"] = "Test Guild"
+	if err := m.setUserPrivacy("user-1", false); err != nil {
 		t.Fatalf("setUserPrivacy: %v", err)
 	}
 
-	insertHistoryMessage(t, "shared-msg", "shared content")
-	prevFetchRef := fetchReferencedMessageFunc
-	t.Cleanup(func() { fetchReferencedMessageFunc = prevFetchRef })
-	fetchReferencedMessageFunc = func(_ *discordgo.Session, _ *discordgo.MessageReference) (*discordgo.Message, error) {
+	insertHistoryMessage(m, t, "shared-msg", "shared content")
+	m.fetchReferencedMessageFunc = func(_ *discordgo.Session, _ *discordgo.MessageReference) (*discordgo.Message, error) {
 		return &discordgo.Message{
 			ID:        "shared-msg",
 			ChannelID: "channel-1",
@@ -904,16 +866,16 @@ func TestGenerateAnswer_DeduplicatesReactionFetchForReferencedMessage(t *testing
 		}, nil
 	}
 	fetches := map[string]int{}
-	fetchMessageReactionsFunc = func(_ *discordgo.Session, _, messageID string) (*discordgo.Message, error) {
+	m.fetchMessageReactionsFunc = func(_ *discordgo.Session, _, messageID string) (*discordgo.Message, error) {
 		fetches[messageID]++
 		return reactionMessage(&discordgo.MessageReactions{Count: 1, Emoji: &discordgo.Emoji{Name: "👍"}}), nil
 	}
-	captureChatCompletion(t)
+	captureChatCompletion(m, t)
 
-	m := testGenerateMessage("current-dedup")
-	m.MessageReference = &discordgo.MessageReference{MessageID: "shared-msg", ChannelID: "channel-1", GuildID: "allowed-guild"}
+	msg := testGenerateMessage("current-dedup")
+	msg.MessageReference = &discordgo.MessageReference{MessageID: "shared-msg", ChannelID: "channel-1", GuildID: "allowed-guild"}
 
-	if _, err := generateAnswer(m, nil); err != nil {
+	if _, err := m.generateAnswer(msg, nil); err != nil {
 		t.Fatalf("generateAnswer: %v", err)
 	}
 	if fetches["shared-msg"] != 1 {
@@ -922,21 +884,21 @@ func TestGenerateAnswer_DeduplicatesReactionFetchForReferencedMessage(t *testing
 }
 
 func TestGetLastNMessagesFromDatabase_IncludesImageDescriptions(t *testing.T) {
-	setupGippityTest(t)
-	idToNameCache["user-1"] = "Alice"
-	idToNameCache["channel-1"] = "general"
-	idToNameCache["allowed-guild"] = "Test Guild"
+	m, _ := setupGippityTest(t)
+	m.idToNameCache["user-1"] = "Alice"
+	m.idToNameCache["channel-1"] = "general"
+	m.idToNameCache["allowed-guild"] = "Test Guild"
 
-	if _, err := database.Exec(`INSERT INTO chat_history (user_id, channel_id, timestamp, message, message_id, guild_id, is_bot_mention) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+	if _, err := m.db.Exec(`INSERT INTO chat_history (user_id, channel_id, timestamp, message, message_id, guild_id, is_bot_mention) VALUES (?, ?, ?, ?, ?, ?, ?)`,
 		"user-1", "channel-1", 1000, "look at this", "msg-with-img", "allowed-guild", 0); err != nil {
 		t.Fatalf("insert chat_history: %v", err)
 	}
-	if _, err := database.Exec(`INSERT INTO chat_attachments (message_id, attachment_url, image_description) VALUES (?, ?, ?)`,
+	if _, err := m.db.Exec(`INSERT INTO chat_attachments (message_id, attachment_url, image_description) VALUES (?, ?, ?)`,
 		"msg-with-img", "https://cdn.example.com/photo.png", "a fluffy dog"); err != nil {
 		t.Fatalf("insert chat_attachments: %v", err)
 	}
 
-	msgs, err := getLastNMessagesFromDatabase("channel-1", 10)
+	msgs, err := m.getLastNMessagesFromDatabase("channel-1", 10)
 	if err != nil {
 		t.Fatalf("getLastNMessagesFromDatabase: %v", err)
 	}

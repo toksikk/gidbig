@@ -1,155 +1,59 @@
 package gippity
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"time"
 
-	"context"
-
 	"github.com/bwmarrin/discordgo"
-	"github.com/toksikk/gidbig/internal/cfg"
 	"github.com/toksikk/gidbig/internal/llm"
 	"github.com/toksikk/gidbig/internal/util"
 
 	openai "github.com/openai/openai-go/v3"
 )
 
-var discordSession *discordgo.Session
-
-var generateAnswerFunc = generateAnswer
-
-var chatCompletionFunc = func(ctx context.Context, params openai.ChatCompletionNewParams) (*openai.ChatCompletion, error) {
-	return llm.GetClient().Chat.Completions.New(ctx, params)
-}
-
-var channelTypingFunc = func(s *discordgo.Session, channelID string) {
-	s.ChannelTyping(channelID) //nolint:errcheck
-}
-
-var (
-	allowedGuildIDs map[string]bool
-	ignoredUserIDs  map[string]bool
-)
-
-var userMessageCount map[string]int
-
-var userMessageLimit = 30
-
-var userMessageCountLastReset map[string]time.Time
-
-// Start the plugin
-func Start(discord *discordgo.Session, rateLimitPerHour int) {
-	initDB()
-
-	userMessageLimit = rateLimitPerHour
-
-	go idToNameCacheResetLoop()
-
-	userMessageCount = make(map[string]int, 0)
-	userMessageCountLastReset = make(map[string]time.Time, 0)
-
-	config := cfg.GetConfig()
-	allowedGuildIDs = make(map[string]bool)
-	ignoredUserIDs = make(map[string]bool)
-
-	for _, id := range config.Gippity.AllowedGuilds {
-		allowedGuildIDs[id] = true
-	}
-	for _, id := range config.Gippity.IgnoredUsers {
-		ignoredUserIDs[id] = true
-	}
-
-	discordSession = discord
-
-	discord.AddHandler(onMessageCreate)
-	discord.AddHandler(onMessageUpdate)
-	discord.AddHandler(onGippityInteractionCreate)
-
-	slog.Info("gippity function registered")
-}
-
-// Commands returns the slash command definitions for this plugin.
-func Commands() []*discordgo.ApplicationCommand {
-	return []*discordgo.ApplicationCommand{
-		{
-			Name:        "gippity",
-			Description: "Gippity settings",
-			Options: []*discordgo.ApplicationCommandOption{
-				{
-					Type:        discordgo.ApplicationCommandOptionSubCommand,
-					Name:        "privacy",
-					Description: "Control whether your past messages are anonymized in AI context",
-					Options: []*discordgo.ApplicationCommandOption{
-						{
-							Type:        discordgo.ApplicationCommandOptionString,
-							Name:        "set",
-							Description: "on = anonymize (default), off = include as-is",
-							Required:    true,
-							Choices: []*discordgo.ApplicationCommandOptionChoice{
-								{Name: "on", Value: "on"},
-								{Name: "off", Value: "off"},
-							},
-						},
-					},
-				},
-			},
-		},
-	}
-}
-
-// Shutdown cleans up gippity resources.
-func Shutdown() {
-}
-
-func idToNameCacheResetLoop() {
-	for {
-		time.Sleep(12 * time.Hour)
-		idToNameCache = make(map[string]string)
-	}
-}
-
-func isLimitedUser(m *discordgo.MessageCreate) bool {
-	if _, exists := userMessageCount[m.Author.ID]; !exists {
-		userMessageCountLastReset[m.Author.ID] = time.Now()
-		userMessageCount[m.Author.ID] = 0
+func (m *Module) isLimitedUser(mc *discordgo.MessageCreate) bool {
+	if _, exists := m.userMessageCount[mc.Author.ID]; !exists {
+		m.userMessageCountLastReset[mc.Author.ID] = time.Now()
+		m.userMessageCount[mc.Author.ID] = 0
 		return false
 	}
 
-	if _, exists := userMessageCountLastReset[m.Author.ID]; !exists {
-		userMessageCountLastReset[m.Author.ID] = time.Now()
+	if _, exists := m.userMessageCountLastReset[mc.Author.ID]; !exists {
+		m.userMessageCountLastReset[mc.Author.ID] = time.Now()
 	}
 
-	if int(time.Since(userMessageCountLastReset[m.Author.ID]).Hours()) >= 1 {
-		userMessageCountLastReset[m.Author.ID] = time.Now()
-		userMessageCount[m.Author.ID] = 0
+	if int(time.Since(m.userMessageCountLastReset[mc.Author.ID]).Hours()) >= 1 {
+		m.userMessageCountLastReset[mc.Author.ID] = time.Now()
+		m.userMessageCount[mc.Author.ID] = 0
 		return false
 	}
 
-	userMessageCount[m.Author.ID]++
+	m.userMessageCount[mc.Author.ID]++
 
-	return userMessageCount[m.Author.ID] >= userMessageLimit
+	return m.userMessageCount[mc.Author.ID] >= m.userMessageLimit
 }
 
-func limited(m *discordgo.MessageCreate) bool {
-	if m.Author.ID == discordSession.State.User.ID {
+func (m *Module) limited(mc *discordgo.MessageCreate) bool {
+	if mc.Author.ID == m.session.State.User.ID {
 		return true
 	}
 
-	if ignoredUserIDs[m.Author.ID] {
-		slog.Info("ignoring message from ignored user", "user", m.Author.ID)
+	if m.ignoredUserIDs[mc.Author.ID] {
+		slog.Info("ignoring message from ignored user", "user", mc.Author.ID)
 		return true
 	}
 
-	if !allowedGuildIDs[m.GuildID] {
-		slog.Info("not using ai generated message in this guild", "guild", m.GuildID)
+	if !m.allowedGuildIDs[mc.GuildID] {
+		slog.Info("not using ai generated message in this guild", "guild", mc.GuildID)
 		return true
 	}
 
-	if isMentioned(m) {
-		if isLimitedUser(m) {
-			slog.Info("not answering because of user limitation", "userMessageCount", userMessageCount[m.Author.ID], "userMessageLimit", userMessageLimit, "userMessageCountLastReset", userMessageCountLastReset[m.Author.ID])
-			_, err := discordSession.ChannelMessageSend(m.ChannelID, "Du hast heute schon genug Nachrichten geschrieben. Komm wann anders wieder.")
+	if m.isMentioned(mc) {
+		if m.isLimitedUser(mc) {
+			slog.Info("not answering because of user limitation", "userMessageCount", m.userMessageCount[mc.Author.ID], "userMessageLimit", m.userMessageLimit, "userMessageCountLastReset", m.userMessageCountLastReset[mc.Author.ID])
+			_, err := m.session.ChannelMessageSend(mc.ChannelID, "Du hast heute schon genug Nachrichten geschrieben. Komm wann anders wieder.")
 			if err != nil {
 				slog.Info("Error while sending message", "error", err)
 			}
@@ -161,46 +65,46 @@ func limited(m *discordgo.MessageCreate) bool {
 	return true
 }
 
-func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
-	slog.Debug("Message received", "message", m.Content)
+func (m *Module) onMessageCreate(s *discordgo.Session, mc *discordgo.MessageCreate) {
+	slog.Debug("Message received", "message", mc.Content)
 	if slog.Default().Enabled(context.Background(), slog.LevelDebug) {
-		if m.ChannelID != "954388765877612575" { // for debugging / developing
-			slog.Debug("Ignoring message", "channel", m.ChannelID)
+		if mc.ChannelID != "954388765877612575" { // for debugging / developing
+			slog.Debug("Ignoring message", "channel", mc.ChannelID)
 			return
 		}
 	}
-	addMessageToDatabase(m, isMentioned(m))
+	m.addMessageToDatabase(mc, m.isMentioned(mc))
 
-	imageURLs := extractImageURLs(m.Attachments)
+	imageURLs := extractImageURLs(mc.Attachments)
 	if len(imageURLs) > 0 {
 		slog.Debug("Describing image attachments", "count", len(imageURLs))
-		description, err := describeImagesFunc(imageURLs)
+		description, err := m.describeImagesFunc(imageURLs)
 		if err != nil {
 			slog.Error("Could not describe images", "error", err)
 		} else {
-			addAttachmentsToDatabase(m.ID, imageURLs, description)
+			m.addAttachmentsToDatabase(mc.ID, imageURLs, description)
 		}
 	}
 
-	if limited(m) {
+	if m.limited(mc) {
 		return
 	}
 
 	var generatedAnswer string
 	var err error
 
-	if len(imageURLs) > 0 && m.Content != "" {
+	if len(imageURLs) > 0 && mc.Content != "" {
 		slog.Debug("Message has image attachments and content")
-		generatedAnswer, err = generateAnswerFunc(m, imageURLs)
+		generatedAnswer, err = m.generateAnswerFunc(mc, imageURLs)
 		if err != nil {
 			slog.Error("Could not generate answer")
 			return
 		}
 	}
 
-	if len(m.Attachments) == 0 && m.Content != "" {
+	if len(mc.Attachments) == 0 && mc.Content != "" {
 		slog.Debug("Message has content but no attachments")
-		generatedAnswer, err = generateAnswerFunc(m, nil)
+		generatedAnswer, err = m.generateAnswerFunc(mc, nil)
 		if err != nil {
 			slog.Error("Could not generate answer")
 			return
@@ -209,7 +113,7 @@ func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 	slog.Debug("Generated answer", "answer", generatedAnswer)
 
 	if generatedAnswer != "" {
-		_, err = s.ChannelMessageSend(m.ChannelID, generatedAnswer)
+		_, err = s.ChannelMessageSend(mc.ChannelID, generatedAnswer)
 
 		if err != nil {
 			slog.Info("Error while sending message", "error", err)
@@ -217,27 +121,27 @@ func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 	}
 }
 
-func onMessageUpdate(_ *discordgo.Session, m *discordgo.MessageUpdate) {
-	if m.Message == nil || m.Author == nil || m.Author.Bot {
+func (m *Module) onMessageUpdate(_ *discordgo.Session, mu *discordgo.MessageUpdate) {
+	if mu.Message == nil || mu.Author == nil || mu.Author.Bot {
 		return
 	}
-	if m.EditedTimestamp == nil || m.Content == "" {
+	if mu.EditedTimestamp == nil || mu.Content == "" {
 		return
 	}
-	if !allowedGuildIDs[m.GuildID] {
+	if !m.allowedGuildIDs[mu.GuildID] {
 		return
 	}
-	if getUserPrivacy(m.Author.ID) {
+	if m.getUserPrivacy(mu.Author.ID) {
 		return
 	}
 	var count int
-	if err := database.QueryRow(`SELECT COUNT(*) FROM chat_history WHERE message_id = ?`, m.ID).Scan(&count); err != nil || count == 0 {
+	if err := m.db.QueryRow(`SELECT COUNT(*) FROM chat_history WHERE message_id = ?`, mu.ID).Scan(&count); err != nil || count == 0 {
 		return
 	}
-	addMessageEditToDatabase(m.ID, m.Content, m.EditedTimestamp.Unix())
+	m.addMessageEditToDatabase(mu.ID, mu.Content, mu.EditedTimestamp.Unix())
 }
 
-func onGippityInteractionCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (m *Module) onGippityInteractionCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	if i.Type != discordgo.InteractionApplicationCommand {
 		return
 	}
@@ -272,7 +176,7 @@ func onGippityInteractionCreate(s *discordgo.Session, i *discordgo.InteractionCr
 		slog.Error("gippity: failed to defer privacy interaction", "error", err)
 		return
 	}
-	if err := setUserPrivacy(userID, enabled); err != nil {
+	if err := m.setUserPrivacy(userID, enabled); err != nil {
 		slog.Error("gippity: failed to set user privacy", "error", err, "userID", userID)
 		msg := "Fehler beim Speichern deiner Datenschutzeinstellung."
 		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: &msg})
@@ -288,10 +192,10 @@ func onGippityInteractionCreate(s *discordgo.Session, i *discordgo.InteractionCr
 	_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: &msg})
 }
 
-func isMentioned(m *discordgo.MessageCreate) bool {
-	botUserID := discordSession.State.User.ID
+func (m *Module) isMentioned(mc *discordgo.MessageCreate) bool {
+	botUserID := m.session.State.User.ID
 
-	for _, user := range m.Mentions {
+	for _, user := range mc.Mentions {
 		if user.ID == botUserID {
 			return true
 		}
@@ -300,10 +204,10 @@ func isMentioned(m *discordgo.MessageCreate) bool {
 	return false
 }
 
-func generateAnswer(m *discordgo.MessageCreate, imageURLs []string) (string, error) {
-	channelTypingFunc(discordSession, m.ChannelID)
+func (m *Module) generateAnswer(mc *discordgo.MessageCreate, imageURLs []string) (string, error) {
+	m.channelTypingFunc(m.session, mc.ChannelID)
 
-	chatHistory, err := getLastNMessagesFromDatabase(m.ChannelID, 10)
+	chatHistory, err := m.getLastNMessagesFromDatabase(mc.ChannelID, 10)
 	if err != nil {
 		slog.Error("Error while getting chat history", "error", err)
 		chatHistory = []LLMChatMessage{}
@@ -311,9 +215,9 @@ func generateAnswer(m *discordgo.MessageCreate, imageURLs []string) (string, err
 
 	reactionSummaries := reactionSummaryCache{}
 
-	systemMessageBase := `Discord-Chatbot, Name ` + util.GetBotDisplayName(m, discordSession) + `.
-Channel ` + util.GetChannelName(discordSession, m.ChannelID) + `, Server ` + util.GetGuildName(discordSession, m.GuildID) + `. Mehrere Benutzer gleichzeitig.
-Im Channel: ` + util.GetAllMembersOfChannelAsString(discordSession, m.ChannelID) + `.
+	systemMessageBase := `Discord-Chatbot, Name ` + util.GetBotDisplayName(mc, m.session) + `.
+Channel ` + util.GetChannelName(m.session, mc.ChannelID) + `, Server ` + util.GetGuildName(m.session, mc.GuildID) + `. Mehrere Benutzer gleichzeitig.
+Im Channel: ` + util.GetAllMembersOfChannelAsString(m.session, mc.ChannelID) + `.
 ---
 Nachrichten kommen so: [Zeitstempel] [Benutzername]: [Nachricht]
 Reaktionen stehen als [reactions: Emoji×Anzahl] am Ende einer Nachricht; nur Anzahl, keine Namen.
@@ -326,19 +230,19 @@ Keine abschließenden Fragen zum Weiterreden.
 ---
 Manche Namen sind Pseudonyme (Benutzer 1, 2, …) für anonyme Teilnehmer. Echte Identität nicht erraten — nicht aus Kontext, Schreibstil oder anderen Signalen. Anonymisierte Inhalte ersetzt und nicht verfügbar; als opake Kontextnachrichten behandeln.`
 
-	systemMessage := systemMessageBase + "\n" + enrichSystemMessage(llm.Personality())
+	systemMessage := systemMessageBase + "\n" + m.enrichSystemMessage(llm.Personality())
 
 	messages := []openai.ChatCompletionMessageParamUnion{}
 	messages = append(messages, openai.SystemMessage(systemMessage))
 
-	if m.MessageReference != nil {
-		refMsg, refErr := fetchReferencedMessageFunc(discordSession, m.MessageReference)
+	if mc.MessageReference != nil {
+		refMsg, refErr := m.fetchReferencedMessageFunc(m.session, mc.MessageReference)
 		if refErr != nil {
 			slog.Warn("gippity: could not fetch referenced message", "error", refErr)
 		} else if refMsg != nil {
 			content := refMsg.Content
 			isBot := refMsg.Author != nil && refMsg.Author.Bot
-			if !isBot && refMsg.Author != nil && getUserPrivacy(refMsg.Author.ID) {
+			if !isBot && refMsg.Author != nil && m.getUserPrivacy(refMsg.Author.ID) {
 				content = "[message content hidden -- user opted out]"
 			}
 			authorName := ""
@@ -347,10 +251,10 @@ Manche Namen sind Pseudonyme (Benutzer 1, 2, …) für anonyme Teilnehmer. Echte
 			}
 			note := fmt.Sprintf("[System note: User is replying to a message from %s: %s]", authorName, content)
 			refChannelID := refMsg.ChannelID
-			if refChannelID == "" && m.MessageReference != nil {
-				refChannelID = m.MessageReference.ChannelID
+			if refChannelID == "" && mc.MessageReference != nil {
+				refChannelID = mc.MessageReference.ChannelID
 			}
-			if summary := reactionSummaries.get(discordSession, refChannelID, refMsg.ID); summary != "" {
+			if summary := m.reactionSummary(reactionSummaries, refChannelID, refMsg.ID); summary != "" {
 				note += " " + summary
 			}
 			messages = append(messages, openai.SystemMessage(note))
@@ -362,9 +266,9 @@ Manche Namen sind Pseudonyme (Benutzer 1, 2, …) für anonyme Teilnehmer. Echte
 	privacyCache := make(map[string]bool)
 
 	for _, message := range chatHistory {
-		message.ReactionSummary = reactionSummaries.get(discordSession, message.ChannelID, message.MessageID)
+		message.ReactionSummary = m.reactionSummary(reactionSummaries, message.ChannelID, message.MessageID)
 
-		if message.UserID == discordSession.State.User.ID {
+		if message.UserID == m.session.State.User.ID {
 			content := message.Message
 			if message.ReactionSummary != "" {
 				content += " " + message.ReactionSummary
@@ -374,7 +278,7 @@ Manche Namen sind Pseudonyme (Benutzer 1, 2, …) für anonyme Teilnehmer. Echte
 		}
 
 		if _, cached := privacyCache[message.UserID]; !cached {
-			privacyCache[message.UserID] = getUserPrivacy(message.UserID)
+			privacyCache[message.UserID] = m.getUserPrivacy(message.UserID)
 		}
 		if !message.IsBotMention && privacyCache[message.UserID] {
 			pseudo, ok := pseudonymMap[message.UserID]
@@ -393,7 +297,7 @@ Manche Namen sind Pseudonyme (Benutzer 1, 2, …) für anonyme Teilnehmer. Echte
 			continue
 		}
 
-		replaceAllUserIDsWithUsernamesInMessage(&message)
+		m.replaceAllUserIDsWithUsernamesInMessage(&message)
 		removeSpoilerTagContent(&message)
 		messages = append(messages, openai.ChatCompletionMessageParamUnion(openai.UserMessage(convertLLMChatMessageToLLMCompatibleFlowingText(message))))
 	}
@@ -416,10 +320,10 @@ Manche Namen sind Pseudonyme (Benutzer 1, 2, …) für anonyme Teilnehmer. Echte
 		})
 	}
 
-	if m.Content == "" {
-		sanitizedString := convertDiscordMessageToLLMCompatibleFlowingText(m)
+	if mc.Content == "" {
+		sanitizedString := m.convertDiscordMessageToLLMCompatibleFlowingText(mc)
 		sanitizedString = removeSpoilerTagContentInStringMessage(sanitizedString)
-		sanitizedString = replaceAllUserIDsWithUsernamesInStringMessage(sanitizedString, m.GuildID)
+		sanitizedString = m.replaceAllUserIDsWithUsernamesInStringMessage(sanitizedString, mc.GuildID)
 		// TODO: this could potentially break if we chose to no include user ids in message later
 		messages = append(messages, openai.ChatCompletionMessageParamUnion(openai.UserMessage(sanitizedString)))
 	}
@@ -430,7 +334,7 @@ Manche Namen sind Pseudonyme (Benutzer 1, 2, …) für anonyme Teilnehmer. Echte
 		}
 	}
 
-	chatCompletion, err := chatCompletionFunc(context.Background(), openai.ChatCompletionNewParams{
+	chatCompletion, err := m.chatCompletionFunc(context.Background(), openai.ChatCompletionNewParams{
 		Messages:            messages,
 		Model:               llm.Model(),
 		N:                   openai.Int(1),

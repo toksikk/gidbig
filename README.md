@@ -152,7 +152,7 @@ The database mount must match `database.path`. `docker-compose.yml` is also avai
 ## 🗺️ Roadmap
 
 - 🔀 **Finish migrating `!`-prefix commands to Discord slash commands** — soundboard and wttrin remain legacy commands
-- 🏗️ **Finish module migration** — move gippity and leetoclock to `bot.Module` and centralize routing and command registration
+- 🏗️ **Finish module migration** — move soundboard to `bot.Module` and remove the remaining legacy boot path in `core/cmd.go`
 
 ## 📄 License
 

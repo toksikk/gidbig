@@ -76,14 +76,14 @@ func extractImageURLs(attachments []*discordgo.MessageAttachment) []string {
 	return urls
 }
 
-func convertDiscordMessageToLLMCompatibleFlowingText(m *discordgo.MessageCreate) string {
-	if idToNameCache[m.Author.ID] == "" {
-		idToNameCache[m.Author.ID] = util.GetUsernameInGuild(discordSession, m)
+func (m *Module) convertDiscordMessageToLLMCompatibleFlowingText(mc *discordgo.MessageCreate) string {
+	if m.idToNameCache[mc.Author.ID] == "" {
+		m.idToNameCache[mc.Author.ID] = util.GetUsernameInGuild(m.session, mc)
 	}
 	llmChatMessage := LLMChatMessage{
-		Message:         m.Content,
-		Username:        idToNameCache[m.Author.ID],
-		TimestampString: m.Timestamp.Format("2006-01-02 15:04:05"),
+		Message:         mc.Content,
+		Username:        m.idToNameCache[mc.Author.ID],
+		TimestampString: mc.Timestamp.Format("2006-01-02 15:04:05"),
 	}
 	return convertLLMChatMessageToLLMCompatibleFlowingText(llmChatMessage)
 }
@@ -101,7 +101,7 @@ func removeSpoilerTagContentInStringMessage(message string) string {
 	return llmChatMessage.Message
 }
 
-func replaceAllUserIDsWithUsernamesInMessage(message *LLMChatMessage) {
+func (m *Module) replaceAllUserIDsWithUsernamesInMessage(message *LLMChatMessage) {
 	regexp := regexp.MustCompile(`<@!?(\d+)>`)
 	matches := regexp.FindAllStringSubmatch(message.Message, -1)
 	idToName := make(map[string]string)
@@ -111,7 +111,7 @@ func replaceAllUserIDsWithUsernamesInMessage(message *LLMChatMessage) {
 		userID := match[1]    // The captured user ID, e.g., "266646297707020289"
 
 		if idToName[userID] == "" {
-			username := util.GetUsernameForUserIDInGuild(discordSession, userID, message.GuildID)
+			username := util.GetUsernameForUserIDInGuild(m.session, userID, message.GuildID)
 			if username == "" {
 				username = "Unbekannter Benutzer"
 			}
@@ -125,11 +125,8 @@ func replaceAllUserIDsWithUsernamesInMessage(message *LLMChatMessage) {
 	}
 }
 
-// seasonFunc is overridden in tests to select a fixed season.
-var seasonFunc = util.CurrentSeason
-
-func enrichSystemMessage(systemMessage string) string {
-	modifiers := seasonalModifiers(seasonFunc())
+func (m *Module) enrichSystemMessage(systemMessage string) string {
+	modifiers := seasonalModifiers(m.seasonFunc())
 	if len(modifiers) == 0 {
 		return systemMessage
 	}
@@ -161,13 +158,6 @@ func decodeModifier(fallback string, modifiers []string) string {
 		return fallback
 	}
 	return string(decodedString)
-}
-
-// fetchMessageReactionsFunc is the var used in tests to mock the Discord API
-// lookup used for reaction context. It returns the full message so reaction
-// counts can be read without fetching individual reactors.
-var fetchMessageReactionsFunc = func(s *discordgo.Session, channelID, messageID string) (*discordgo.Message, error) {
-	return channelMessageFunc(s, channelID, messageID)
 }
 
 // formatReactionSummary renders aggregate reaction counts, most reacted emoji
@@ -214,11 +204,11 @@ func formatReactionSummary(reactions []*discordgo.MessageReactions) string {
 // fetchReactionSummary returns a formatted reaction summary for a message, or an
 // empty string when the message has no reactions or cannot be fetched. Failures
 // are non-fatal: reaction context is best-effort and never blocks an answer.
-func fetchReactionSummary(s *discordgo.Session, channelID, messageID string) string {
+func (m *Module) fetchReactionSummary(channelID, messageID string) string {
 	if channelID == "" || messageID == "" {
 		return ""
 	}
-	msg, err := fetchMessageReactionsFunc(s, channelID, messageID)
+	msg, err := m.fetchMessageReactionsFunc(m.session, channelID, messageID)
 	if err != nil {
 		slog.Debug("gippity: could not fetch message for reaction context", "messageID", messageID, "error", err)
 		return ""
@@ -233,25 +223,17 @@ func fetchReactionSummary(s *discordgo.Session, channelID, messageID string) str
 // a single answer generation.
 type reactionSummaryCache map[string]string
 
-func (c reactionSummaryCache) get(s *discordgo.Session, channelID, messageID string) string {
+func (m *Module) reactionSummary(c reactionSummaryCache, channelID, messageID string) string {
 	if summary, ok := c[messageID]; ok {
 		return summary
 	}
-	summary := fetchReactionSummary(s, channelID, messageID)
+	summary := m.fetchReactionSummary(channelID, messageID)
 	c[messageID] = summary
 	return summary
 }
 
-// fetchReferencedMessageFunc is the var used in tests to mock fetchReferencedMessage.
-var fetchReferencedMessageFunc = fetchReferencedMessage
-
-// channelMessageFunc is the var used in tests to mock the Discord API fallback.
-var channelMessageFunc = func(s *discordgo.Session, channelID, messageID string) (*discordgo.Message, error) {
-	return s.ChannelMessage(channelID, messageID)
-}
-
-func fetchReferencedMessage(s *discordgo.Session, ref *discordgo.MessageReference) (*discordgo.Message, error) {
-	dbMsg, err := getMessageFromDatabase(ref.MessageID)
+func (m *Module) fetchReferencedMessage(s *discordgo.Session, ref *discordgo.MessageReference) (*discordgo.Message, error) {
+	dbMsg, err := m.getMessageFromDatabase(ref.MessageID)
 	if err != nil {
 		slog.Warn("gippity: DB lookup for referenced message failed", "messageID", ref.MessageID, "error", err)
 	}
@@ -265,14 +247,14 @@ func fetchReferencedMessage(s *discordgo.Session, ref *discordgo.MessageReferenc
 		}, nil
 	}
 
-	return channelMessageFunc(s, ref.ChannelID, ref.MessageID)
+	return m.channelMessageFunc(s, ref.ChannelID, ref.MessageID)
 }
 
-func replaceAllUserIDsWithUsernamesInStringMessage(message string, guildid string) string {
+func (m *Module) replaceAllUserIDsWithUsernamesInStringMessage(message string, guildid string) string {
 	llmChatMessage := LLMChatMessage{
 		Message: message,
 		GuildID: guildid,
 	}
-	replaceAllUserIDsWithUsernamesInMessage(&llmChatMessage)
+	m.replaceAllUserIDsWithUsernamesInMessage(&llmChatMessage)
 	return llmChatMessage.Message
 }

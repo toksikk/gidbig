@@ -31,8 +31,47 @@ func (stubCoffeeProvider) HandleAdminSubcommand(_ *discordgo.Session, _ *discord
 
 var _ bot.AdminProvider = stubCoffeeProvider{}
 
+// stubGippityProvider mirrors the gippity module's admin subcommand group.
+type stubGippityProvider struct{}
+
+func (stubGippityProvider) AdminSubcommandGroup() *discordgo.ApplicationCommandOption {
+	userOpt := func(desc string) *discordgo.ApplicationCommandOption {
+		return &discordgo.ApplicationCommandOption{
+			Type:        discordgo.ApplicationCommandOptionUser,
+			Name:        "user",
+			Description: desc,
+			Required:    false,
+		}
+	}
+	return &discordgo.ApplicationCommandOption{
+		Type:        discordgo.ApplicationCommandOptionSubCommandGroup,
+		Name:        "gippity",
+		Description: "Gippity admin queries",
+		Options: []*discordgo.ApplicationCommandOption{
+			{
+				Type:        discordgo.ApplicationCommandOptionSubCommand,
+				Name:        "privacy",
+				Description: "Show gippity privacy setting for a user or all users",
+				Options:     []*discordgo.ApplicationCommandOption{userOpt("Target user (omit for all)")},
+			},
+			{
+				Type:        discordgo.ApplicationCommandOptionSubCommand,
+				Name:        "history",
+				Description: "Show whether a user has stored conversation history",
+				Options:     []*discordgo.ApplicationCommandOption{userOpt("Target user (omit for all)")},
+			},
+		},
+	}
+}
+
+func (stubGippityProvider) HandleAdminSubcommand(_ *discordgo.Session, _ *discordgo.InteractionCreate, _ *discordgo.ApplicationCommandInteractionDataOption) {
+}
+
+var _ bot.AdminProvider = stubGippityProvider{}
+
 func TestMain(m *testing.M) {
 	RegisterProvider(stubCoffeeProvider{})
+	RegisterProvider(stubGippityProvider{})
 	os.Exit(m.Run())
 }
 
@@ -165,28 +204,5 @@ func TestCallerID_Neither(t *testing.T) {
 	got := callerID(i)
 	if got != "" {
 		t.Errorf("callerID = %q, want empty string", got)
-	}
-}
-
-func TestOptUserID_Present(t *testing.T) {
-	user := &discordgo.User{ID: "target-user"}
-	opts := []*discordgo.ApplicationCommandInteractionDataOption{
-		{
-			Name:  "user",
-			Type:  discordgo.ApplicationCommandOptionUser,
-			Value: user.ID,
-		},
-	}
-	got := optUserID(nil, opts)
-	if got != user.ID {
-		t.Errorf("optUserID = %q, want %q", got, user.ID)
-	}
-}
-
-func TestOptUserID_Absent(t *testing.T) {
-	opts := []*discordgo.ApplicationCommandInteractionDataOption{}
-	got := optUserID(nil, opts)
-	if got != "" {
-		t.Errorf("optUserID = %q, want empty string", got)
 	}
 }

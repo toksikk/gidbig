@@ -8,12 +8,9 @@ import (
 	"github.com/toksikk/gidbig/internal/bot"
 )
 
-// StatsProvider exposes gippity counters for /status.
-var StatsProvider bot.StatsProvider = bot.StatsFunc{ModuleName: "gippity", Fn: Stats}
-
 // Stats reports stored chat counters for /status.
-func Stats(ctx context.Context) (bot.ModuleStats, error) {
-	if database == nil {
+func (m *Module) Stats(ctx context.Context) (bot.ModuleStats, error) {
+	if m.db == nil {
 		return bot.ModuleStats{}, errors.New("database not open")
 	}
 	var messages, mentions, users, channels, edits, images, privacyOff int64
@@ -30,7 +27,7 @@ func Stats(ctx context.Context) (bot.ModuleStats, error) {
 		{&privacyOff, "SELECT COUNT(*) FROM user_privacy WHERE privacy_enabled = 0"},
 	}
 	for _, q := range queries {
-		if err := database.QueryRowContext(ctx, q.query).Scan(q.dst); err != nil {
+		if err := m.db.QueryRowContext(ctx, q.query).Scan(q.dst); err != nil {
 			return bot.ModuleStats{}, err
 		}
 	}
@@ -46,10 +43,7 @@ func Stats(ctx context.Context) (bot.ModuleStats, error) {
 			{Name: "edits", Value: strconv.FormatInt(edits, 10)},
 			{Name: "images", Value: strconv.FormatInt(images, 10)},
 			{Name: "privacy off", Value: strconv.FormatInt(privacyOff, 10)},
-			{Name: "rate limit", Value: strconv.Itoa(userMessageLimit) + "/h"},
+			{Name: "rate limit", Value: strconv.Itoa(m.userMessageLimit) + "/h"},
 		},
 	}, nil
 }
-
-// DBPath returns the gippity database file path.
-func DBPath() string { return chatHistoryDBFilename }
