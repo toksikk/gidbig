@@ -1,66 +1,16 @@
 package gidbig
 
-import "strings"
-
 type templateData struct {
 	Prefixes  []string
 	Username  string
 	AvatarURL string
 }
 
-// soundItem is used to represent a sound of our COLLECTIONS for html generation
+// soundItem is used to represent a sound of a collection for html generation
 type soundItem struct {
 	Itemprefix    string
 	Itemcommand   string
 	Itemsoundname string
 	Itemtext      string
 	Itemshorttext string
-}
-
-// Play represents an individual use of the !airhorn command
-type Play struct {
-	GuildID   string
-	ChannelID string
-	UserID    string
-	Sound     *soundClip
-
-	// The next play to occur after this, only used for chaining sounds like anotha
-	Next *Play
-
-	// If true, this was a forced play using a specific airhorn sound name
-	Forced bool
-}
-
-// soundCollection of sound clips
-type soundCollection struct {
-	Prefix     string
-	Commands   []string
-	Sounds     []*soundClip
-	ChainWith  *soundCollection
-	soundRange int
-}
-
-// Lookup returns the first sound with the given name (case-insensitive), or nil.
-func (sc *soundCollection) Lookup(name string) *soundClip {
-	lower := strings.ToLower(name)
-	for _, s := range sc.Sounds {
-		if strings.ToLower(s.Name) == lower {
-			return s
-		}
-	}
-	return nil
-}
-
-// soundClip represents a sound clip
-type soundClip struct {
-	Name string
-
-	// Weight adjust how likely it is this song will play, higher = more likely
-	Weight int
-
-	// Delay (in milliseconds) for the bot to wait before sending the disconnect request
-	PartDelay int
-
-	// Buffer to store encoded PCM packets
-	buffer [][]byte
 }

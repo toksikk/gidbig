@@ -271,20 +271,6 @@ func TestCollectDBFilesDedupesAndReportsMissing(t *testing.T) {
 	}
 }
 
-func TestSoundboardStatsProvider(t *testing.T) {
-	orig := COLLECTIONS
-	t.Cleanup(func() { COLLECTIONS = orig })
-	COLLECTIONS = []*soundCollection{{Prefix: "a", Sounds: []*soundClip{{Name: "x"}, {Name: "y"}}}}
-
-	st, err := soundboardStatsProvider().Stats(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if joinStats(st.Summary) != "2 sounds · 1 collections · 0 queued" {
-		t.Errorf("summary = %q", joinStats(st.Summary))
-	}
-}
-
 func TestFormatUptime(t *testing.T) {
 	cases := map[time.Duration]string{
 		30 * time.Second:                              "1m",

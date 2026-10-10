@@ -1,4 +1,4 @@
-package gidbig
+package soundboard
 
 import (
 	"sync"
@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/toksikk/gidbig/internal/bot"
+	"github.com/toksikk/gidbig/internal/cfg"
 )
 
 // newTestVoiceConnection creates a minimal VoiceConnection suitable for unit-testing
@@ -18,13 +20,25 @@ func newTestVoiceConnection(bufSize int) *discordgo.VoiceConnection {
 	return vc
 }
 
-func TestSetMaxQueueSize(t *testing.T) {
-	previous := maxQueueSize
-	t.Cleanup(func() { maxQueueSize = previous })
+func TestNew_defaultMaxQueueSize(t *testing.T) {
+	m := New()
+	if m.maxQueueSize != defaultMaxQueueSize {
+		t.Fatalf("maxQueueSize = %d, want %d", m.maxQueueSize, defaultMaxQueueSize)
+	}
+}
 
-	SetMaxQueueSize(2)
-	if maxQueueSize != 2 {
-		t.Fatalf("maxQueueSize = %d, want 2", maxQueueSize)
+func TestInit_appliesConfigQueueMaxDepth(t *testing.T) {
+	t.Chdir(t.TempDir())
+
+	c := &cfg.Config{}
+	c.Soundboard.QueueMaxDepth = 12
+
+	m := New()
+	if err := m.Init(bot.Deps{Config: c}); err != nil {
+		t.Fatalf("Init returned error: %v", err)
+	}
+	if m.maxQueueSize != 12 {
+		t.Fatalf("maxQueueSize = %d, want 12", m.maxQueueSize)
 	}
 }
 
