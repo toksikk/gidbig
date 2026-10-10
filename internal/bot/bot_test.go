@@ -13,7 +13,7 @@ type stubModule struct {
 	initErr error
 }
 
-func (s *stubModule) Name() string                               { return s.name }
+func (s *stubModule) Name() string                              { return s.name }
 func (s *stubModule) Init(_ Deps) error                         { return s.initErr }
 func (s *stubModule) Commands() []*discordgo.ApplicationCommand { return nil }
 func (s *stubModule) Listeners() []EventListener                { return nil }
