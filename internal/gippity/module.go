@@ -73,6 +73,10 @@ type Module struct {
 	classifierRateLimit  int
 	classifierNames      []string
 
+	// debugChannel mirrors gippity.debug_channel: with debug logging enabled the
+	// bot ignores every other channel. Empty disables the restriction.
+	debugChannel string
+
 	// tools is the shared tool registry. When toolsEnabled is true the answer
 	// path offers the registered tools to the model and runs a bounded tool
 	// loop; toolMaxIterations caps tool-call rounds and toolAllowed optionally
@@ -152,6 +156,7 @@ func (m *Module) Init(d bot.Deps) error {
 		m.respondToAllMessages = d.Config.Gippity.RespondToAllMessages
 		m.classifierModel = d.Config.Gippity.ClassifierModel
 		m.classifierNames = d.Config.Gippity.ClassifierNames
+		m.debugChannel = d.Config.Gippity.DebugChannel
 		if d.Config.Gippity.ClassifierRateLimitPerHour > 0 {
 			m.classifierRateLimit = d.Config.Gippity.ClassifierRateLimitPerHour
 		}

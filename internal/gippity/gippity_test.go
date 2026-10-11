@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"io"
+	"log/slog"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -1503,6 +1505,58 @@ func TestOnMessageCreate_MentionBypassesClassifierAndConsent(t *testing.T) {
 
 	if sent != "mentioned answer" {
 		t.Errorf("sent = %q, want %q", sent, "mentioned answer")
+	}
+}
+
+// debugLoggingForTest enables debug-level logging for one test and restores the
+// previous default on cleanup.
+func debugLoggingForTest(t *testing.T) {
+	t.Helper()
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	t.Cleanup(func() { slog.SetDefault(previous) })
+}
+
+func TestOnMessageCreate_DebugChannelRestrictsToConfiguredChannel(t *testing.T) {
+	debugLoggingForTest(t)
+	m, session := setupGippityTest(t)
+	m.debugChannel = "dev-channel"
+
+	called := 0
+	m.generateAnswerFunc = func(_ *discordgo.MessageCreate, _ []string) (string, error) {
+		called++
+		return "", nil
+	}
+
+	other := gippityTestMessage("hey <@bot-user>", &discordgo.User{ID: "bot-user"})
+	other.ChannelID = "other-channel"
+	m.onMessageCreate(session, other)
+	if called != 0 {
+		t.Fatalf("answered in a non-debug channel: %d", called)
+	}
+
+	dev := gippityTestMessage("hey <@bot-user>", &discordgo.User{ID: "bot-user"})
+	dev.ChannelID = "dev-channel"
+	m.onMessageCreate(session, dev)
+	if called != 1 {
+		t.Fatalf("did not answer in the configured debug channel: %d", called)
+	}
+}
+
+func TestOnMessageCreate_EmptyDebugChannelDoesNotRestrict(t *testing.T) {
+	debugLoggingForTest(t)
+	m, session := setupGippityTest(t)
+	m.debugChannel = ""
+
+	called := 0
+	m.generateAnswerFunc = func(_ *discordgo.MessageCreate, _ []string) (string, error) {
+		called++
+		return "", nil
+	}
+
+	m.onMessageCreate(session, gippityTestMessage("hey <@bot-user>", &discordgo.User{ID: "bot-user"}))
+	if called != 1 {
+		t.Fatalf("empty debug_channel should not restrict: %d", called)
 	}
 }
 

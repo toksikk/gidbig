@@ -34,6 +34,10 @@ gippity:
     # or aliases so a message like "gustaff, ..." is recognised without a
     # mention.
     classifier_names: []
+    # Optional. While debug logging is enabled the bot ignores every channel
+    # except this one, so a debug run does not answer everywhere. Empty (the
+    # default) disables the restriction and the bot answers in all channels.
+    debug_channel: ""
     # Optional. LLM tool-calling. When enabled, the answer path may consult
     # internal data (for example stored chat history) while composing an
     # answer. Off by default: the answer path stays a single completion call.

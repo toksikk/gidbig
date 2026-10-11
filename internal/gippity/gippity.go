@@ -219,11 +219,12 @@ func (m *Module) sendReply(mc *discordgo.MessageCreate, content string) error {
 
 func (m *Module) onMessageCreate(s *discordgo.Session, mc *discordgo.MessageCreate) {
 	slog.Debug("Message received", "message", mc.Content)
-	if slog.Default().Enabled(context.Background(), slog.LevelDebug) {
-		if mc.ChannelID != "954388765877612575" { // for debugging / developing
-			slog.Debug("Ignoring message", "channel", mc.ChannelID)
-			return
-		}
+	// While debug logging is on the bot stays quiet outside gippity.debug_channel,
+	// so a debug run does not answer in every channel. Empty disables the
+	// restriction.
+	if m.debugChannel != "" && mc.ChannelID != m.debugChannel && slog.Default().Enabled(context.Background(), slog.LevelDebug) {
+		slog.Debug("Ignoring message", "channel", mc.ChannelID)
+		return
 	}
 
 	mentioned := m.isMentioned(mc)

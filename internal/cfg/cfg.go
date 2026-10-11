@@ -97,6 +97,9 @@ type Config struct {
 		// bot. The bot's own Discord username and display name are always
 		// included, so this is only needed for nicknames or aliases.
 		ClassifierNames []string `yaml:"classifier_names,omitempty"`
+		// DebugChannel restricts the bot to one channel while debug logging is
+		// enabled. Empty means no restriction.
+		DebugChannel string `yaml:"debug_channel,omitempty"`
 		// Tools configures the LLM tool-calling loop that lets the answer path
 		// consult internal data (for example chat history). Off by default:
 		// when disabled the answer path is a single completion call.
