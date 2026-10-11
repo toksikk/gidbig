@@ -1,25 +1,65 @@
 package gippity
 
 import (
-	"database/sql"
+	"errors"
 	"log/slog"
 	"strings"
 
 	"github.com/bwmarrin/discordgo"
-	// sqlite3 driver
-	_ "github.com/mattn/go-sqlite3"
+	"github.com/toksikk/gidbig/internal/bot"
 	"github.com/toksikk/gidbig/internal/util"
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
-// ChatMessage represents a chat message
+// ChatMessage is one stored message of a channel's history.
 type ChatMessage struct {
-	UserID    string
-	ChannelID string
-	Timestamp int64
-	MessageID string
-	Message   string
-	GuildID   string
+	ID           uint   `gorm:"primaryKey"`
+	UserID       string `gorm:"index"`
+	ChannelID    string `gorm:"index"`
+	Timestamp    int64
+	Message      string
+	MessageID    string `gorm:"index"`
+	GuildID      string `gorm:"index"`
+	IsBotMention bool
 }
+
+// TableName returns the database table name.
+func (ChatMessage) TableName() string { return "gippity_chat_history" }
+
+// UserPrivacy stores a user's history-anonymization preference.
+// A missing row means privacy on (the default).
+type UserPrivacy struct {
+	UserID         string `gorm:"primaryKey"`
+	PrivacyEnabled bool   `gorm:"not null"`
+}
+
+// TableName returns the database table name.
+func (UserPrivacy) TableName() string { return "gippity_user_privacy" }
+
+// ChatAttachment stores the LLM-generated description of a message's images.
+type ChatAttachment struct {
+	ID               uint   `gorm:"primaryKey"`
+	MessageID        string `gorm:"index"`
+	AttachmentURL    string
+	ImageDescription string
+}
+
+// TableName returns the database table name.
+func (ChatAttachment) TableName() string { return "gippity_chat_attachments" }
+
+// ChatHistoryEdit stores one version of an edited message.
+type ChatHistoryEdit struct {
+	ID                uint   `gorm:"primaryKey"`
+	OriginalMessageID string `gorm:"index:idx_gippity_chat_history_edits_original,priority:1"`
+	EditedContent     string
+	Version           int `gorm:"index:idx_gippity_chat_history_edits_original,priority:2"`
+	EditedAt          int64
+}
+
+// TableName returns the database table name.
+func (ChatHistoryEdit) TableName() string { return "gippity_chat_history_edits" }
 
 // LLMChatMessage represents a chat message in a human readable format
 type LLMChatMessage struct {
@@ -38,62 +78,44 @@ type LLMChatMessage struct {
 	ReactionSummary   string
 }
 
-const chatHistoryDBFilename = "gippity.db"
+// openDB uses the shared database injected through Deps, or opens the configured
+// gidbig.db when running without a composition root (for example in tests).
+func (m *Module) openDB(d bot.Deps) error {
+	if d.DB != nil {
+		m.db = d.DB
+		m.ownsDB = false
+		return m.migrateDB()
+	}
 
-func (m *Module) initDB() error {
-	var err error
-	m.db, err = sql.Open("sqlite3", m.dbPath+"?_journal=WAL&_busy_timeout=5000")
+	dbPath := "gidbig.db"
+	if d.Config != nil && d.Config.Database.Path != "" {
+		dbPath = d.Config.Database.Path
+	}
+	db, err := gorm.Open(sqlite.Open(dbPath), &gorm.Config{})
 	if err != nil {
-		slog.Error("Error while opening database", "error", err)
 		return err
 	}
+	m.db = db
+	m.ownsDB = true
+	return m.migrateDB()
+}
 
-	_, err = m.db.Exec(`CREATE TABLE IF NOT EXISTS chat_history (user_id text, channel_id text, timestamp integer, message text, message_id text, guild_id text)`)
-	if err != nil {
-		slog.Error("Error while creating chat_history table", "error", err)
-	}
-
-	// idempotent: ignore error if column already exists
-	_, _ = m.db.Exec(`ALTER TABLE chat_history ADD COLUMN is_bot_mention INTEGER DEFAULT 0`)
-
-	_, err = m.db.Exec(`CREATE TABLE IF NOT EXISTS user_privacy (user_id TEXT PRIMARY KEY, privacy_enabled INTEGER NOT NULL DEFAULT 1)`)
-	if err != nil {
-		slog.Error("Error while creating user_privacy table", "error", err)
-	}
-
-	_, err = m.db.Exec(`CREATE TABLE IF NOT EXISTS chat_attachments (id INTEGER PRIMARY KEY AUTOINCREMENT, message_id TEXT, attachment_url TEXT, image_description TEXT)`)
-	if err != nil {
-		slog.Error("Error while creating chat_attachments table", "error", err)
-	}
-	// idempotent: add columns missing from pre-existing migration-created tables
-	_, _ = m.db.Exec(`ALTER TABLE chat_attachments ADD COLUMN message_id TEXT`)
-	_, _ = m.db.Exec(`ALTER TABLE chat_attachments ADD COLUMN image_description TEXT`)
-
-	_, err = m.db.Exec(`CREATE TABLE IF NOT EXISTS chat_history_edits (id INTEGER PRIMARY KEY AUTOINCREMENT, original_message_id TEXT, edited_content TEXT, version INTEGER, edited_at INTEGER)`)
-	if err != nil {
-		slog.Error("Error while creating chat_history_edits table", "error", err)
-	}
-	_, err = m.db.Exec(`CREATE INDEX IF NOT EXISTS idx_chat_history_edits_original ON chat_history_edits(original_message_id, version)`)
-	if err != nil {
-		slog.Error("Error while creating index on chat_history_edits", "error", err)
-	}
-	return nil
+// migrateDB creates or updates the gippity tables in the shared database.
+func (m *Module) migrateDB() error {
+	return m.db.AutoMigrate(&ChatMessage{}, &UserPrivacy{}, &ChatAttachment{}, &ChatHistoryEdit{})
 }
 
 func (m *Module) addMessageToDatabase(mc *discordgo.MessageCreate, isBotMention bool) {
-	stmt, err := m.db.Prepare("INSERT INTO chat_history (user_id, channel_id, timestamp, message, message_id, guild_id, is_bot_mention) VALUES (?, ?, ?, ?, ?, ?, ?)")
-	if err != nil {
-		slog.Error("Error while preparing statement", "error", err)
-		return
+	message := ChatMessage{
+		UserID:       mc.Author.ID,
+		ChannelID:    mc.ChannelID,
+		Timestamp:    util.GetTimestampOfMessage(mc.ID).Unix(),
+		Message:      mc.Content,
+		MessageID:    mc.ID,
+		GuildID:      mc.GuildID,
+		IsBotMention: isBotMention,
 	}
-	defer func() { _ = stmt.Close() }()
-
-	botMentionInt := 0
-	if isBotMention {
-		botMentionInt = 1
-	}
-	_, err = stmt.Exec(mc.Author.ID, mc.ChannelID, util.GetTimestampOfMessage(mc.ID).Unix(), mc.Content, mc.ID, mc.GuildID, botMentionInt)
-	if err != nil {
+	if err := m.db.Create(&message).Error; err != nil {
 		slog.Error("Error while inserting message into database", "error", err)
 	}
 }
@@ -101,16 +123,22 @@ func (m *Module) addMessageToDatabase(mc *discordgo.MessageCreate, isBotMention 
 func (m *Module) addMessageEditToDatabase(messageID, content string, editedAt int64) {
 	m.dbMu.Lock()
 	defer m.dbMu.Unlock()
+
 	var maxVersion int
-	if err := m.db.QueryRow(`SELECT COALESCE(MAX(version), 0) FROM chat_history_edits WHERE original_message_id = ?`, messageID).Scan(&maxVersion); err != nil {
+	if err := m.db.Model(&ChatHistoryEdit{}).
+		Where("original_message_id = ?", messageID).
+		Select("COALESCE(MAX(version), 0)").
+		Scan(&maxVersion).Error; err != nil {
 		slog.Error("Error while querying max edit version", "error", err)
 		return
 	}
-	_, err := m.db.Exec(
-		`INSERT INTO chat_history_edits (original_message_id, edited_content, version, edited_at) VALUES (?, ?, ?, ?)`,
-		messageID, content, maxVersion+1, editedAt,
-	)
-	if err != nil {
+	edit := ChatHistoryEdit{
+		OriginalMessageID: messageID,
+		EditedContent:     content,
+		Version:           maxVersion + 1,
+		EditedAt:          editedAt,
+	}
+	if err := m.db.Create(&edit).Error; err != nil {
 		slog.Error("Error while inserting message edit", "error", err)
 	}
 }
@@ -118,127 +146,124 @@ func (m *Module) addMessageEditToDatabase(messageID, content string, editedAt in
 func (m *Module) addAttachmentsToDatabase(messageID string, urls []string, description string) {
 	m.dbMu.Lock()
 	defer m.dbMu.Unlock()
-	_, err := m.db.Exec(
-		"INSERT INTO chat_attachments (message_id, attachment_url, image_description) VALUES (?, ?, ?)",
-		messageID, strings.Join(urls, ","), description,
-	)
-	if err != nil {
+
+	attachment := ChatAttachment{
+		MessageID:        messageID,
+		AttachmentURL:    strings.Join(urls, ","),
+		ImageDescription: description,
+	}
+	if err := m.db.Create(&attachment).Error; err != nil {
 		slog.Error("Error while inserting attachment", "error", err)
 	}
 }
 
-func (m *Module) getLastNMessagesFromDatabase(channelID string, n int) ([]LLMChatMessage, error) {
-	stmt, err := m.db.Prepare(`
-	SELECT ch.user_id, ch.channel_id, ch.timestamp,
-	       COALESCE((SELECT edited_content FROM chat_history_edits WHERE original_message_id = ch.message_id ORDER BY version DESC LIMIT 1), ch.message) as message,
-	       ch.message_id, ch.guild_id,
-	       COALESCE(ch.is_bot_mention, 0),
-	       ca.image_description
-	FROM (
-	    SELECT user_id, channel_id, timestamp, message, message_id, guild_id, is_bot_mention
-	    FROM chat_history
-	    WHERE channel_id = ?
-	    ORDER BY timestamp DESC
-	    LIMIT ?
-	) AS ch
-	LEFT JOIN chat_attachments ca ON ca.message_id = ch.message_id
-	ORDER BY ch.timestamp ASC;
-	`)
-	if err != nil {
-		slog.Error("Error while preparing statement", "error", err)
-		return nil, err
-	}
-	defer func() { _ = stmt.Close() }()
+// chatHistoryRow is the flat row shape returned by the history queries before
+// names, timestamps and reaction summaries are filled in.
+type chatHistoryRow struct {
+	UserID           string
+	ChannelID        string
+	Timestamp        int64
+	Message          string
+	MessageID        string
+	GuildID          string
+	IsBotMention     bool
+	ImageDescription *string
+}
 
-	rows, err := stmt.Query(channelID, n)
-	if err != nil {
+const lastNMessagesQuery = `
+SELECT ch.user_id, ch.channel_id, ch.timestamp,
+       COALESCE((SELECT edited_content FROM gippity_chat_history_edits WHERE original_message_id = ch.message_id ORDER BY version DESC LIMIT 1), ch.message) AS message,
+       ch.message_id, ch.guild_id,
+       COALESCE(ch.is_bot_mention, 0) AS is_bot_mention,
+       ca.image_description AS image_description
+FROM (
+    SELECT user_id, channel_id, timestamp, message, message_id, guild_id, is_bot_mention
+    FROM gippity_chat_history
+    WHERE channel_id = ?
+    ORDER BY timestamp DESC
+    LIMIT ?
+) AS ch
+LEFT JOIN gippity_chat_attachments ca ON ca.message_id = ch.message_id
+ORDER BY ch.timestamp ASC;
+`
+
+func (m *Module) getLastNMessagesFromDatabase(channelID string, n int) ([]LLMChatMessage, error) {
+	var rows []chatHistoryRow
+	if err := m.db.Raw(lastNMessagesQuery, channelID, n).Scan(&rows).Error; err != nil {
 		slog.Error("Error while querying database", "error", err)
 		return nil, err
 	}
-	defer func() { _ = rows.Close() }()
 
-	llmMessages := make([]LLMChatMessage, 0, n)
-	for rows.Next() {
-		var message LLMChatMessage
-		var isBotMentionInt int
-		var imageDescConcat *string
-		err = rows.Scan(
-			&message.UserID,
-			&message.ChannelID,
-			&message.Timestamp,
-			&message.Message,
-			&message.MessageID,
-			&message.GuildID,
-			&isBotMentionInt,
-			&imageDescConcat,
-		)
-		if err != nil {
-			slog.Error("Error while scanning row", "error", err)
-			return nil, err
+	llmMessages := make([]LLMChatMessage, 0, len(rows))
+	for _, row := range rows {
+		message := LLMChatMessage{
+			UserID:       row.UserID,
+			ChannelID:    row.ChannelID,
+			Timestamp:    row.Timestamp,
+			Message:      row.Message,
+			MessageID:    row.MessageID,
+			GuildID:      row.GuildID,
+			IsBotMention: row.IsBotMention,
 		}
-		message.IsBotMention = isBotMentionInt != 0
-		if imageDescConcat != nil && *imageDescConcat != "" {
-			message.ImageDescriptions = append(message.ImageDescriptions, *imageDescConcat)
+		if row.ImageDescription != nil && *row.ImageDescription != "" {
+			message.ImageDescriptions = append(message.ImageDescriptions, *row.ImageDescription)
 		}
-
-		message.Username = m.cachedName(message.UserID, func() string {
-			return util.GetUsernameForUserIDInGuild(m.session, message.UserID, message.GuildID)
-		})
-		message.ChannelName = m.cachedName(message.ChannelID, func() string {
-			return util.GetChannelName(m.session, message.ChannelID)
-		})
-		message.GuildName = m.cachedName(message.GuildID, func() string {
-			return util.GetGuildName(m.session, message.GuildID)
-		})
-		message.TimestampString = util.GetTimestampOfMessage(message.MessageID).Format("2006-01-02 15:04:05")
-
+		m.fillNames(&message)
 		llmMessages = append(llmMessages, message)
 	}
 
 	return llmMessages, nil
 }
 
-func (m *Module) getMessageFromDatabase(messageID string) (*LLMChatMessage, error) {
-	stmt, err := m.db.Prepare(`
-	SELECT ch.user_id, ch.channel_id, ch.timestamp,
-	       COALESCE((SELECT edited_content FROM chat_history_edits WHERE original_message_id = ch.message_id ORDER BY version DESC LIMIT 1), ch.message) as message,
-	       ch.message_id, ch.guild_id,
-	       COALESCE(ch.is_bot_mention, 0),
-	       GROUP_CONCAT(ca.image_description, '||') as image_desc_concat
-	FROM chat_history ch
-	LEFT JOIN chat_attachments ca ON ca.message_id = ch.message_id
-	WHERE ch.message_id = ?
-	GROUP BY ch.message_id
-	`)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = stmt.Close() }()
+// messageByIDRow is the flat row shape for a single stored message.
+type messageByIDRow struct {
+	UserID          string
+	ChannelID       string
+	Timestamp       int64
+	Message         string
+	MessageID       string
+	GuildID         string
+	IsBotMention    bool
+	ImageDescConcat *string
+}
 
-	var message LLMChatMessage
-	var isBotMentionInt int
-	var imageDescConcat *string
-	err = stmt.QueryRow(messageID).Scan(
-		&message.UserID,
-		&message.ChannelID,
-		&message.Timestamp,
-		&message.Message,
-		&message.MessageID,
-		&message.GuildID,
-		&isBotMentionInt,
-		&imageDescConcat,
-	)
-	if err == sql.ErrNoRows {
+func (m *Module) getMessageFromDatabase(messageID string) (*LLMChatMessage, error) {
+	var row messageByIDRow
+	err := m.db.Table("gippity_chat_history AS ch").
+		Select("ch.user_id, ch.channel_id, ch.timestamp, "+
+			"COALESCE((SELECT edited_content FROM gippity_chat_history_edits WHERE original_message_id = ch.message_id ORDER BY version DESC LIMIT 1), ch.message) AS message, "+
+			"ch.message_id, ch.guild_id, COALESCE(ch.is_bot_mention, 0) AS is_bot_mention, "+
+			"GROUP_CONCAT(ca.image_description, '||') AS image_desc_concat").
+		Joins("LEFT JOIN gippity_chat_attachments ca ON ca.message_id = ch.message_id").
+		Where("ch.message_id = ?", messageID).
+		Group("ch.message_id").
+		Take(&row).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	message.IsBotMention = isBotMentionInt != 0
-	if imageDescConcat != nil && *imageDescConcat != "" {
-		message.ImageDescriptions = strings.Split(*imageDescConcat, "||")
-	}
 
+	message := LLMChatMessage{
+		UserID:       row.UserID,
+		ChannelID:    row.ChannelID,
+		Timestamp:    row.Timestamp,
+		Message:      row.Message,
+		MessageID:    row.MessageID,
+		GuildID:      row.GuildID,
+		IsBotMention: row.IsBotMention,
+	}
+	if row.ImageDescConcat != nil && *row.ImageDescConcat != "" {
+		message.ImageDescriptions = strings.Split(*row.ImageDescConcat, "||")
+	}
+	m.fillNames(&message)
+	return &message, nil
+}
+
+// fillNames resolves the cached usernames, channel names and guild names for a
+// stored message and derives its human-readable timestamp.
+func (m *Module) fillNames(message *LLMChatMessage) {
 	message.Username = m.cachedName(message.UserID, func() string {
 		return util.GetUsernameForUserIDInGuild(m.session, message.UserID, message.GuildID)
 	})
@@ -249,32 +274,27 @@ func (m *Module) getMessageFromDatabase(messageID string) (*LLMChatMessage, erro
 		return util.GetGuildName(m.session, message.GuildID)
 	})
 	message.TimestampString = util.GetTimestampOfMessage(message.MessageID).Format("2006-01-02 15:04:05")
-	return &message, nil
 }
 
 // getUserPrivacy returns true (privacy on) by default; explicit opt-out returns false.
 func (m *Module) getUserPrivacy(userID string) bool {
-	var enabled int
-	err := m.db.QueryRow(`SELECT privacy_enabled FROM user_privacy WHERE user_id = ?`, userID).Scan(&enabled)
-	if err == sql.ErrNoRows {
+	var privacy UserPrivacy
+	err := m.db.Where("user_id = ?", userID).First(&privacy).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return true
 	}
 	if err != nil {
 		slog.Error("Error while querying user_privacy", "error", err)
 		return true
 	}
-	return enabled != 0
+	return privacy.PrivacyEnabled
 }
 
 // setUserPrivacy stores or updates the privacy preference for a user.
 func (m *Module) setUserPrivacy(userID string, enabled bool) error {
-	enabledInt := 0
-	if enabled {
-		enabledInt = 1
-	}
-	_, err := m.db.Exec(
-		`INSERT INTO user_privacy (user_id, privacy_enabled) VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET privacy_enabled = excluded.privacy_enabled`,
-		userID, enabledInt,
-	)
-	return err
+	privacy := UserPrivacy{UserID: userID, PrivacyEnabled: enabled}
+	return m.db.Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "user_id"}},
+		DoUpdates: clause.AssignmentColumns([]string{"privacy_enabled"}),
+	}).Create(&privacy).Error
 }

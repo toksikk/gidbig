@@ -186,6 +186,15 @@ func StartGidbig() {
 	LogVersion()
 	var err error
 
+	// Open the single SQLite database shared by every module. Modules receive
+	// it through bot.Deps.DB instead of opening the file themselves.
+	sharedDB, err := openSharedDatabase(conf.Database.Path)
+	if err != nil {
+		slog.Error("Failed to open shared database", "error", err)
+		os.Exit(1)
+		return
+	}
+
 	// Create a discord session
 	slog.Info("Starting discord session...")
 	discord, err = discordgo.New("Bot " + conf.Discord.Token)
@@ -263,7 +272,7 @@ func StartGidbig() {
 	}
 	coffeeMod := coffee.New()
 	coffeeReady := false
-	if err := coffeeMod.Init(bot.Deps{Session: discord, Config: conf}); err != nil {
+	if err := coffeeMod.Init(bot.Deps{Session: discord, Config: conf, DB: sharedDB}); err != nil {
 		slog.Error("coffee: init failed", "error", err)
 	} else {
 		coffeeReady = true
@@ -294,7 +303,7 @@ func StartGidbig() {
 	}
 	gippityMod := gippity.New()
 	gippityReady := false
-	if err := gippityMod.Init(bot.Deps{Session: discord, Config: conf}); err != nil {
+	if err := gippityMod.Init(bot.Deps{Session: discord, Config: conf, DB: sharedDB}); err != nil {
 		slog.Error("gippity: init failed", "error", err)
 	} else {
 		gippityReady = true
@@ -306,7 +315,7 @@ func StartGidbig() {
 	}
 	leetoMod := leetoclock.New()
 	leetoReady := false
-	if err := leetoMod.Init(bot.Deps{Session: discord, Config: conf}); err != nil {
+	if err := leetoMod.Init(bot.Deps{Session: discord, Config: conf, DB: sharedDB}); err != nil {
 		slog.Error("leetoclock: init failed", "error", err)
 	} else {
 		leetoReady = true
@@ -368,9 +377,6 @@ func StartGidbig() {
 		dbPath = conf.Database.Path
 	}
 	statusDBPaths = []string{dbPath}
-	if gippityReady {
-		statusDBPaths = append(statusDBPaths, gippityMod.DBPath())
-	}
 
 	cmds := []*discordgo.ApplicationCommand{statusCommand()}
 	cmds = append(cmds, coreSlashCommands()...)
@@ -433,6 +439,12 @@ func StartGidbig() {
 		}
 		if err := coffeeMod.Shutdown(); err != nil {
 			slog.Error("coffee: shutdown failed", "error", err)
+		}
+		// Close the shared database last, after modules stopped using it.
+		if sqlDB, dbErr := sharedDB.DB(); dbErr == nil {
+			if err := sqlDB.Close(); err != nil {
+				slog.Error("error closing shared database", "error", err)
+			}
 		}
 	}()
 

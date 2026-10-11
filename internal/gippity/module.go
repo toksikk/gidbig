@@ -2,7 +2,6 @@ package gippity
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -14,6 +13,7 @@ import (
 	"github.com/toksikk/gidbig/internal/util"
 
 	openai "github.com/openai/openai-go/v3"
+	"gorm.io/gorm"
 )
 
 // Module implements bot.Module, bot.AdminProvider and bot.StatsProvider for the
@@ -21,9 +21,9 @@ import (
 type Module struct {
 	session *discordgo.Session
 
-	db     *sql.DB
+	db     *gorm.DB
 	dbMu   sync.Mutex
-	dbPath string
+	ownsDB bool
 
 	// stateMu guards idToNameCache and the per-user mention counters, which are
 	// touched by concurrent Discord handlers and the cache-reset background task.
@@ -53,7 +53,6 @@ type Module struct {
 // New returns a Module with production-default hook implementations.
 func New() *Module {
 	m := &Module{
-		dbPath:           chatHistoryDBFilename,
 		idToNameCache:    make(map[string]string),
 		userMessageLimit: 30,
 	}
@@ -104,7 +103,7 @@ func (m *Module) Init(d bot.Deps) error {
 		}
 	}
 
-	if err := m.initDB(); err != nil {
+	if err := m.openDB(d); err != nil {
 		return fmt.Errorf("gippity: init db: %w", err)
 	}
 
@@ -154,18 +153,21 @@ func (m *Module) Background() []bot.BackgroundTask {
 	return []bot.BackgroundTask{{Name: "gippity-id-name-cache-reset", Run: m.idToNameCacheResetLoop}}
 }
 
-// Shutdown closes the chat history database.
+// Shutdown closes the chat history database when this module opened it.
+// An injected shared database is owned by the composition root.
 func (m *Module) Shutdown() error {
-	if m.db != nil {
-		if err := m.db.Close(); err != nil {
-			return fmt.Errorf("gippity: close db: %w", err)
-		}
+	if m.db == nil || !m.ownsDB {
+		return nil
+	}
+	sqlDB, err := m.db.DB()
+	if err != nil {
+		return fmt.Errorf("gippity: get sql db: %w", err)
+	}
+	if err := sqlDB.Close(); err != nil {
+		return fmt.Errorf("gippity: close db: %w", err)
 	}
 	return nil
 }
-
-// DBPath returns the gippity database file path.
-func (m *Module) DBPath() string { return m.dbPath }
 
 // idToNameCacheResetLoop clears the name cache every 12 hours, or on shutdown.
 func (m *Module) idToNameCacheResetLoop(ctx context.Context) {

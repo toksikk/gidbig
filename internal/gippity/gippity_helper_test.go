@@ -130,7 +130,7 @@ func TestFetchReferencedMessage_FoundInDB(t *testing.T) {
 	m.idToNameCache["channel-1"] = "general"
 	m.idToNameCache["allowed-guild"] = "Test Guild"
 
-	if _, err := m.db.Exec(`INSERT INTO chat_history (user_id, channel_id, timestamp, message, message_id, guild_id, is_bot_mention) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+	if _, err := execSQL(t, m.db, `INSERT INTO gippity_chat_history (user_id, channel_id, timestamp, message, message_id, guild_id, is_bot_mention) VALUES (?, ?, ?, ?, ?, ?, ?)`,
 		"user-2", "channel-1", 1000, "the referenced content", "ref-db-msg", "allowed-guild", 0); err != nil {
 		t.Fatalf("insert: %v", err)
 	}

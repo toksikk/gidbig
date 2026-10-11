@@ -1,12 +1,13 @@
 package gippity
 
 import (
-	"database/sql"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
 
 	"github.com/bwmarrin/discordgo"
+	"gorm.io/gorm"
 )
 
 // AdminSubcommandGroup returns the /admin gippity subcommand group definition.
@@ -113,16 +114,16 @@ func adminEditEphemeral(s *discordgo.Session, i *discordgo.InteractionCreate, co
 func (m *Module) adminGetUserPrivacy(userID string) bool {
 	m.dbMu.Lock()
 	defer m.dbMu.Unlock()
-	var enabled int
-	err := m.db.QueryRow(`SELECT privacy_enabled FROM user_privacy WHERE user_id = ?`, userID).Scan(&enabled)
-	if err == sql.ErrNoRows {
+	var privacy UserPrivacy
+	err := m.db.Where("user_id = ?", userID).First(&privacy).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return true
 	}
 	if err != nil {
 		slog.Error("gippity: admin error querying user_privacy", "error", err)
 		return true
 	}
-	return enabled != 0
+	return privacy.PrivacyEnabled
 }
 
 // adminGetAllUserPrivacy returns a map of userID -> privacy_enabled for all users
@@ -130,19 +131,13 @@ func (m *Module) adminGetUserPrivacy(userID string) bool {
 func (m *Module) adminGetAllUserPrivacy() (map[string]bool, error) {
 	m.dbMu.Lock()
 	defer m.dbMu.Unlock()
-	rows, err := m.db.Query(`SELECT user_id, privacy_enabled FROM user_privacy ORDER BY user_id`)
-	if err != nil {
+	var rows []UserPrivacy
+	if err := m.db.Order("user_id").Find(&rows).Error; err != nil {
 		return nil, err
 	}
-	defer func() { _ = rows.Close() }()
-	result := make(map[string]bool)
-	for rows.Next() {
-		var uid string
-		var enabled int
-		if err := rows.Scan(&uid, &enabled); err != nil {
-			return nil, err
-		}
-		result[uid] = enabled != 0
+	result := make(map[string]bool, len(rows))
+	for _, row := range rows {
+		result[row.UserID] = row.PrivacyEnabled
 	}
 	return result, nil
 }
@@ -151,8 +146,8 @@ func (m *Module) adminGetAllUserPrivacy() (map[string]bool, error) {
 func (m *Module) adminHasConversationHistory(userID string) bool {
 	m.dbMu.Lock()
 	defer m.dbMu.Unlock()
-	var count int
-	if err := m.db.QueryRow(`SELECT COUNT(*) FROM chat_history WHERE user_id = ?`, userID).Scan(&count); err != nil {
+	var count int64
+	if err := m.db.Model(&ChatMessage{}).Where("user_id = ?", userID).Count(&count).Error; err != nil {
 		return false
 	}
 	return count > 0
@@ -162,18 +157,9 @@ func (m *Module) adminHasConversationHistory(userID string) bool {
 func (m *Module) adminGetUsersWithHistory() ([]string, error) {
 	m.dbMu.Lock()
 	defer m.dbMu.Unlock()
-	rows, err := m.db.Query(`SELECT DISTINCT user_id FROM chat_history ORDER BY user_id`)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = rows.Close() }()
 	var users []string
-	for rows.Next() {
-		var uid string
-		if err := rows.Scan(&uid); err != nil {
-			return nil, err
-		}
-		users = append(users, uid)
+	if err := m.db.Model(&ChatMessage{}).Distinct().Order("user_id").Pluck("user_id", &users).Error; err != nil {
+		return nil, err
 	}
 	return users, nil
 }

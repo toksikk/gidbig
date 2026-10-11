@@ -3,6 +3,7 @@ package gippity
 import (
 	"context"
 	"database/sql"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -10,26 +11,33 @@ import (
 	"github.com/bwmarrin/discordgo"
 	openai "github.com/openai/openai-go/v3"
 	"github.com/toksikk/gidbig/internal/llm"
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
 )
+
+// execSQL runs a statement through GORM, returning RowsAffected so tests keep
+// the familiar `if _, err := ...` shape.
+func execSQL(t *testing.T, db *gorm.DB, query string, args ...any) (int64, error) {
+	t.Helper()
+	result := db.Exec(query, args...)
+	return result.RowsAffected, result.Error
+}
+
+// queryRow returns a single row through GORM's Raw interface.
+func queryRow(t *testing.T, db *gorm.DB, query string, args ...any) *sql.Row {
+	t.Helper()
+	return db.Raw(query, args...).Row()
+}
 
 func setupGippityTest(t *testing.T) (*Module, *discordgo.Session) {
 	t.Helper()
 
-	testDB, err := sql.Open("sqlite3", ":memory:")
+	testDB, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "gippity.db")), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("open test database: %v", err)
 	}
-	if _, err := testDB.Exec(`CREATE TABLE chat_history (user_id text, channel_id text, timestamp integer, message text, message_id text, guild_id text, is_bot_mention integer default 0)`); err != nil {
-		t.Fatalf("create chat_history table: %v", err)
-	}
-	if _, err := testDB.Exec(`CREATE TABLE user_privacy (user_id TEXT PRIMARY KEY, privacy_enabled INTEGER NOT NULL DEFAULT 1)`); err != nil {
-		t.Fatalf("create user_privacy table: %v", err)
-	}
-	if _, err := testDB.Exec(`CREATE TABLE chat_attachments (id INTEGER PRIMARY KEY AUTOINCREMENT, message_id TEXT, attachment_url TEXT, image_description TEXT)`); err != nil {
-		t.Fatalf("create chat_attachments table: %v", err)
-	}
-	if _, err := testDB.Exec(`CREATE TABLE chat_history_edits (id INTEGER PRIMARY KEY AUTOINCREMENT, original_message_id TEXT, edited_content TEXT, version INTEGER, edited_at INTEGER)`); err != nil {
-		t.Fatalf("create chat_history_edits table: %v", err)
+	if err := testDB.AutoMigrate(&ChatMessage{}, &UserPrivacy{}, &ChatAttachment{}, &ChatHistoryEdit{}); err != nil {
+		t.Fatalf("migrate test database: %v", err)
 	}
 
 	session, err := discordgo.New("")
@@ -52,7 +60,9 @@ func setupGippityTest(t *testing.T) (*Module, *discordgo.Session) {
 	}
 
 	t.Cleanup(func() {
-		_ = testDB.Close()
+		if sqlDB, err := testDB.DB(); err == nil {
+			_ = sqlDB.Close()
+		}
 	})
 
 	return m, session
@@ -122,7 +132,7 @@ func TestOnMessageCreate_StoresNonMentionedMessageWithoutGeneratingAnswer(t *tes
 	m.onMessageCreate(session, gippityTestMessage("ordinary channel message"))
 
 	var message string
-	err := m.db.QueryRow("SELECT message FROM chat_history WHERE message_id = ?", "1367540149316120650").Scan(&message)
+	err := queryRow(t, m.db, "SELECT message FROM gippity_chat_history WHERE message_id = ?", "1367540149316120650").Scan(&message)
 	if err != nil {
 		t.Fatalf("expected non-mentioned message to be stored: %v", err)
 	}
@@ -165,7 +175,7 @@ func TestOnMessageCreate_StoresBotMentionFlag(t *testing.T) {
 	m.onMessageCreate(session, msg)
 
 	var isBotMention int
-	err := m.db.QueryRow("SELECT is_bot_mention FROM chat_history WHERE message_id = ?", "mention-msg-id").Scan(&isBotMention)
+	err := queryRow(t, m.db, "SELECT is_bot_mention FROM gippity_chat_history WHERE message_id = ?", "mention-msg-id").Scan(&isBotMention)
 	if err != nil {
 		t.Fatalf("expected message to be stored: %v", err)
 	}
@@ -186,7 +196,7 @@ func TestOnMessageCreate_StoresNonMentionWithZeroFlag(t *testing.T) {
 	m.onMessageCreate(session, msg)
 
 	var isBotMention int
-	err := m.db.QueryRow("SELECT is_bot_mention FROM chat_history WHERE message_id = ?", "non-mention-msg-id").Scan(&isBotMention)
+	err := queryRow(t, m.db, "SELECT is_bot_mention FROM gippity_chat_history WHERE message_id = ?", "non-mention-msg-id").Scan(&isBotMention)
 	if err != nil {
 		t.Fatalf("expected message to be stored: %v", err)
 	}
@@ -267,7 +277,7 @@ func TestOnMessageCreate_DescribesImageForNonMentionMessage(t *testing.T) {
 	}
 
 	var url, desc string
-	err := m.db.QueryRow("SELECT attachment_url, image_description FROM chat_attachments WHERE message_id = ?", "img-msg-id").Scan(&url, &desc)
+	err := queryRow(t, m.db, "SELECT attachment_url, image_description FROM gippity_chat_attachments WHERE message_id = ?", "img-msg-id").Scan(&url, &desc)
 	if err != nil {
 		t.Fatalf("expected attachment row to exist: %v", err)
 	}
@@ -285,7 +295,7 @@ func TestGetMessageFromDatabase_Found(t *testing.T) {
 	m.idToNameCache["channel-1"] = "general"
 	m.idToNameCache["allowed-guild"] = "Test Guild"
 
-	if _, err := m.db.Exec(`INSERT INTO chat_history (user_id, channel_id, timestamp, message, message_id, guild_id, is_bot_mention) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+	if _, err := execSQL(t, m.db, `INSERT INTO gippity_chat_history (user_id, channel_id, timestamp, message, message_id, guild_id, is_bot_mention) VALUES (?, ?, ?, ?, ?, ?, ?)`,
 		"user-1", "channel-1", 1000, "hello from db", "db-msg-id", "allowed-guild", 0); err != nil {
 		t.Fatalf("insert: %v", err)
 	}
@@ -501,7 +511,7 @@ func gippityTestMessageUpdate(msgID, content, guildID, authorID string) *discord
 func TestOnMessageUpdate_PrivacyEnabledUser_EditNotPersisted(t *testing.T) {
 	m, session := setupGippityTest(t)
 
-	if _, err := m.db.Exec(`INSERT INTO chat_history (user_id, channel_id, timestamp, message, message_id, guild_id, is_bot_mention) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+	if _, err := execSQL(t, m.db, `INSERT INTO gippity_chat_history (user_id, channel_id, timestamp, message, message_id, guild_id, is_bot_mention) VALUES (?, ?, ?, ?, ?, ?, ?)`,
 		"user-1", "channel-1", 1000, "original", "edit-msg-id", "allowed-guild", 0); err != nil {
 		t.Fatalf("insert: %v", err)
 	}
@@ -510,7 +520,7 @@ func TestOnMessageUpdate_PrivacyEnabledUser_EditNotPersisted(t *testing.T) {
 	m.onMessageUpdate(session, gippityTestMessageUpdate("edit-msg-id", "edited content", "allowed-guild", "user-1"))
 
 	var count int
-	if err := m.db.QueryRow(`SELECT COUNT(*) FROM chat_history_edits WHERE original_message_id = ?`, "edit-msg-id").Scan(&count); err != nil {
+	if err := queryRow(t, m.db, `SELECT COUNT(*) FROM gippity_chat_history_edits WHERE original_message_id = ?`, "edit-msg-id").Scan(&count); err != nil {
 		t.Fatalf("query: %v", err)
 	}
 	if count != 0 {
@@ -524,7 +534,7 @@ func TestOnMessageUpdate_PrivacyDisabledUser_EditPersisted(t *testing.T) {
 	if err := m.setUserPrivacy("user-1", false); err != nil {
 		t.Fatalf("setUserPrivacy: %v", err)
 	}
-	if _, err := m.db.Exec(`INSERT INTO chat_history (user_id, channel_id, timestamp, message, message_id, guild_id, is_bot_mention) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+	if _, err := execSQL(t, m.db, `INSERT INTO gippity_chat_history (user_id, channel_id, timestamp, message, message_id, guild_id, is_bot_mention) VALUES (?, ?, ?, ?, ?, ?, ?)`,
 		"user-1", "channel-1", 1000, "original", "edit-msg-id2", "allowed-guild", 0); err != nil {
 		t.Fatalf("insert: %v", err)
 	}
@@ -533,7 +543,7 @@ func TestOnMessageUpdate_PrivacyDisabledUser_EditPersisted(t *testing.T) {
 	m.onMessageUpdate(session, gippityTestMessageUpdate("edit-msg-id2", "second edit", "allowed-guild", "user-1"))
 
 	var count int
-	if err := m.db.QueryRow(`SELECT COUNT(*) FROM chat_history_edits WHERE original_message_id = ?`, "edit-msg-id2").Scan(&count); err != nil {
+	if err := queryRow(t, m.db, `SELECT COUNT(*) FROM gippity_chat_history_edits WHERE original_message_id = ?`, "edit-msg-id2").Scan(&count); err != nil {
 		t.Fatalf("query: %v", err)
 	}
 	if count != 2 {
@@ -542,7 +552,7 @@ func TestOnMessageUpdate_PrivacyDisabledUser_EditPersisted(t *testing.T) {
 
 	var version int
 	var content string
-	if err := m.db.QueryRow(`SELECT version, edited_content FROM chat_history_edits WHERE original_message_id = ? ORDER BY version DESC LIMIT 1`, "edit-msg-id2").Scan(&version, &content); err != nil {
+	if err := queryRow(t, m.db, `SELECT version, edited_content FROM gippity_chat_history_edits WHERE original_message_id = ? ORDER BY version DESC LIMIT 1`, "edit-msg-id2").Scan(&version, &content); err != nil {
 		t.Fatalf("query latest edit: %v", err)
 	}
 	if version != 2 {
@@ -568,7 +578,7 @@ func TestOnMessageUpdate_NilAuthor_Skipped(t *testing.T) {
 	m.onMessageUpdate(session, msg)
 
 	var count int
-	if err := m.db.QueryRow(`SELECT COUNT(*) FROM chat_history_edits WHERE original_message_id = ?`, "nil-author-msg").Scan(&count); err != nil {
+	if err := queryRow(t, m.db, `SELECT COUNT(*) FROM gippity_chat_history_edits WHERE original_message_id = ?`, "nil-author-msg").Scan(&count); err != nil {
 		t.Fatalf("query: %v", err)
 	}
 	if count != 0 {
@@ -586,11 +596,11 @@ func TestOnMessageUpdate_MessageNotInHistory_Skipped(t *testing.T) {
 	m.onMessageUpdate(session, gippityTestMessageUpdate("unknown-msg-id", "edit of unknown", "allowed-guild", "user-1"))
 
 	var count int
-	if err := m.db.QueryRow(`SELECT COUNT(*) FROM chat_history_edits WHERE original_message_id = ?`, "unknown-msg-id").Scan(&count); err != nil {
+	if err := queryRow(t, m.db, `SELECT COUNT(*) FROM gippity_chat_history_edits WHERE original_message_id = ?`, "unknown-msg-id").Scan(&count); err != nil {
 		t.Fatalf("query: %v", err)
 	}
 	if count != 0 {
-		t.Errorf("edit of message not in chat_history should not be persisted, got %d row(s)", count)
+		t.Errorf("edit of message not in gippity_chat_history should not be persisted, got %d row(s)", count)
 	}
 }
 
@@ -600,15 +610,15 @@ func TestGetLastNMessagesFromDatabase_ShowsLatestEdit(t *testing.T) {
 	m.idToNameCache["channel-1"] = "general"
 	m.idToNameCache["allowed-guild"] = "Test Guild"
 
-	if _, err := m.db.Exec(`INSERT INTO chat_history (user_id, channel_id, timestamp, message, message_id, guild_id, is_bot_mention) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+	if _, err := execSQL(t, m.db, `INSERT INTO gippity_chat_history (user_id, channel_id, timestamp, message, message_id, guild_id, is_bot_mention) VALUES (?, ?, ?, ?, ?, ?, ?)`,
 		"user-1", "channel-1", 1000, "original message", "edited-hist-msg", "allowed-guild", 0); err != nil {
-		t.Fatalf("insert chat_history: %v", err)
+		t.Fatalf("insert gippity_chat_history: %v", err)
 	}
-	if _, err := m.db.Exec(`INSERT INTO chat_history_edits (original_message_id, edited_content, version, edited_at) VALUES (?, ?, ?, ?)`,
+	if _, err := execSQL(t, m.db, `INSERT INTO gippity_chat_history_edits (original_message_id, edited_content, version, edited_at) VALUES (?, ?, ?, ?)`,
 		"edited-hist-msg", "v1 edit", 1, 1001); err != nil {
 		t.Fatalf("insert edit v1: %v", err)
 	}
-	if _, err := m.db.Exec(`INSERT INTO chat_history_edits (original_message_id, edited_content, version, edited_at) VALUES (?, ?, ?, ?)`,
+	if _, err := execSQL(t, m.db, `INSERT INTO gippity_chat_history_edits (original_message_id, edited_content, version, edited_at) VALUES (?, ?, ?, ?)`,
 		"edited-hist-msg", "v2 edit", 2, 1002); err != nil {
 		t.Fatalf("insert edit v2: %v", err)
 	}
@@ -628,15 +638,15 @@ func TestGetLastNMessagesFromDatabase_ShowsLatestEdit(t *testing.T) {
 func TestGetMessageFromDatabase_ShowsLatestEdit(t *testing.T) {
 	m, _ := setupGippityTest(t)
 
-	if _, err := m.db.Exec(`INSERT INTO chat_history (user_id, channel_id, timestamp, message, message_id, guild_id, is_bot_mention) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+	if _, err := execSQL(t, m.db, `INSERT INTO gippity_chat_history (user_id, channel_id, timestamp, message, message_id, guild_id, is_bot_mention) VALUES (?, ?, ?, ?, ?, ?, ?)`,
 		"user-1", "channel-1", 1000, "original message", "getmsg-edit-id", "allowed-guild", 0); err != nil {
-		t.Fatalf("insert chat_history: %v", err)
+		t.Fatalf("insert gippity_chat_history: %v", err)
 	}
-	if _, err := m.db.Exec(`INSERT INTO chat_history_edits (original_message_id, edited_content, version, edited_at) VALUES (?, ?, ?, ?)`,
+	if _, err := execSQL(t, m.db, `INSERT INTO gippity_chat_history_edits (original_message_id, edited_content, version, edited_at) VALUES (?, ?, ?, ?)`,
 		"getmsg-edit-id", "v1 edit", 1, 1001); err != nil {
 		t.Fatalf("insert edit v1: %v", err)
 	}
-	if _, err := m.db.Exec(`INSERT INTO chat_history_edits (original_message_id, edited_content, version, edited_at) VALUES (?, ?, ?, ?)`,
+	if _, err := execSQL(t, m.db, `INSERT INTO gippity_chat_history_edits (original_message_id, edited_content, version, edited_at) VALUES (?, ?, ?, ?)`,
 		"getmsg-edit-id", "v2 edit", 2, 1002); err != nil {
 		t.Fatalf("insert edit v2: %v", err)
 	}
@@ -693,11 +703,11 @@ func assertCapturedContains(t *testing.T, captured []openai.ChatCompletionMessag
 
 func insertHistoryMessage(m *Module, t *testing.T, messageID, content string) {
 	t.Helper()
-	if _, err := m.db.Exec(
-		`INSERT INTO chat_history (user_id, channel_id, timestamp, message, message_id, guild_id, is_bot_mention) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+	if _, err := execSQL(t, m.db,
+		`INSERT INTO gippity_chat_history (user_id, channel_id, timestamp, message, message_id, guild_id, is_bot_mention) VALUES (?, ?, ?, ?, ?, ?, ?)`,
 		"user-1", "channel-1", 1000, content, messageID, "allowed-guild", 0,
 	); err != nil {
-		t.Fatalf("insert chat_history: %v", err)
+		t.Fatalf("insert gippity_chat_history: %v", err)
 	}
 }
 
@@ -889,13 +899,13 @@ func TestGetLastNMessagesFromDatabase_IncludesImageDescriptions(t *testing.T) {
 	m.idToNameCache["channel-1"] = "general"
 	m.idToNameCache["allowed-guild"] = "Test Guild"
 
-	if _, err := m.db.Exec(`INSERT INTO chat_history (user_id, channel_id, timestamp, message, message_id, guild_id, is_bot_mention) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+	if _, err := execSQL(t, m.db, `INSERT INTO gippity_chat_history (user_id, channel_id, timestamp, message, message_id, guild_id, is_bot_mention) VALUES (?, ?, ?, ?, ?, ?, ?)`,
 		"user-1", "channel-1", 1000, "look at this", "msg-with-img", "allowed-guild", 0); err != nil {
-		t.Fatalf("insert chat_history: %v", err)
+		t.Fatalf("insert gippity_chat_history: %v", err)
 	}
-	if _, err := m.db.Exec(`INSERT INTO chat_attachments (message_id, attachment_url, image_description) VALUES (?, ?, ?)`,
+	if _, err := execSQL(t, m.db, `INSERT INTO gippity_chat_attachments (message_id, attachment_url, image_description) VALUES (?, ?, ?)`,
 		"msg-with-img", "https://cdn.example.com/photo.png", "a fluffy dog"); err != nil {
-		t.Fatalf("insert chat_attachments: %v", err)
+		t.Fatalf("insert gippity_chat_attachments: %v", err)
 	}
 
 	msgs, err := m.getLastNMessagesFromDatabase("channel-1", 10)

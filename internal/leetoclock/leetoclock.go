@@ -33,6 +33,7 @@ const (
 type Module struct {
 	session *discordgo.Session
 	store   *datastore.Store
+	ownsDB  bool
 
 	stateMu                   sync.RWMutex
 	target                    time.Time
@@ -97,12 +98,21 @@ func resolveEmoji(name, configured, fallback string) string {
 
 // Init opens the shared database and captures runtime dependencies.
 func (m *Module) Init(d bot.Deps) error {
-	dbPath := "gidbig.db"
-	if d.Config != nil && d.Config.Database.Path != "" {
-		dbPath = d.Config.Database.Path
+	var (
+		store *datastore.Store
+		err   error
+	)
+	if d.DB != nil {
+		store, err = datastore.Use(d.DB)
+		m.ownsDB = false
+	} else {
+		dbPath := "gidbig.db"
+		if d.Config != nil && d.Config.Database.Path != "" {
+			dbPath = d.Config.Database.Path
+		}
+		store, err = datastore.Open(dbPath)
+		m.ownsDB = true
 	}
-
-	store, err := datastore.Open(dbPath)
 	if err != nil {
 		return fmt.Errorf("leetoclock: open store: %w", err)
 	}
@@ -164,6 +174,10 @@ func (m *Module) Shutdown() error {
 
 	m.handlerWG.Wait()
 	m.workWG.Wait()
+	// A shared database is owned by the composition root, not by this module.
+	if !m.ownsDB {
+		return nil
+	}
 	return m.store.Close()
 }
 

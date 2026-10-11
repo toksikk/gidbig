@@ -138,8 +138,8 @@ func (m *Module) onMessageUpdate(_ *discordgo.Session, mu *discordgo.MessageUpda
 	if m.getUserPrivacy(mu.Author.ID) {
 		return
 	}
-	var count int
-	if err := m.db.QueryRow(`SELECT COUNT(*) FROM chat_history WHERE message_id = ?`, mu.ID).Scan(&count); err != nil || count == 0 {
+	var count int64
+	if err := m.db.Model(&ChatMessage{}).Where("message_id = ?", mu.ID).Count(&count).Error; err != nil || count == 0 {
 		return
 	}
 	m.addMessageEditToDatabase(mu.ID, mu.Content, mu.EditedTimestamp.Unix())
