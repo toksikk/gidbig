@@ -2,6 +2,7 @@ package gippity
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -51,9 +52,9 @@ func TestChannelMembersToolOffered(t *testing.T) {
 func TestGetChannelMembersHandlerReturnsMembers(t *testing.T) {
 	m, _ := setupGippityTest(t)
 	var gotChannel string
-	m.channelMembersFunc = func(_ *discordgo.Session, channelID string) string {
+	m.channelMembersFunc = func(_ *discordgo.Session, channelID string) (string, error) {
 		gotChannel = channelID
-		return "Alice, Bob"
+		return "Alice, Bob", nil
 	}
 
 	got, err := m.getChannelMembersHandler(context.Background(), tool.Env{ChannelID: "chan-1"}, nil)
@@ -79,12 +80,27 @@ func TestGetChannelMembersHandlerEmptyCases(t *testing.T) {
 		t.Errorf("no channel result = %q", got)
 	}
 
-	m.channelMembersFunc = func(_ *discordgo.Session, _ string) string { return "" }
+	m.channelMembersFunc = func(_ *discordgo.Session, _ string) (string, error) { return "", nil }
 	got, err = m.getChannelMembersHandler(context.Background(), tool.Env{ChannelID: "chan-1"}, nil)
 	if err != nil {
 		t.Fatalf("no members: %v", err)
 	}
 	if got != "no members found in this channel" {
 		t.Errorf("no members result = %q", got)
+	}
+}
+
+func TestGetChannelMembersHandlerSurfacesLookupError(t *testing.T) {
+	m, _ := setupGippityTest(t)
+	m.channelMembersFunc = func(_ *discordgo.Session, _ string) (string, error) {
+		return "", errors.New("Missing Access")
+	}
+
+	got, err := m.getChannelMembersHandler(context.Background(), tool.Env{ChannelID: "chan-1"}, nil)
+	if err != nil {
+		t.Fatalf("handler should surface lookup errors as a result, got error: %v", err)
+	}
+	if !strings.Contains(got, "could not list channel members") || !strings.Contains(got, "Missing Access") {
+		t.Errorf("result = %q, want it to name the lookup failure", got)
 	}
 }
