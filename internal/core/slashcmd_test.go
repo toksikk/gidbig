@@ -95,10 +95,9 @@ func TestCoreSlashCommands_UptimeMetadata(t *testing.T) {
 }
 
 func TestCoreSlashHandlers_Uptime(t *testing.T) {
-	origConf := conf
-	conf = &cfg.Config{}
-	conf.Discord.OwnerID = "owner"
-	t.Cleanup(func() { conf = origConf })
+	mod := NewCore()
+	mod.conf = &cfg.Config{}
+	mod.conf.Discord.OwnerID = "owner"
 
 	tests := []struct {
 		name, command, user, contains string
@@ -109,7 +108,7 @@ func TestCoreSlashHandlers_Uptime(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			s, requests := discordTestSession(t)
-			onCoreSlashInteractionCreate(s, coreInteraction(tt.command, "guild", tt.user))
+			mod.onCoreSlashInteractionCreate(s, coreInteraction(tt.command, "guild", tt.user))
 			req := awaitDiscordRequest(t, requests)
 			if !strings.Contains(responseContent(t, req.body), tt.contains) {
 				t.Errorf("response %s does not contain %q", req.body, tt.contains)

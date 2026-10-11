@@ -36,12 +36,7 @@ const (
 	statusEmbedColorWarn  = 0xe67e22
 )
 
-// statusProviders and statusDBPaths are populated during startup.
-var (
-	statusProviders []bot.StatsProvider
-	statusDBPaths   []string
-)
-
+// moduleStatus is one module's status snapshot plus its error, if any.
 type moduleStatus struct {
 	Name  string
 	Stats bot.ModuleStats
@@ -566,10 +561,4 @@ func statusResponseData(snap statusSnapshot, view, format string) *discordgo.Int
 		return statusEmbedResponseData(snap, view)
 	}
 	return statusTextResponseData(snap, view)
-}
-
-// buildBotStatsMessage returns the compact text status (used by /admin info).
-func buildBotStatsMessage(s *discordgo.Session) string {
-	snap := collectStatus(context.Background(), s, statusProviders, statusDBPaths)
-	return renderStatusText(snap, statusViewSummary, discordMessageLimit-6)
 }

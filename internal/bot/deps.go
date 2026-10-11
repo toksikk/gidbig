@@ -21,4 +21,8 @@ type Deps struct {
 	// Modules that persist data use it instead of opening the file themselves.
 	// Modules must not close it; the composition root owns its lifecycle.
 	DB *gorm.DB
+
+	// Stats collects StatsProviders from modules registered with the Bot. The
+	// core module reads it for /status and /admin info.
+	Stats *StatsRegistry
 }
