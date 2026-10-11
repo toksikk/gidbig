@@ -27,7 +27,7 @@ Gidbig is a Discord bot written in Go — soundboard playback in voice channels,
 | 🔮 **eso** | `/eso [thema]` generates esoteric pseudoscience nonsense through the LLM, with a local fallback |
 | 🎮 **gamerstatus** | Rotates the bot's Discord game/activity status every 5–15 minutes after an initial 5-minute delay |
 | 🤖 **gippity** | Responds through an LLM when mentioned in an allowed guild, stores conversation history in SQLite, and provides `/gippity privacy set:on\|off` and `/gippity nonmention set:on\|off` |
-| 🕐 **leetoclock** | Daily 13:37 game — messages around 13:37 score by time offset; the top three at or after 13:37 rank alongside early/late categories. `/leetoclock top` and `/leetoclock player` show records |
+| 🕐 **leetoclock** | Daily 13:37 game — messages around 13:37 score by time offset; the top three at or after 13:37 rank alongside early/late categories. `/leetoclock top`, `/leetoclock daily` and `/leetoclock player` show records |
 | 🧌 **stoll** | `/stoll` — Stoll-related commands |
 | 🐧 **wardogs** | `/wardogs` — reports whether WARDOGS officially supports Linux/Proton, read from the community tracker doeswardogshavelinux.support (10 min cache) |
 | 🌤️ **wttrin** | `/wttr location:<location>` / `/wttrf location:<location>` — current weather / forecast with an LLM-generated outro |

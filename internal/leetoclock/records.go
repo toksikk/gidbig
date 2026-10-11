@@ -44,6 +44,7 @@ func recordCommands() []*discordgo.ApplicationCommand {
 		Name: "leetoclock", Description: "View Leet o'Clock records", DMPermission: new(false),
 		Options: []*discordgo.ApplicationCommandOption{
 			{Type: discordgo.ApplicationCommandOptionSubCommand, Name: "top", Description: "Best players in this server or globally", Options: []*discordgo.ApplicationCommandOption{period(), date(), scopeOption(), visibility()}},
+			{Type: discordgo.ApplicationCommandOptionSubCommand, Name: "daily", Description: "One winner per day in this server or globally", Options: []*discordgo.ApplicationCommandOption{period(), date(), scopeOption(), visibility()}},
 			{Type: discordgo.ApplicationCommandOptionSubCommand, Name: "player", Description: "One player's best records", Options: []*discordgo.ApplicationCommandOption{
 				{Type: discordgo.ApplicationCommandOptionUser, Name: "user", Description: "Player (default: you)"}, period(), date(),
 				scopeOption(), visibility(),
@@ -146,12 +147,12 @@ func parseRecordRequest(i *discordgo.InteractionCreate) (recordRequest, error) {
 	r := recordRequest{period: datastore.PeriodMonth, periodName: "month", scope: "server"}
 	data := i.ApplicationCommandData()
 	if len(data.Options) != 1 || data.Options[0] == nil {
-		return r, fmt.Errorf("select top or player")
+		return r, fmt.Errorf("select top, daily or player")
 	}
 	sub := data.Options[0]
 	r.subcommand = sub.Name
-	if sub.Type != discordgo.ApplicationCommandOptionSubCommand || (sub.Name != "top" && sub.Name != "player") {
-		return r, fmt.Errorf("select top or player")
+	if sub.Type != discordgo.ApplicationCommandOptionSubCommand || (sub.Name != "top" && sub.Name != "daily" && sub.Name != "player") {
+		return r, fmt.Errorf("select top, daily or player")
 	}
 	for _, opt := range sub.Options {
 		if opt == nil {
@@ -233,7 +234,7 @@ func (m *Module) onInteractionCreate(s *discordgo.Session, i *discordgo.Interact
 	}
 	r, err := parseRecordRequest(i)
 	if err != nil {
-		respondRecordsError(s, i, "Invalid record options. Choose `/leetoclock top` or `/leetoclock player`.")
+		respondRecordsError(s, i, "Invalid record options. Choose `/leetoclock top`, `/leetoclock daily` or `/leetoclock player`.")
 		return
 	}
 	flags := discordgo.MessageFlags(0)
