@@ -54,6 +54,10 @@ type Module struct {
 	// tools is the shared LLM tool registry, read at answer time.
 	tools *tool.Registry
 
+	// session is captured for name-to-ID resolution in tools that accept a
+	// user argument.
+	session *discordgo.Session
+
 	// UI translations are warmed asynchronously so interaction acknowledgements
 	// never wait for the LLM provider.
 	uiMu        sync.Mutex
@@ -70,6 +74,7 @@ type Module struct {
 	detectLanguage       func(*discordgo.Session, string) (string, error)
 	generateLLMMessage   func(context.Context, string, string) (string, error)
 	llmClient            *llm.Client
+	resolveMember        func(*discordgo.Session, string, string) (util.MemberMatch, bool, string)
 	deferInteraction     func(*discordgo.Session, *discordgo.InteractionCreate, bool) error
 	deferUpdate          func(*discordgo.Session, *discordgo.InteractionCreate) error
 	editDeferredResponse func(*discordgo.Session, *discordgo.InteractionCreate, string)
@@ -91,6 +96,7 @@ func New() *Module {
 	}
 	m.season = util.CurrentSeason
 	m.reactOnMessage = util.ReactOnMessage
+	m.resolveMember = util.ResolveMemberQuery
 	m.sendIntroDM = m.sendIntroDMImpl
 	m.detectLanguage = func(_ *discordgo.Session, _ string) (string, error) { return "English", nil }
 	m.generateLLMMessage = func(context.Context, string, string) (string, error) {
@@ -129,6 +135,7 @@ func (m *Module) Init(d bot.Deps) error {
 		}
 	}
 	m.tools = d.Tools
+	m.session = d.Session
 	m.registerTools()
 	slog.Info("coffee: initialized")
 	return nil

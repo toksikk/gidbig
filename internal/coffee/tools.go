@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/toksikk/gidbig/internal/tool"
+	"github.com/toksikk/gidbig/internal/util"
 )
 
 // coffeeStatusParameters is the JSON schema for the coffee_status tool.
@@ -21,7 +22,7 @@ var coffeeStatsParameters = json.RawMessage(`{
   "properties": {
     "user": {
       "type": "string",
-      "description": "Discord user ID whose coffee stats to report. Omit for the caller."
+      "description": "Discord user ID, username, nickname or mention whose coffee stats to report. Partial names are matched against this server's members. Omit for the caller."
     }
   }
 }`)
@@ -65,7 +66,8 @@ func (m *Module) coffeeStatusHandler(_ context.Context, env tool.Env, _ json.Raw
 }
 
 // coffeeStatsHandler renders one user's stats, defaulting to the caller. The
-// guild is clamped to Env; the user defaults to Env.UserID.
+// guild is clamped to Env; the user defaults to Env.UserID. A free-text name is
+// resolved to a member of the current guild.
 func (m *Module) coffeeStatsHandler(_ context.Context, env tool.Env, args json.RawMessage) (string, error) {
 	if env.GuildID == "" {
 		return "no guild available", nil
@@ -77,11 +79,28 @@ func (m *Module) coffeeStatsHandler(_ context.Context, env tool.Env, args json.R
 		_ = json.Unmarshal(args, &in)
 	}
 	target := strings.TrimSpace(in.User)
-	if target == "" {
+	switch {
+	case target == "":
 		target = env.UserID
+	case !util.IsUserID(target):
+		match, ok, note := m.resolveUser(env.GuildID, target)
+		if !ok {
+			return note, nil
+		}
+		target = match.ID
 	}
 	if target == "" {
 		return "no user available", nil
 	}
 	return m.buildUserStats(env.GuildID, target), nil
+}
+
+// resolveUser resolves a free-text user name to a guild member, defaulting to
+// util.ResolveMemberQuery. It scopes the lookup to guildID so a name can never
+// resolve to a member of another server.
+func (m *Module) resolveUser(guildID, query string) (util.MemberMatch, bool, string) {
+	if m.resolveMember == nil {
+		return util.ResolveMemberQuery(m.session, guildID, query)
+	}
+	return m.resolveMember(m.session, guildID, query)
 }

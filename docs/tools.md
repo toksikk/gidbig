@@ -62,8 +62,8 @@ No change to `internal/gippity` or `internal/core` is needed to add a tool.
 | `get_channel_members` | gippity | members who can see the caller's channel (requires the Server Members Intent); replaces the always-on member line in the system prompt |
 | `list_sounds` | soundboard | sound collections and the sound names in each |
 | `coffee_status` | coffee | the current guild's coffee machine levels and leaderboards |
-| `coffee_stats` | coffee | one user's drinks, refills and grounds stats in the current guild |
-| `leetoclock_records` | leetoclock | a top-players board or one player's records for the current guild, or globally, for a period or one `date` |
+| `coffee_stats` | coffee | one user's drinks, refills and grounds stats in the current guild (accepts an ID, name, nickname or mention) |
+| `leetoclock_records` | leetoclock | a top-players board or one player's records for the current guild, or globally, for a period or one `date` (accepts an ID, name, nickname or mention) |
 | `anticheat_lookup` | anticheat | a game/vendor match from the cached GamingOnLinux anti-cheat list |
 | `wardogs_status` | wardogs | the cached WARDOGS Linux/Proton support verdict |
 | `weather` | wttrin | current weather or forecast for a location, from the cached wttr.in lookup |
@@ -95,6 +95,13 @@ OpenAI `gpt-5.6-luna` on `/v1/chat/completions`). Accepted values: `none`,
   `gippity_user_privacy` exactly like the prompt path.
 - **Untrusted data.** Stored text is data, not instructions. Frame it as data
   and keep results short.
+- **User arguments accept names.** A tool that takes a user argument must accept
+  an ID, mention, username, nickname or display name, not an ID alone. Resolve
+  free text with `util.ResolveMemberQuery` (or `util.ResolveMember`), scoped to
+  `env.GuildID`, and return its note when the name is unknown or ambiguous. The
+  resolver matches case-insensitively, tolerates separators and leetspeak
+  (`s1kk` ~ `sikk`) and reads live guild members, so renames are picked up. Never
+  let a name resolve to a member of another guild.
 - **No arbitrary fetches.** A tool may read the owning module's own fixed,
   sanitized source through its existing cache and rate limiter (the anticheat
   CSV, wttr.in weather, the wardogs tracker). Never fetch a model-supplied URL
