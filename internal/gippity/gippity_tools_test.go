@@ -214,6 +214,41 @@ func TestCompleteWithTools_AllowlistFiltersTools(t *testing.T) {
 	}
 }
 
+func TestCompleteWithTools_ReasoningEffortOnToolRoundsOnly(t *testing.T) {
+	m, _ := setupGippityTest(t)
+	m.toolsEnabled = true
+	m.toolMaxIterations = 1
+	m.tools = tool.NewRegistry()
+	m.tools.Register(tool.Def{Name: "loop", Handler: func(context.Context, tool.Env, json.RawMessage) (string, error) {
+		return "again", nil
+	}})
+	m.toolReasoningEffort = "none"
+
+	var efforts []string
+	calls := 0
+	m.chatCompletionFunc = func(_ context.Context, params openai.ChatCompletionNewParams) (*openai.ChatCompletion, error) {
+		calls++
+		efforts = append(efforts, string(params.ReasoningEffort))
+		if calls == 1 {
+			return completionWithToolCalls(toolCall("call", "loop", "{}")), nil
+		}
+		return completionWithContent("done"), nil
+	}
+
+	if _, err := m.completeWithTools(context.Background(), tool.Env{}, nil); err != nil {
+		t.Fatalf("completeWithTools: %v", err)
+	}
+	if len(efforts) != 2 {
+		t.Fatalf("completion calls = %d, want 2", len(efforts))
+	}
+	if efforts[0] != "none" {
+		t.Errorf("tool round reasoning_effort = %q, want %q", efforts[0], "none")
+	}
+	if efforts[1] != "" {
+		t.Errorf("forced final reasoning_effort = %q, want empty", efforts[1])
+	}
+}
+
 func TestToolParams_MapsSchema(t *testing.T) {
 	params, err := toolParams([]tool.Def{{
 		Name:        "demo",

@@ -119,6 +119,7 @@ gippity:
     enabled: true
     max_iterations: 5
     allowed: ["search_chat_history", "bot_status"]
+    reasoning_effort: "none"
 `
 	cfg, err := decodeConfig(strings.NewReader(yaml))
 	if err != nil {
@@ -132,6 +133,9 @@ gippity:
 	}
 	if len(cfg.Gippity.Tools.Allowed) != 2 || cfg.Gippity.Tools.Allowed[0] != "search_chat_history" {
 		t.Errorf("gippity.tools.allowed = %v", cfg.Gippity.Tools.Allowed)
+	}
+	if cfg.Gippity.Tools.ReasoningEffort != "none" {
+		t.Errorf("gippity.tools.reasoning_effort = %q, want none", cfg.Gippity.Tools.ReasoningEffort)
 	}
 
 	omitted := `
@@ -152,6 +156,25 @@ gippity:
 	}
 	if len(cfg.Gippity.Tools.Allowed) != 0 {
 		t.Errorf("gippity.tools.allowed = %v, want empty", cfg.Gippity.Tools.Allowed)
+	}
+	if cfg.Gippity.Tools.ReasoningEffort != "" {
+		t.Errorf("gippity.tools.reasoning_effort = %q, want empty", cfg.Gippity.Tools.ReasoningEffort)
+	}
+}
+
+func TestDecodeConfig_gippityToolsRejectsInvalidReasoningEffort(t *testing.T) {
+	yaml := `
+discord:
+  token: "tok"
+gippity:
+  allowed_guilds: ["456"]
+  tools:
+    enabled: true
+    reasoning_effort: "turbo"
+`
+	_, err := decodeConfig(strings.NewReader(yaml))
+	if err == nil || !strings.Contains(err.Error(), "gippity.tools.reasoning_effort") {
+		t.Fatalf("decodeConfig() error = %v, want error mentioning gippity.tools.reasoning_effort", err)
 	}
 }
 

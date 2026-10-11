@@ -17,6 +17,19 @@ const (
 	defaultGippityToolMaxIterations = 3
 )
 
+// validReasoningEfforts are the reasoning_effort values accepted from config.
+// The empty string omits the field so the provider default applies.
+var validReasoningEfforts = map[string]bool{
+	"":        true,
+	"none":    true,
+	"minimal": true,
+	"low":     true,
+	"medium":  true,
+	"high":    true,
+	"xhigh":   true,
+	"max":     true,
+}
+
 // LeetoclockEmojisConfig holds optional custom Discord emoji IDs used as
 // reactions during a game. Each value is a guild emoji ID; when omitted the
 // module falls back to a standard Unicode equivalent.
@@ -91,6 +104,11 @@ type Config struct {
 			// Allowed optionally restricts which registered tools are offered
 			// to the model. Empty means all registered tools.
 			Allowed []string `yaml:"allowed,omitempty"`
+			// ReasoningEffort is sent only on requests that carry tools, and is
+			// cleared for the tool-free final call so that call may reason
+			// again. Empty (default) omits the field; some providers forbid
+			// tools together with reasoning and require "none" here.
+			ReasoningEffort string `yaml:"reasoning_effort,omitempty"`
 		} `yaml:"tools,omitempty"`
 	} `yaml:"gippity"`
 	Soundboard struct {
@@ -164,6 +182,9 @@ func decodeConfig(r io.Reader) (*Config, error) {
 	}
 	if cfg.Gippity.Tools.Enabled && cfg.Gippity.Tools.MaxIterations <= 0 {
 		return nil, errors.New("gippity.tools.max_iterations must be greater than zero when gippity.tools.enabled is true")
+	}
+	if !validReasoningEfforts[cfg.Gippity.Tools.ReasoningEffort] {
+		return nil, errors.New("gippity.tools.reasoning_effort must be one of: none, minimal, low, medium, high, xhigh, max (or empty to omit)")
 	}
 	if cfg.Soundboard.QueueMaxDepth <= 0 {
 		return nil, errors.New("soundboard.queue_max_depth must be greater than zero")
