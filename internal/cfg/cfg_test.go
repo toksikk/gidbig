@@ -75,6 +75,7 @@ gippity:
   classifier_model: "gpt-4o-mini"
   classifier_rate_limit_per_hour: 5
   classifier_names: ["gustaff", "Gippity"]
+  debug_channel: "dev-chan"
 `
 	cfg, err := decodeConfig(strings.NewReader(yaml))
 	if err != nil {
@@ -91,6 +92,9 @@ gippity:
 	}
 	if want := []string{"gustaff", "Gippity"}; !reflect.DeepEqual(cfg.Gippity.ClassifierNames, want) {
 		t.Errorf("gippity.classifier_names = %v, want %v", cfg.Gippity.ClassifierNames, want)
+	}
+	if cfg.Gippity.DebugChannel != "dev-chan" {
+		t.Errorf("gippity.debug_channel = %q, want dev-chan", cfg.Gippity.DebugChannel)
 	}
 
 	omitted := `
@@ -111,6 +115,9 @@ gippity:
 	}
 	if cfg.Gippity.ClassifierRateLimitPerHour != 0 {
 		t.Errorf("gippity.classifier_rate_limit_per_hour = %d, want 0 (unset)", cfg.Gippity.ClassifierRateLimitPerHour)
+	}
+	if cfg.Gippity.DebugChannel != "" {
+		t.Errorf("gippity.debug_channel = %q, want empty", cfg.Gippity.DebugChannel)
 	}
 }
 
