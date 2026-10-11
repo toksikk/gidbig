@@ -59,13 +59,12 @@ Keep both backups until you have checked the migrated data.
 
 ## Step 3 — Create the prefixed tables and copy
 
-Run the copy from the bot's working directory. Adjust the file name, the module prefix, the table names, and the column lists to match what you saw in Step 1.
+Run this single command from the bot's working directory, with the bot stopped. It creates the gippity tables the bot's ORM expects and copies the rows in one pass. Adjust the file name, module prefix, table names, and column lists to match what you saw in Step 1; the same pattern works for any module (target table = `<module>_<legacy table>`, every column listed explicitly on both sides).
 
-The example below migrates gippity. The same pattern applies to any module: target table = `<module>_<legacy table>`, and every column listed explicitly on both sides.
+```bash
+sqlite3 gidbig.db <<'SQL'
+ATTACH DATABASE 'gippity.db' AS old;
 
-Create the target tables with the schema the bot's ORM expects. For gippity that schema is:
-
-```sql
 CREATE TABLE IF NOT EXISTS gippity_chat_history (
   id integer PRIMARY KEY AUTOINCREMENT,
   user_id text, channel_id text, timestamp integer, message text,
@@ -92,13 +91,6 @@ CREATE TABLE IF NOT EXISTS gippity_chat_history_edits (
 );
 CREATE INDEX IF NOT EXISTS idx_gippity_chat_history_edits_original
   ON gippity_chat_history_edits(original_message_id, version);
-```
-
-Then attach the legacy file and copy the rows:
-
-```bash
-sqlite3 gidbig.db <<'SQL'
-ATTACH DATABASE 'gippity.db' AS old;
 
 -- Copy rows with explicit column lists (never SELECT *).
 INSERT OR IGNORE INTO gippity_chat_history
@@ -125,10 +117,12 @@ SQL
 
 Notes:
 
+- `ATTACH DATABASE 'gippity.db'` is relative: run the command from the directory that holds both files, or use an absolute path.
 - `id` columns are primary keys and are intentionally omitted from the `INSERT` column lists so SQLite assigns them; the legacy values are not needed once the rows are self-consistent.
 - `COALESCE(is_bot_mention, 0)` handles legacy rows written before that column existed.
 - If the legacy table has an `id` column that other tables reference, include `id` in both column lists to preserve the linkage.
-- Creating the tables by hand avoids a SQLite limitation: you cannot add a `PRIMARY KEY` column to an existing table with `ALTER TABLE`. If a prefixed table already exists without its `id` column, the bot's schema migration fails; drop the empty table and rerun the statements above.
+- Creating the tables by hand avoids a SQLite limitation: you cannot add a `PRIMARY KEY` column to an existing table with `ALTER TABLE`. If a prefixed table already exists without its `id` column, drop the empty table and rerun the command.
+- Run it once. `INSERT OR IGNORE` only skips rows that violate a constraint; most history tables have none, so a second run duplicates every row.
 
 ## Step 4 — Verify
 
