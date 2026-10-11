@@ -59,6 +59,7 @@ No change to `internal/gippity` or `internal/core` is needed to add a tool.
 | --- | --- | --- |
 | `bot_status` | core | per-module runtime counters (same as `/status`) |
 | `search_chat_history` | gippity | keyword matches in stored Discord history, scoped to the caller's channel or guild |
+| `get_channel_members` | gippity | members who can see the caller's channel; replaces the always-on member line in the system prompt |
 | `list_sounds` | soundboard | sound collections and the sound names in each |
 | `coffee_status` | coffee | the current guild's coffee machine levels and leaderboards |
 | `coffee_stats` | coffee | one user's drinks, refills and grounds stats in the current guild |
