@@ -68,6 +68,8 @@ type Module struct {
 	respondToAllMessages bool
 	classifierModel      string
 	classifierRateLimit  int
+
+	llmClient *llm.Client
 }
 
 // New returns a Module with production-default hook implementations.
@@ -81,14 +83,14 @@ func New() *Module {
 	}
 	m.generateAnswerFunc = m.generateAnswer
 	m.chatCompletionFunc = func(ctx context.Context, params openai.ChatCompletionNewParams) (*openai.ChatCompletion, error) {
-		return llm.GetClient().Chat.Completions.New(ctx, params)
+		return m.llmClient.GetClient().Chat.Completions.New(ctx, params)
 	}
 	m.channelTypingFunc = func(s *discordgo.Session, channelID string) {
 		s.ChannelTyping(channelID) //nolint:errcheck
 	}
 	m.describeImagesFunc = m.describeImages
 	m.visionCompletionFunc = func(ctx context.Context, params openai.ChatCompletionNewParams) (*openai.ChatCompletion, error) {
-		return llm.GetClient().Chat.Completions.New(ctx, params)
+		return m.llmClient.GetClient().Chat.Completions.New(ctx, params)
 	}
 	m.channelMessageFunc = func(s *discordgo.Session, channelID, messageID string) (*discordgo.Message, error) {
 		return s.ChannelMessage(channelID, messageID)
@@ -124,6 +126,7 @@ func (m *Module) Name() string { return "gippity" }
 // Init wires dependencies and opens the chat history database.
 func (m *Module) Init(d bot.Deps) error {
 	m.session = d.Session
+	m.llmClient = d.LLM
 
 	if d.Config != nil && d.Config.Gippity.RateLimitMessagesPerHour > 0 {
 		m.userMessageLimit = d.Config.Gippity.RateLimitMessagesPerHour

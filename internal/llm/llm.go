@@ -35,35 +35,6 @@ var PersonalityPresets = map[string]string{
 	"genalpha": "You are a Gen Alpha teenager and you talk like one, heavily: constant slang and internet-speak (skibidi, sigma, rizz, gyatt, no cap, fr fr, lowkey, highkey, sus, delulu, cooked, aura, W, L, ratio, slay, goated, mewing, ohio, fanum tax, crash out, glazing, npc, 6-7). Cram it into almost every sentence, exaggerated and hyper, yet stay on-topic and understandable. Sprinkle in fitting emojis (💀🔥😭🙏✨). Keep every response short and punchy. Do not claim to be any named character or real person — keep your own identity. Address people casually and directly, never formally (in German always use \"du\", never \"Sie\"). Reply in the same language the user writes in.",
 }
 
-// activePersonality is the resolved persona appended to every LLM system prompt.
-// Centralised here so all plugins express the same character. Defaults to the built-in
-// persona until ResolvePersonality overrides it from config.
-var activePersonality = defaultPersonality
-
-// ResolvePersonality sets the active persona from config. A non-empty custom string wins;
-// otherwise a known preset key is used; otherwise the built-in default is kept. An unknown
-// preset logs a warning and falls back to the default.
-func ResolvePersonality(custom, preset string) {
-	switch {
-	case strings.TrimSpace(custom) != "":
-		activePersonality = custom
-		slog.Info("llm: using custom personality from config")
-	case preset != "":
-		if p, ok := PersonalityPresets[preset]; ok {
-			activePersonality = p
-			slog.Info("llm: using personality preset", "preset", preset)
-		} else {
-			activePersonality = defaultPersonality
-			slog.Warn("llm: unknown personality_preset, falling back to default", "preset", preset)
-		}
-	default:
-		activePersonality = defaultPersonality
-	}
-}
-
-// Personality returns the active bot persona for inclusion in system prompts.
-func Personality() string { return activePersonality }
-
 const llmTimeout = 30 * time.Second
 const langCacheTTL = 1 * time.Hour
 const llmMaxTokens = int64(150)
@@ -75,25 +46,30 @@ const (
 	openRouterBaseURL    = "https://openrouter.ai/api/v1"
 )
 
-var client openai.Client
-var textModel = defaultModel
-var visionModel = defaultModel
+// Options configures a Client. They mirror the llm.* config block.
+type Options struct {
+	Provider    string
+	Model       string
+	VisionModel string
+	BaseURL     string
+	HTTPReferer string
+	Title       string
+	Personality string
+	Preset      string
+}
 
-// generateMessageFn is the underlying completion call, swappable in tests.
-var generateMessageFn = func(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
-	completion, err := client.Chat.Completions.New(ctx, openai.ChatCompletionNewParams{
-		Messages: []openai.ChatCompletionMessageParamUnion{
-			openai.SystemMessage(systemPrompt),
-			openai.UserMessage(userPrompt),
-		},
-		Model:               textModel,
-		N:                   openai.Int(1),
-		MaxCompletionTokens: openai.Int(llmMaxTokens),
-	})
-	if err != nil {
-		return "", err
-	}
-	return CompletionContent(completion)
+// Client is the shared LLM connection and its resolved configuration. It
+// replaces the former package-level client, models and personality globals.
+type Client struct {
+	client      *openai.Client
+	textModel   string
+	visionModel string
+	personality string
+
+	// generateFn is the underlying completion call, swappable in tests.
+	generateFn func(ctx context.Context, systemPrompt, userPrompt string) (string, error)
+
+	langCache sync.Map // channelID -> cachedLang
 }
 
 type cachedLang struct {
@@ -101,15 +77,14 @@ type cachedLang struct {
 	expiresAt time.Time
 }
 
-var langCache sync.Map // channelID -> cachedLang
-
-// Initialize creates the shared OpenAI-compatible client. API keys are read from
-// OPENAI_API_KEY or OPENROUTER_API_KEY according to the selected provider.
-func Initialize(provider, model, configuredVisionModel, baseURL, httpReferer, title string) error {
-	provider = strings.ToLower(strings.TrimSpace(provider))
-	model = strings.TrimSpace(model)
-	configuredVisionModel = strings.TrimSpace(configuredVisionModel)
-	baseURL = strings.TrimSpace(baseURL)
+// New creates a Client. API keys are read from OPENAI_API_KEY or
+// OPENROUTER_API_KEY according to the selected provider. The provider's
+// credentials and base URL are validated here so a misconfiguration fails fast.
+func New(opts Options) (*Client, error) {
+	provider := strings.ToLower(strings.TrimSpace(opts.Provider))
+	model := strings.TrimSpace(opts.Model)
+	visionModel := strings.TrimSpace(opts.VisionModel)
+	baseURL := strings.TrimSpace(opts.BaseURL)
 	if provider == "" {
 		provider = defaultProvider
 	}
@@ -126,60 +101,129 @@ func Initialize(provider, model, configuredVisionModel, baseURL, httpReferer, ti
 		}
 	case "openrouter":
 		keyEnv = "OPENROUTER_API_KEY"
-		if strings.TrimSpace(model) == "" {
-			return errors.New("llm.model is required when llm.provider is openrouter")
+		if model == "" {
+			return nil, errors.New("llm.model is required when llm.provider is openrouter")
 		}
 		if baseURL == "" {
 			baseURL = openRouterBaseURL
 		}
 	default:
-		return fmt.Errorf("unsupported llm.provider %q (supported: openai, openrouter)", provider)
+		return nil, fmt.Errorf("unsupported llm.provider %q (supported: openai, openrouter)", provider)
 	}
 
 	apiKey := strings.TrimSpace(os.Getenv(keyEnv))
 	if apiKey == "" {
-		return fmt.Errorf("%s is required when llm.provider is %s", keyEnv, provider)
+		return nil, fmt.Errorf("%s is required when llm.provider is %s", keyEnv, provider)
 	}
 	parsedBaseURL, err := url.ParseRequestURI(baseURL)
 	if err != nil || parsedBaseURL.Scheme == "" || parsedBaseURL.Host == "" ||
 		(parsedBaseURL.Scheme != "http" && parsedBaseURL.Scheme != "https") {
-		return fmt.Errorf("llm.base_url must be a valid HTTP(S) URL: %q", baseURL)
+		return nil, fmt.Errorf("llm.base_url must be a valid HTTP(S) URL: %q", baseURL)
 	}
 
-	opts := []option.RequestOption{
+	requestOpts := []option.RequestOption{
 		option.WithAPIKey(apiKey),
 		option.WithBaseURL(strings.TrimRight(baseURL, "/")),
 		option.WithRequestTimeout(llmTimeout),
 	}
 	if provider == "openrouter" {
-		if httpReferer != "" {
-			opts = append(opts, option.WithHeader("HTTP-Referer", httpReferer))
+		if opts.HTTPReferer != "" {
+			requestOpts = append(requestOpts, option.WithHeader("HTTP-Referer", opts.HTTPReferer))
 		}
-		if title != "" {
-			opts = append(opts, option.WithHeader("X-Title", title))
+		if opts.Title != "" {
+			requestOpts = append(requestOpts, option.WithHeader("X-Title", opts.Title))
 		}
 	}
 
-	if configuredVisionModel == "" {
-		configuredVisionModel = model
+	if visionModel == "" {
+		visionModel = model
 	}
-	client = openai.NewClient(opts...)
-	textModel = model
-	visionModel = configuredVisionModel
-	slog.Info("llm: client initialized", "provider", provider, "model", textModel, "vision_model", visionModel)
-	return nil
+	openaiClient := openai.NewClient(requestOpts...)
+
+	c := &Client{
+		client:      &openaiClient,
+		textModel:   model,
+		visionModel: visionModel,
+		personality: resolvePersonality(opts.Personality, opts.Preset),
+	}
+	c.generateFn = c.generateMessage
+	slog.Info("llm: client initialized", "provider", provider, "model", c.textModel, "vision_model", c.visionModel)
+	return c, nil
 }
 
-// GetClient returns a pointer to the shared OpenAI client for packages that need direct access (e.g. gippity).
-func GetClient() *openai.Client {
-	return &client
+// GetClient returns the underlying OpenAI-compatible client for packages that
+// need direct access (e.g. gippity). It is nil when the Client is nil or not
+// initialised.
+func (c *Client) GetClient() *openai.Client {
+	if c == nil {
+		return nil
+	}
+	return c.client
 }
 
 // Model returns the configured model for text completions.
-func Model() string { return textModel }
+func (c *Client) Model() string {
+	if c == nil {
+		return ""
+	}
+	return c.textModel
+}
 
 // VisionModel returns the configured model for image-aware completions.
-func VisionModel() string { return visionModel }
+func (c *Client) VisionModel() string {
+	if c == nil {
+		return ""
+	}
+	return c.visionModel
+}
+
+// Personality returns the active bot persona for inclusion in system prompts.
+func (c *Client) Personality() string {
+	if c == nil {
+		return ""
+	}
+	return c.personality
+}
+
+// resolvePersonality picks the persona from config. A non-empty custom string
+// wins; otherwise a known preset key is used; otherwise the built-in default is
+// kept. An unknown preset logs a warning and falls back to the default.
+func resolvePersonality(custom, preset string) string {
+	switch {
+	case strings.TrimSpace(custom) != "":
+		slog.Info("llm: using custom personality from config")
+		return custom
+	case preset != "":
+		if p, ok := PersonalityPresets[preset]; ok {
+			slog.Info("llm: using personality preset", "preset", preset)
+			return p
+		}
+		slog.Warn("llm: unknown personality_preset, falling back to default", "preset", preset)
+		return defaultPersonality
+	default:
+		return defaultPersonality
+	}
+}
+
+// generateMessage is the real completion call.
+func (c *Client) generateMessage(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+	if c == nil || c.client == nil {
+		return "", errors.New("llm: client not initialized")
+	}
+	completion, err := c.client.Chat.Completions.New(ctx, openai.ChatCompletionNewParams{
+		Messages: []openai.ChatCompletionMessageParamUnion{
+			openai.SystemMessage(systemPrompt),
+			openai.UserMessage(userPrompt),
+		},
+		Model:               c.textModel,
+		N:                   openai.Int(1),
+		MaxCompletionTokens: openai.Int(llmMaxTokens),
+	})
+	if err != nil {
+		return "", err
+	}
+	return CompletionContent(completion)
+}
 
 // CompletionContent returns the first response choice, or an error for an empty response.
 func CompletionContent(completion *openai.ChatCompletion) (string, error) {
@@ -191,41 +235,27 @@ func CompletionContent(completion *openai.ChatCompletion) (string, error) {
 
 // GenerateMessage sends a single-turn completion and returns the response text.
 // A 30-second timeout is applied to every call.
-func GenerateMessage(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
-	ctx, cancel := context.WithTimeout(ctx, llmTimeout)
-	defer cancel()
-	return generateMessageFn(ctx, systemPrompt, userPrompt)
-}
-
-// GenerateMessageWith is like GenerateMessage but uses an explicit client instead of the global.
-// Use this when the client arrives via dependency injection rather than llm.Initialize().
-func GenerateMessageWith(ctx context.Context, c *openai.Client, systemPrompt, userPrompt string) (string, error) {
-	ctx, cancel := context.WithTimeout(ctx, llmTimeout)
-	defer cancel()
-	completion, err := c.Chat.Completions.New(ctx, openai.ChatCompletionNewParams{
-		Messages: []openai.ChatCompletionMessageParamUnion{
-			openai.SystemMessage(systemPrompt),
-			openai.UserMessage(userPrompt),
-		},
-		Model:               textModel,
-		N:                   openai.Int(1),
-		MaxCompletionTokens: openai.Int(llmMaxTokens),
-	})
-	if err != nil {
-		return "", err
+func (c *Client) GenerateMessage(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+	if c == nil || c.generateFn == nil {
+		return "", errors.New("llm: client not initialized")
 	}
-	return CompletionContent(completion)
+	ctx, cancel := context.WithTimeout(ctx, llmTimeout)
+	defer cancel()
+	return c.generateFn(ctx, systemPrompt, userPrompt)
 }
 
 // DetectChannelLanguage fetches recent messages from a Discord channel and asks the LLM
 // to identify the primary language. Results are cached per channel for 1 hour.
 // Returns "English" on any error or empty channel.
-func DetectChannelLanguage(s *discordgo.Session, channelID string) (string, error) {
-	if v, ok := langCache.Load(channelID); ok {
+func (c *Client) DetectChannelLanguage(s *discordgo.Session, channelID string) (string, error) {
+	if c == nil {
+		return "English", nil
+	}
+	if v, ok := c.langCache.Load(channelID); ok {
 		if entry := v.(cachedLang); time.Now().Before(entry.expiresAt) {
 			return entry.lang, nil
 		}
-		langCache.Delete(channelID)
+		c.langCache.Delete(channelID)
 	}
 
 	msgs, err := s.ChannelMessages(channelID, 20, "", "", "")
@@ -241,24 +271,27 @@ func DetectChannelLanguage(s *discordgo.Session, channelID string) (string, erro
 		}
 	}
 
-	lang, err := detectLanguageFromTexts(strings.TrimSpace(sb.String()))
+	lang, err := c.detectLanguageFromTexts(strings.TrimSpace(sb.String()))
 	if err != nil {
 		return "English", err
 	}
-	langCache.Store(channelID, cachedLang{lang: lang, expiresAt: time.Now().Add(langCacheTTL)})
+	c.langCache.Store(channelID, cachedLang{lang: lang, expiresAt: time.Now().Add(langCacheTTL)})
 	return lang, nil
 }
 
 // detectLanguageFromTexts is the testable core of DetectChannelLanguage.
-func detectLanguageFromTexts(text string) (string, error) {
+func (c *Client) detectLanguageFromTexts(text string) (string, error) {
 	if text == "" {
+		return "English", nil
+	}
+	if c == nil || c.generateFn == nil {
 		return "English", nil
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), llmTimeout)
 	defer cancel()
 
-	lang, err := generateMessageFn(
+	lang, err := c.generateFn(
 		ctx,
 		"You detect the primary language of text snippets. Reply with only the full English name of the language (e.g. German, French, English). If unsure, reply with English.",
 		text,

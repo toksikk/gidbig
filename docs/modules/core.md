@@ -34,7 +34,7 @@ sequenceDiagram
     main->>core: StartGidbig()
     core->>cfg: GetConfig()
     core->>dg: New("Bot token")
-    core->>llm: Initialize + ResolvePersonality
+    core->>llm: New(Options) → *llm.Client
     core->>bot: New(Deps) — installs single session handlers
     core->>bot: RegisterModule(core) before Open
     core->>dg: Open()

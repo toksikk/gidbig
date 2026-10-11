@@ -154,24 +154,26 @@ func StartGidbig() {
 		return
 	}
 
-	if err := llm.Initialize(
-		conf.LLM.Provider,
-		conf.LLM.Model,
-		conf.LLM.VisionModel,
-		conf.LLM.BaseURL,
-		conf.LLM.HTTPReferer,
-		conf.LLM.Title,
-	); err != nil {
+	llmClient, err := llm.New(llm.Options{
+		Provider:    conf.LLM.Provider,
+		Model:       conf.LLM.Model,
+		VisionModel: conf.LLM.VisionModel,
+		BaseURL:     conf.LLM.BaseURL,
+		HTTPReferer: conf.LLM.HTTPReferer,
+		Title:       conf.LLM.Title,
+		Personality: conf.LLM.Personality,
+		Preset:      conf.LLM.Preset,
+	})
+	if err != nil {
 		slog.Error("llm: init failed", "error", err)
 		os.Exit(1)
 		return
 	}
-	llm.ResolvePersonality(conf.LLM.Personality, conf.LLM.Preset)
 
 	deps := bot.Deps{
 		Session: discord,
 		Config:  conf,
-		LLM:     llm.GetClient(),
+		LLM:     llmClient,
 		Logger:  slog.Default(),
 		OwnerID: conf.Discord.OwnerID,
 		DB:      sharedDB,

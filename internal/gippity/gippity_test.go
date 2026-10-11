@@ -48,6 +48,12 @@ func setupGippityTest(t *testing.T) (*Module, *discordgo.Session) {
 	session.State.User = &discordgo.User{ID: "bot-user"}
 
 	m := New()
+	t.Setenv("OPENAI_API_KEY", "test-key")
+	llmClient, err := llm.New(llm.Options{})
+	if err != nil {
+		t.Fatalf("llm.New: %v", err)
+	}
+	m.llmClient = llmClient
 	m.db = testDB
 	m.session = session
 	m.allowedGuildIDs = map[string]bool{"allowed-guild": true}
@@ -109,8 +115,8 @@ func TestDescribeImagesUsesConfiguredVisionModel(t *testing.T) {
 	if got != "description" {
 		t.Errorf("describeImages = %q", got)
 	}
-	if model != llm.VisionModel() {
-		t.Errorf("model = %q, want configured vision model %q", model, llm.VisionModel())
+	if model != m.llmClient.VisionModel() {
+		t.Errorf("model = %q, want configured vision model %q", model, m.llmClient.VisionModel())
 	}
 }
 
@@ -438,8 +444,8 @@ func TestGenerateAnswer_NoReference_NoSystemNoteInjected(t *testing.T) {
 	if fetchCalled {
 		t.Error("fetchReferencedMessageFunc must not be called when MessageReference is nil")
 	}
-	if capturedModel != llm.Model() {
-		t.Errorf("model = %q, want configured model %q", capturedModel, llm.Model())
+	if capturedModel != m.llmClient.Model() {
+		t.Errorf("model = %q, want configured model %q", capturedModel, m.llmClient.Model())
 	}
 	for _, msg := range capturedMessages {
 		if msg.OfSystem != nil {
@@ -1289,8 +1295,8 @@ func TestClassifyShouldRespond_FallsBackToLLMModel(t *testing.T) {
 	if _, err := m.classifyShouldRespond(context.Background(), gippityTestMessage("hello")); err != nil {
 		t.Fatalf("classifyShouldRespond: %v", err)
 	}
-	if gotModel != llm.Model() {
-		t.Errorf("model = %q, want llm.Model() %q", gotModel, llm.Model())
+	if gotModel != m.llmClient.Model() {
+		t.Errorf("model = %q, want configured model %q", gotModel, m.llmClient.Model())
 	}
 }
 

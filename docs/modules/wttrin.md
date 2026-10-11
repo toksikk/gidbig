@@ -5,7 +5,7 @@ Directory `internal/wttrin`. Implements `bot.Module`.
 Commands `/wttr` (current) and `/wttrf` (multi-day forecast). Fetches JSON from `wttr.in`, formats an emoji table, appends an LLM-written one-line outro in the channel language.
 
 - Cache: 10 min TTL per location, single-flight dedup.
-- LLM: injected via `Deps.LLM` (`GenerateMessageWith`), else global `llm.GenerateMessage`.
+- LLM: injected via `Deps.LLM` (`*llm.Client`), see `internal/llm`.
 
 ## Weather flow
 

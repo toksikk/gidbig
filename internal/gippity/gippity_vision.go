@@ -25,7 +25,7 @@ func (m *Module) describeImages(imageURLs []string) (string, error) {
 		Messages: []openai.ChatCompletionMessageParamUnion{
 			{OfUser: &userMsg},
 		},
-		Model:               llm.VisionModel(),
+		Model:               m.llmClient.VisionModel(),
 		N:                   openai.Int(1),
 		MaxCompletionTokens: openai.Int(150),
 	})
