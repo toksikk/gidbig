@@ -1,11 +1,14 @@
 # admin
 
-Directory `internal/admin`. Not a `bot.Module`; started via `admin.Start`.
+Directory `internal/admin`. Implements `bot.Module`; constructed with `admin.New(providers ...bot.AdminProvider)`.
 
-Owner-only `/admin` command. Dispatches the built-in `info` subcommand and delegates group subcommands to registered `bot.AdminProvider` modules (coffee, gippity).
+Owner-only `/admin` command. The command tree is built from the injected `bot.AdminProvider` modules (coffee, gippity) plus the built-in `info` subcommand.
 
-- `RegisterProvider` must run before `Commands()` (the command tree is built from providers).
-- All responses ephemeral.
+- Providers are passed to `admin.New` by the composition root (`internal/core/cmd.go`), once every provider has initialized.
+- Adding a provider means passing it to `admin.New`; no edits inside `internal/admin` are required.
+- `SetInfoText` injects the `/admin info` renderer, owned by the composition root because it aggregates the shared status snapshot.
+- Owner authorization runs through the `bot.OwnerOnly` middleware; there is no inline owner check.
+- All responses are ephemeral.
 
 ## Dispatch flow
 
@@ -18,7 +21,8 @@ sequenceDiagram
 
     O->>D: /admin <group> <sub>
     D->>A: onAdminInteractionCreate
-    A->>A: callerID == ownerID?
+    A->>A: filter to /admin application command
+    A->>A: OwnerOnly middleware
     alt not owner
         A-->>O: Access denied.
     else owner

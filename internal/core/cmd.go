@@ -288,8 +288,6 @@ func StartGidbig() {
 			discord.AddHandler(l)
 		}
 	}
-	admin.RegisterProvider(coffeeMod)
-	admin.Start(discord, conf.Discord.OwnerID, buildBotStatsMessage)
 	esoMod = eso.New()
 	if err := esoMod.Init(bot.Deps{Session: discord, OwnerID: conf.Discord.OwnerID}); err != nil {
 		slog.Error("eso: init failed", "error", err)
@@ -318,8 +316,23 @@ func StartGidbig() {
 		for _, l := range gippityMod.Listeners() {
 			discord.AddHandler(l)
 		}
-		admin.RegisterProvider(gippityMod)
 		bgSupervisor.Start(bgCtx, gippityMod.Background()...)
+	}
+	// Admin aggregates the provider modules under /admin. Build the provider
+	// list here, once every provider has had a chance to initialize, so admin
+	// needs no edits when a new AdminProvider module is added.
+	adminProviders := []bot.AdminProvider{coffeeMod}
+	if gippityReady {
+		adminProviders = append(adminProviders, gippityMod)
+	}
+	adminMod := admin.New(adminProviders...)
+	adminMod.SetInfoText(buildBotStatsMessage)
+	if err := adminMod.Init(bot.Deps{Session: discord, Config: conf, OwnerID: conf.Discord.OwnerID}); err != nil {
+		slog.Error("admin: init failed", "error", err)
+	} else {
+		for _, l := range adminMod.Listeners() {
+			discord.AddHandler(l)
+		}
 	}
 	leetoMod := leetoclock.New()
 	leetoReady := false
@@ -387,7 +400,7 @@ func StartGidbig() {
 	if soundboardReady {
 		cmds = append(cmds, soundboardMod.Commands()...)
 	}
-	cmds = append(cmds, admin.Commands()...)
+	cmds = append(cmds, adminMod.Commands()...)
 	cmds = append(cmds, coffeeMod.Commands()...)
 	cmds = append(cmds, esoMod.Commands()...)
 	if gippityReady {
