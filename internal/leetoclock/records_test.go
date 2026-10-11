@@ -20,7 +20,7 @@ func TestRecordCommandsSchema(t *testing.T) {
 	if command.Name != "leetoclock" || len(command.Options) != 2 || command.Options[0].Name != "top" || command.Options[1].Name != "player" {
 		t.Fatalf("unexpected command: %#v", command)
 	}
-	for index, want := range [][]string{{"period", "scope", "public"}, {"user", "period", "scope", "public"}} {
+	for index, want := range [][]string{{"period", "date", "scope", "public"}, {"user", "period", "date", "scope", "public"}} {
 		sub := command.Options[index]
 		if sub.Type != discordgo.ApplicationCommandOptionSubCommand || len(sub.Options) != len(want) {
 			t.Fatalf("subcommand = %#v", sub)
@@ -314,6 +314,52 @@ func TestRecordPeriodsAndGuildScope(t *testing.T) {
 	global, err := m.recordResponse("one", recordRequest{subcommand: "top", scope: "global", period: datastore.PeriodMonth, periodName: "month"})
 	if err != nil || !strings.Contains(global, "0 ms") || strings.Contains(global, "discord.com/channels") {
 		t.Errorf("global top: %s, %v", global, err)
+	}
+}
+
+func TestRecordDateOption(t *testing.T) {
+	m, _ := newTestModule(t)
+	m.now = func() time.Time { return time.Date(2026, time.September, 24, 13, 0, 0, 0, time.Local) }
+	addRecord(t, m, "one", "c1", "alice", "on-day", time.Date(2026, time.July, 8, 13, 37, 0, 0, time.Local), 137)
+	addRecord(t, m, "one", "c1", "alice", "next-day", time.Date(2026, time.July, 9, 13, 37, 0, 0, time.Local), 200)
+
+	r, err := parseRecordRequest(recordInteraction("top", "one", "alice", recordOption("date", "2026-07-08")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !r.day.Equal(time.Date(2026, time.July, 8, 0, 0, 0, 0, time.Local)) {
+		t.Errorf("day = %v", r.day)
+	}
+	if r.periodName != "2026-07-08" {
+		t.Errorf("periodName = %q", r.periodName)
+	}
+	body, err := m.recordResponse("one", r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(body, "137 ms") || !strings.Contains(body, "2026-07-08") {
+		t.Errorf("date top = %q", body)
+	}
+	if strings.Contains(body, "200 ms") {
+		t.Errorf("date top leaked the next day: %q", body)
+	}
+
+	// A date also overrides an explicit period.
+	r, err = parseRecordRequest(recordInteraction("player", "one", "alice", recordOption("period", "all"), recordOption("date", "2026-07-09")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err = m.recordResponse("one", r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(body, "Valid attempts: 1") || !strings.Contains(body, "200 ms") {
+		t.Errorf("date player = %q", body)
+	}
+
+	// A malformed date is rejected before any query runs.
+	if _, err := parseRecordRequest(recordInteraction("top", "one", "alice", recordOption("date", "08.07.2026"))); err == nil {
+		t.Error("invalid date accepted")
 	}
 }
 

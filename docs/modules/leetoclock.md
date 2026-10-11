@@ -8,6 +8,7 @@ Daily game: players race to post exactly when the clock hits `13:37` (configurab
 - Emojis: configurable guild IDs, else Unicode fallback.
 - Debug mode: one minute after start, fast tick.
 - LLM tool: `leetoclock_records` mirrors `/leetoclock top|player`, scoped to the caller's guild.
+- Date lookup: pass `date:YYYY-MM-DD` (command option `date`, tool argument `date`) to query one game date. It overrides `period`, so a question about a named day cannot be answered with a neighbouring period's numbers.
 
 ## Record commands
 

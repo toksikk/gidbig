@@ -80,6 +80,33 @@ func TestRecordsHandlerRequiresGuild(t *testing.T) {
 	}
 }
 
+func TestRecordsHandlerDate(t *testing.T) {
+	m := registerRecordTools(t)
+	m.now = func() time.Time { return time.Date(2026, time.September, 24, 13, 0, 0, 0, time.Local) }
+	addRecord(t, m, "guild-1", "chan-1", "alice", "m-day", time.Date(2026, time.July, 8, 13, 37, 0, 0, time.Local), 137)
+	addRecord(t, m, "guild-1", "chan-1", "alice", "m-other", time.Date(2026, time.July, 9, 13, 37, 0, 0, time.Local), 200)
+
+	def, _ := m.tools.Get("leetoclock_records")
+	out, err := def.Handler(context.Background(), tool.Env{GuildID: "guild-1"}, json.RawMessage(`{"subcommand":"top","date":"2026-07-08"}`))
+	if err != nil {
+		t.Fatalf("handler: %v", err)
+	}
+	if !strings.Contains(out, "137 ms") || !strings.Contains(out, "2026-07-08") {
+		t.Errorf("date output = %q", out)
+	}
+	if strings.Contains(out, "200 ms") {
+		t.Errorf("date output leaked another day: %q", out)
+	}
+
+	bad, err := def.Handler(context.Background(), tool.Env{GuildID: "guild-1"}, json.RawMessage(`{"subcommand":"top","date":"08.07.2026"}`))
+	if err != nil {
+		t.Fatalf("handler: %v", err)
+	}
+	if !strings.Contains(bad, "invalid date") {
+		t.Errorf("invalid date output = %q", bad)
+	}
+}
+
 func TestRegisterToolsNilRegistryIsSafe(t *testing.T) {
 	m := New()
 	m.registerTools()

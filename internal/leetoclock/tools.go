@@ -22,7 +22,11 @@ var leetoclockRecordsParameters = json.RawMessage(`{
     "period": {
       "type": "string",
       "enum": ["month", "7d", "30d", "all"],
-      "description": "Game date range. Defaults to the current month."
+      "description": "Game date range. Defaults to the current month. Ignored when date is given."
+    },
+    "date": {
+      "type": "string",
+      "description": "One specific game date, YYYY-MM-DD. Use it to answer questions about a named day; it overrides period."
     },
     "scope": {
       "type": "string",
@@ -58,6 +62,7 @@ func (m *Module) recordsHandler(_ context.Context, env tool.Env, args json.RawMe
 	var in struct {
 		Subcommand string `json:"subcommand"`
 		Period     string `json:"period"`
+		Date       string `json:"date"`
 		Scope      string `json:"scope"`
 		User       string `json:"user"`
 	}
@@ -91,6 +96,11 @@ func (m *Module) recordsHandler(_ context.Context, env tool.Env, args json.RawMe
 		return "invalid period", nil
 	}
 
+	day, err := parseRecordDay(in.Date)
+	if err != nil {
+		return "invalid date: use YYYY-MM-DD", nil
+	}
+
 	switch strings.ToLower(strings.TrimSpace(in.Scope)) {
 	case "", "server":
 		r.scope = "server"
@@ -108,6 +118,11 @@ func (m *Module) recordsHandler(_ context.Context, env tool.Env, args json.RawMe
 		if r.userID == "" {
 			return "no player given", nil
 		}
+	}
+
+	if !day.IsZero() {
+		r.day = day
+		r.periodName = day.Format("2006-01-02")
 	}
 
 	return m.recordResponse(env.GuildID, r)

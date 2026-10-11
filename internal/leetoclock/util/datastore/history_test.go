@@ -241,6 +241,54 @@ func TestHistoryLocalMonthAndRollingDST(t *testing.T) {
 	}
 }
 
+func TestTopPlayersAndPlayerRecordsBetween(t *testing.T) {
+	f := newHistoryFixture(t)
+	day := time.Date(2026, time.March, 9, 13, 37, 0, 0, time.Local)
+	f.add("alice", "one", "c1", "before", day.AddDate(0, 0, -1), 5)
+	f.add("alice", "one", "c1", "morning", day.Add(-time.Hour), 3)
+	f.add("bob", "one", "c1", "noon", day, 1)
+	f.add("alice", "one", "c1", "night", day.Add(10*time.Hour), 0)
+	f.add("alice", "one", "c1", "after", day.AddDate(0, 0, 1), 0)
+
+	start, end := DayRange(day, day)
+	if !start.Equal(time.Date(2026, time.March, 9, 0, 0, 0, 0, time.Local)) {
+		t.Errorf("start = %v", start)
+	}
+	if !end.Equal(time.Date(2026, time.March, 10, 0, 0, 0, 0, time.Local)) {
+		t.Errorf("end = %v", end)
+	}
+
+	// One day returns only that day, so a date question cannot pick up a
+	// neighbouring game's numbers. Top players list one best attempt per player.
+	got, err := f.store.TopPlayersBetween("one", start, end)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expectMessages(t, got, "night", "noon")
+
+	records, count, err := f.store.PlayerRecordsBetween("alice", "one", start, end)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 2 {
+		t.Errorf("count = %d, want 2", count)
+	}
+	expectMessages(t, records, "night", "morning")
+
+	// A zero start leaves the window open on the low side.
+	if _, openEnd := DayRange(time.Time{}, day); !openEnd.Equal(end) {
+		t.Errorf("open start end = %v", openEnd)
+	}
+	all, count, err := f.store.PlayerRecordsBetween("alice", "one", time.Time{}, end)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 3 {
+		t.Errorf("open start count = %d, want 3", count)
+	}
+	expectMessages(t, all, "night", "morning", "before")
+}
+
 func TestHistoryReadErrors(t *testing.T) {
 	f := newHistoryFixture(t)
 	if _, err := f.store.TopPlayers("one", "invalid", f.now); err == nil {
