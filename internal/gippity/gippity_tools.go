@@ -98,6 +98,7 @@ func (m *Module) completeWithTools(ctx context.Context, env tool.Env, messages [
 	for i := 0; i < m.toolMaxIterations; i++ {
 		completion, err := m.chatCompletionFunc(ctx, params)
 		if err != nil {
+			logCompletionError(err)
 			return "", err
 		}
 		if completion == nil || len(completion.Choices) == 0 {
@@ -120,6 +121,7 @@ func (m *Module) completeWithTools(ctx context.Context, env tool.Env, messages [
 	params.ToolChoice = openai.ChatCompletionToolChoiceOptionUnionParam{}
 	completion, err := m.chatCompletionFunc(ctx, params)
 	if err != nil {
+		logCompletionError(err)
 		return "", err
 	}
 	return llm.CompletionContent(completion)
@@ -129,9 +131,27 @@ func (m *Module) completeWithTools(ctx context.Context, env tool.Env, messages [
 func (m *Module) singleCompletion(ctx context.Context, params openai.ChatCompletionNewParams) (string, error) {
 	completion, err := m.chatCompletionFunc(ctx, params)
 	if err != nil {
+		logCompletionError(err)
 		return "", err
 	}
 	return llm.CompletionContent(completion)
+}
+
+// logCompletionError logs a provider failure with the parsed API error fields.
+// The SDK's Error() only reports the HTTP status, which hides the actionable
+// reason (for example "model does not support tools" or an unknown parameter).
+func logCompletionError(err error) {
+	var apiErr *openai.Error
+	if errors.As(err, &apiErr) {
+		slog.Error("gippity: completion request failed",
+			"status", apiErr.StatusCode,
+			"type", apiErr.Type,
+			"code", apiErr.Code,
+			"param", apiErr.Param,
+			"message", apiErr.Message)
+		return
+	}
+	slog.Error("gippity: completion request failed", "error", err)
 }
 
 // assistantToolCallMessage rebuilds the assistant turn that requested the tool
