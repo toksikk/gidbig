@@ -13,6 +13,7 @@ import (
 	"github.com/toksikk/gidbig/internal/bot"
 	"github.com/toksikk/gidbig/internal/llm"
 	"github.com/toksikk/gidbig/internal/shareddb"
+	"github.com/toksikk/gidbig/internal/tool"
 	"github.com/toksikk/gidbig/internal/util"
 	"gorm.io/gorm"
 )
@@ -49,6 +50,9 @@ type Module struct {
 
 	// machineMu serializes mutations to the per-guild machine inventory.
 	machineMu sync.Mutex
+
+	// tools is the shared LLM tool registry, read at answer time.
+	tools *tool.Registry
 
 	// UI translations are warmed asynchronously so interaction acknowledgements
 	// never wait for the LLM provider.
@@ -124,6 +128,8 @@ func (m *Module) Init(d bot.Deps) error {
 			return fmt.Errorf("coffee: open store: %w", err)
 		}
 	}
+	m.tools = d.Tools
+	m.registerTools()
 	slog.Info("coffee: initialized")
 	return nil
 }

@@ -8,6 +8,7 @@ anti-cheat vendor and answers with the entry's status, anti-cheat, Proton and
 native Linux support, sanitized notes and the source link.
 
 - Command: `/anticheat query:<game or vendor>` (required, autocomplete).
+- LLM tool: `anticheat_lookup` searches the same cached dataset.
 
 ## Data source
 

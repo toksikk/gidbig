@@ -6,12 +6,14 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/toksikk/gidbig/internal/bot"
+	"github.com/toksikk/gidbig/internal/tool"
 	"github.com/toksikk/gidbig/internal/util"
 )
 
 // Module implements bot.Module for the stoll quote plugin.
 type Module struct {
 	session *discordgo.Session
+	tools   *tool.Registry
 }
 
 // New returns a new stoll Module.
@@ -21,6 +23,8 @@ func (m *Module) Name() string { return "stoll" }
 
 func (m *Module) Init(d bot.Deps) error {
 	m.session = d.Session
+	m.tools = d.Tools
+	m.registerTools()
 	slog.Info("stoll: initialized")
 	return nil
 }

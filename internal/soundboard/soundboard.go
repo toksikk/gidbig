@@ -9,6 +9,7 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/toksikk/gidbig/internal/bot"
+	"github.com/toksikk/gidbig/internal/tool"
 )
 
 // defaultMaxQueueSize is the per-guild queue depth used when the config does
@@ -18,6 +19,7 @@ const defaultMaxQueueSize = 6
 // Module implements bot.Module for the soundboard plugin.
 type Module struct {
 	session *discordgo.Session
+	tools   *tool.Registry
 
 	mu sync.Mutex
 	// collections is written once in Init, before listeners are registered or
@@ -62,6 +64,9 @@ func (m *Module) Init(d bot.Deps) error {
 	for _, coll := range m.collections {
 		coll.Load()
 	}
+	m.tools = d.Tools
+	m.registerTools()
+
 	slog.Info("soundboard: initialized", "collections", len(m.collections))
 	return nil
 }

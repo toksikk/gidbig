@@ -6,6 +6,7 @@ Commands `/wttr` (current) and `/wttrf` (multi-day forecast). Fetches JSON from 
 
 - Cache: 10 min TTL per location, single-flight dedup.
 - LLM: injected via `Deps.LLM` (`*llm.Client`), see `internal/llm`.
+- LLM tool: `weather` returns the cached current conditions or forecast; it skips the LLM outro.
 
 ## Weather flow
 

@@ -22,6 +22,7 @@ follows BULKHEAD's official statements.
   goes stale the moment the verdict flips to YES.
 - Every URL is wrapped in angle brackets (`<url>`) because Discord otherwise
   attaches a link preview, which clutters the reply.
+- LLM tool: `wardogs_status` returns the same cached verdict.
 
 ## Reply shape
 
