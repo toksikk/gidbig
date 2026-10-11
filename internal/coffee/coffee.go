@@ -10,6 +10,7 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/toksikk/gidbig/internal/bot"
+	"github.com/toksikk/gidbig/internal/cfg"
 	"github.com/toksikk/gidbig/internal/llm"
 	"github.com/toksikk/gidbig/internal/util"
 	"gorm.io/gorm"
@@ -103,18 +104,14 @@ func New() *Module {
 func (m *Module) Name() string { return "coffee" }
 
 // Init opens the beverage-preference store using the shared database injected
-// through Deps, or the configured path when running without a composition root.
+// through Deps, or gidbig.db when running without a composition root.
 func (m *Module) Init(d bot.Deps) error {
 	if d.DB != nil {
 		if err := m.useStore(d.DB); err != nil {
 			return fmt.Errorf("coffee: migrate store: %w", err)
 		}
 	} else {
-		dbPath := "gidbig.db"
-		if d.Config != nil && d.Config.Database.Path != "" {
-			dbPath = d.Config.Database.Path
-		}
-		if err := m.openStore(dbPath); err != nil {
+		if err := m.openStore(cfg.DefaultDatabaseFilename); err != nil {
 			return fmt.Errorf("coffee: open store: %w", err)
 		}
 	}

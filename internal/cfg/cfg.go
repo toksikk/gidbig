@@ -16,6 +16,11 @@ const (
 	defaultGippityRateLimitPerHour = 30
 )
 
+// DefaultDatabaseFilename is the single SQLite file shared by every module.
+// It is resolved relative to the process working directory; deployments control
+// its location with the working directory or a container volume mount.
+const DefaultDatabaseFilename = "gidbig.db"
+
 // LeetoclockEmojisConfig holds optional custom Discord emoji IDs used as
 // reactions during a game. Each value is a guild emoji ID; when omitted the
 // module falls back to a standard Unicode equivalent.
@@ -56,9 +61,6 @@ type Config struct {
 		SessionSecret string `yaml:"session_secret"`
 		Port          int    `yaml:"port,omitempty" default:"8080"`
 	} `yaml:"web"`
-	Database struct {
-		Path string `yaml:"path,omitempty"`
-	} `yaml:"database,omitempty"`
 	Gippity struct {
 		AllowedGuilds            []string `yaml:"allowed_guilds"`
 		IgnoredUsers             []string `yaml:"ignored_users"`

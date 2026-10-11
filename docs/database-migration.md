@@ -10,7 +10,7 @@ Early versions of gidbig stored data in one SQLite file per module:
 | leetoclock | `plugins/leetoclock.sqlite` |
 | gippity | `gippity.db` |
 
-Current versions use a single shared database, `gidbig.db` (or the path in `database.path`), with a per-module table-name prefix (`coffee_*`, `leetoclock_*`, `gippity_*`). The prefixes let the modules share one file without table-name collisions, and give you one file to back up.
+Current versions use a single shared database, `gidbig.db`, in the bot's working directory, with a per-module table-name prefix (`coffee_*`, `leetoclock_*`, `gippity_*`). The prefixes let the modules share one file without table-name collisions, and give you one file to back up.
 
 This guide moves the data from a legacy file into the shared database. It is written so it works for any module and any file layout; substitute your own paths.
 
@@ -34,7 +34,7 @@ sqlite3 gidbig.db ".tables"
 
 ## Step 1 — Locate the databases
 
-Find the shared database path in `config.yaml` (`database.path`, default `gidbig.db`) and the legacy file for the module you are migrating. Both are relative to the bot's working directory unless absolute.
+The shared database is `gidbig.db` in the bot's working directory. Locate that file and the legacy file for the module you are migrating. Both are relative to the bot's working directory unless absolute.
 
 Confirm the legacy file holds data and inspect its schema:
 
@@ -157,7 +157,7 @@ Run `sqlite3 gidbig.db "PRAGMA integrity_check;"` as a final sanity check.
 
 ## Step 5 — Update configuration and deploy
 
-1. Point `database.path` at the shared database (`gidbig.db`), or remove the setting to use the default.
+1. Confirm the bot uses the shared `gidbig.db` in its working directory (no database path is configured any more; location is set by the working directory or a container volume mount).
 2. Remove any legacy-file mounts from your deployment. For example, drop the `gippity.db` bind mount and any `data/gippity.db` volume, keeping only the shared database file.
 3. Deploy the new binary and start the bot.
 4. Watch the logs for database errors, and confirm the data through the bot's own commands.

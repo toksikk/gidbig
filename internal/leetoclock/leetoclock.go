@@ -106,11 +106,7 @@ func (m *Module) Init(d bot.Deps) error {
 		store, err = datastore.Use(d.DB)
 		m.ownsDB = false
 	} else {
-		dbPath := "gidbig.db"
-		if d.Config != nil && d.Config.Database.Path != "" {
-			dbPath = d.Config.Database.Path
-		}
-		store, err = datastore.Open(dbPath)
+		store, err = datastore.Open(cfg.DefaultDatabaseFilename)
 		m.ownsDB = true
 	}
 	if err != nil {

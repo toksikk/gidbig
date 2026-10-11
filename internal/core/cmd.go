@@ -188,12 +188,13 @@ func StartGidbig() {
 
 	// Open the single SQLite database shared by every module. Modules receive
 	// it through bot.Deps.DB instead of opening the file themselves.
-	sharedDB, err := openSharedDatabase(conf.Database.Path)
+	sharedDB, err := openSharedDatabase(cfg.DefaultDatabaseFilename)
 	if err != nil {
 		slog.Error("Failed to open shared database", "error", err)
 		os.Exit(1)
 		return
 	}
+	slog.Info("Using shared database", "path", cfg.DefaultDatabaseFilename)
 
 	// Create a discord session
 	slog.Info("Starting discord session...")
@@ -372,11 +373,7 @@ func StartGidbig() {
 		statusProviders = append(statusProviders, leetoMod)
 	}
 	statusProviders = append(statusProviders, wttrinMod)
-	dbPath := "gidbig.db"
-	if conf.Database.Path != "" {
-		dbPath = conf.Database.Path
-	}
-	statusDBPaths = []string{dbPath}
+	statusDBPaths = []string{cfg.DefaultDatabaseFilename}
 
 	cmds := []*discordgo.ApplicationCommand{statusCommand()}
 	cmds = append(cmds, coreSlashCommands()...)
