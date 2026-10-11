@@ -164,6 +164,7 @@ func (m *Module) executeToolCall(ctx context.Context, env tool.Env, call openai.
 		slog.Warn("gippity: model called an unknown tool", "tool", name)
 		return fmt.Sprintf("error: unknown tool %q", name)
 	}
+	slog.Debug("gippity: running tool", "tool", name)
 
 	args := json.RawMessage(call.Function.Arguments)
 	if len(args) == 0 {
