@@ -1,41 +1,40 @@
 package admin
 
 import (
-	"os"
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/toksikk/gidbig/internal/bot"
+	"github.com/toksikk/gidbig/internal/cfg"
 )
 
-// stubCoffeeProvider is a minimal bot.AdminProvider used in tests.
-type stubCoffeeProvider struct{}
-
-func (stubCoffeeProvider) AdminSubcommandGroup() *discordgo.ApplicationCommandOption {
-	return &discordgo.ApplicationCommandOption{
-		Type:        discordgo.ApplicationCommandOptionSubCommandGroup,
-		Name:        "coffee",
-		Description: "Coffee admin queries",
-		Options: []*discordgo.ApplicationCommandOption{
-			{
-				Type:        discordgo.ApplicationCommandOptionSubCommand,
-				Name:        "beverages",
-				Description: "Show beverage settings for a user or all users",
+// stubCoffeeProvider is a minimal provider with a nested subcommand group.
+func stubCoffeeProvider() *recordingProvider {
+	return &recordingProvider{
+		group: &discordgo.ApplicationCommandOption{
+			Type:        discordgo.ApplicationCommandOptionSubCommandGroup,
+			Name:        "coffee",
+			Description: "Coffee admin queries",
+			Options: []*discordgo.ApplicationCommandOption{
+				{
+					Type:        discordgo.ApplicationCommandOptionSubCommand,
+					Name:        "beverages",
+					Description: "Show beverage settings for a user or all users",
+				},
 			},
 		},
 	}
 }
 
-func (stubCoffeeProvider) HandleAdminSubcommand(_ *discordgo.Session, _ *discordgo.InteractionCreate, _ *discordgo.ApplicationCommandInteractionDataOption) {
-}
-
-var _ bot.AdminProvider = stubCoffeeProvider{}
-
 // stubGippityProvider mirrors gippity.(*Module).AdminSubcommandGroup. Keep it in
 // sync with internal/gippity/admin.go when the gippity admin schema changes.
-type stubGippityProvider struct{}
-
-func (stubGippityProvider) AdminSubcommandGroup() *discordgo.ApplicationCommandOption {
+func stubGippityProvider() *recordingProvider {
 	userOpt := func(desc string) *discordgo.ApplicationCommandOption {
 		return &discordgo.ApplicationCommandOption{
 			Type:        discordgo.ApplicationCommandOptionUser,
@@ -44,40 +43,84 @@ func (stubGippityProvider) AdminSubcommandGroup() *discordgo.ApplicationCommandO
 			Required:    false,
 		}
 	}
-	return &discordgo.ApplicationCommandOption{
-		Type:        discordgo.ApplicationCommandOptionSubCommandGroup,
-		Name:        "gippity",
-		Description: "Gippity admin queries",
-		Options: []*discordgo.ApplicationCommandOption{
-			{
-				Type:        discordgo.ApplicationCommandOptionSubCommand,
-				Name:        "privacy",
-				Description: "Show gippity privacy setting for a user or all users",
-				Options:     []*discordgo.ApplicationCommandOption{userOpt("Target user (omit for all)")},
-			},
-			{
-				Type:        discordgo.ApplicationCommandOptionSubCommand,
-				Name:        "history",
-				Description: "Show whether a user has stored conversation history",
-				Options:     []*discordgo.ApplicationCommandOption{userOpt("Target user (omit for all)")},
+	return &recordingProvider{
+		group: &discordgo.ApplicationCommandOption{
+			Type:        discordgo.ApplicationCommandOptionSubCommandGroup,
+			Name:        "gippity",
+			Description: "Gippity admin queries",
+			Options: []*discordgo.ApplicationCommandOption{
+				{
+					Type:        discordgo.ApplicationCommandOptionSubCommand,
+					Name:        "privacy",
+					Description: "Show gippity privacy setting for a user or all users",
+					Options:     []*discordgo.ApplicationCommandOption{userOpt("Target user (omit for all)")},
+				},
+				{
+					Type:        discordgo.ApplicationCommandOptionSubCommand,
+					Name:        "history",
+					Description: "Show whether a user has stored conversation history",
+					Options:     []*discordgo.ApplicationCommandOption{userOpt("Target user (omit for all)")},
+				},
 			},
 		},
 	}
 }
 
-func (stubGippityProvider) HandleAdminSubcommand(_ *discordgo.Session, _ *discordgo.InteractionCreate, _ *discordgo.ApplicationCommandInteractionDataOption) {
+// recordingProvider captures the subcommand handed to HandleAdminSubcommand.
+type recordingProvider struct {
+	group *discordgo.ApplicationCommandOption
+	calls []*discordgo.ApplicationCommandInteractionDataOption
 }
 
-var _ bot.AdminProvider = stubGippityProvider{}
+func (r *recordingProvider) AdminSubcommandGroup() *discordgo.ApplicationCommandOption {
+	return r.group
+}
 
-func TestMain(m *testing.M) {
-	RegisterProvider(stubCoffeeProvider{})
-	RegisterProvider(stubGippityProvider{})
-	os.Exit(m.Run())
+func (r *recordingProvider) HandleAdminSubcommand(_ *discordgo.Session, _ *discordgo.InteractionCreate, sub *discordgo.ApplicationCommandInteractionDataOption) {
+	r.calls = append(r.calls, sub)
+}
+
+var _ bot.AdminProvider = (*recordingProvider)(nil)
+
+func newTestModule(providers ...bot.AdminProvider) *Module {
+	m := New(providers...)
+	_ = m.Init(bot.Deps{OwnerID: "owner-1"})
+	return m
+}
+
+func TestModule_LifecycleNoOps(t *testing.T) {
+	m := newTestModule(stubCoffeeProvider())
+	if m.Name() != "admin" {
+		t.Errorf("Name = %q, want %q", m.Name(), "admin")
+	}
+	if m.Components() != nil {
+		t.Error("Components() should be nil")
+	}
+	if m.Background() != nil {
+		t.Error("Background() should be nil")
+	}
+	if err := m.Shutdown(); err != nil {
+		t.Errorf("Shutdown() = %v, want nil", err)
+	}
+	if len(m.Listeners()) != 1 {
+		t.Errorf("Listeners() = %d, want 1", len(m.Listeners()))
+	}
+}
+
+func TestInit_OwnerIDFromConfig(t *testing.T) {
+	m := New()
+	conf := &cfg.Config{}
+	conf.Discord.OwnerID = "cfg-owner"
+	if err := m.Init(bot.Deps{Config: conf}); err != nil {
+		t.Fatalf("Init() = %v", err)
+	}
+	if m.ownerID != "cfg-owner" {
+		t.Errorf("ownerID = %q, want %q", m.ownerID, "cfg-owner")
+	}
 }
 
 func TestCommands_Structure(t *testing.T) {
-	cmds := Commands()
+	cmds := newTestModule(stubCoffeeProvider(), stubGippityProvider()).Commands()
 	if len(cmds) != 1 {
 		t.Fatalf("expected 1 command, got %d", len(cmds))
 	}
@@ -97,15 +140,19 @@ func TestCommands_Structure(t *testing.T) {
 	}
 }
 
-func TestCommands_CoffeeBeveragesSubcommand(t *testing.T) {
-	cmds := Commands()
-	cmd := cmds[0]
-	var coffeeGroup *discordgo.ApplicationCommandOption
-	for _, o := range cmd.Options {
-		if o.Name == "coffee" {
-			coffeeGroup = o
-		}
+func TestCommands_NoProviders(t *testing.T) {
+	cmds := newTestModule().Commands()
+	if len(cmds) != 1 {
+		t.Fatalf("expected 1 command, got %d", len(cmds))
 	}
+	if len(cmds[0].Options) != 1 || cmds[0].Options[0].Name != "info" {
+		t.Errorf("expected only info subcommand, got %+v", cmds[0].Options)
+	}
+}
+
+func TestCommands_CoffeeBeveragesSubcommand(t *testing.T) {
+	cmds := newTestModule(stubCoffeeProvider()).Commands()
+	coffeeGroup := findOption(cmds[0].Options, "coffee")
 	if coffeeGroup == nil {
 		t.Fatal("no coffee subcommand group")
 		return
@@ -113,13 +160,7 @@ func TestCommands_CoffeeBeveragesSubcommand(t *testing.T) {
 	if coffeeGroup.Type != discordgo.ApplicationCommandOptionSubCommandGroup {
 		t.Errorf("coffee Type = %v, want SubCommandGroup", coffeeGroup.Type)
 	}
-
-	var beverages *discordgo.ApplicationCommandOption
-	for _, o := range coffeeGroup.Options {
-		if o.Name == "beverages" {
-			beverages = o
-		}
-	}
+	beverages := findOption(coffeeGroup.Options, "beverages")
 	if beverages == nil {
 		t.Fatal("no beverages subcommand under coffee")
 		return
@@ -130,14 +171,8 @@ func TestCommands_CoffeeBeveragesSubcommand(t *testing.T) {
 }
 
 func TestCommands_GippitySubcommands(t *testing.T) {
-	cmds := Commands()
-	cmd := cmds[0]
-	var gippityGroup *discordgo.ApplicationCommandOption
-	for _, o := range cmd.Options {
-		if o.Name == "gippity" {
-			gippityGroup = o
-		}
-	}
+	cmds := newTestModule(stubGippityProvider()).Commands()
+	gippityGroup := findOption(cmds[0].Options, "gippity")
 	if gippityGroup == nil {
 		t.Fatal("no gippity subcommand group")
 		return
@@ -155,14 +190,8 @@ func TestCommands_GippitySubcommands(t *testing.T) {
 }
 
 func TestCommands_InfoSubcommand(t *testing.T) {
-	cmds := Commands()
-	cmd := cmds[0]
-	var info *discordgo.ApplicationCommandOption
-	for _, o := range cmd.Options {
-		if o.Name == "info" {
-			info = o
-		}
-	}
+	cmds := newTestModule().Commands()
+	info := findOption(cmds[0].Options, "info")
 	if info == nil {
 		t.Fatal("no info subcommand")
 		return
@@ -172,38 +201,203 @@ func TestCommands_InfoSubcommand(t *testing.T) {
 	}
 }
 
-func TestCallerID_Member(t *testing.T) {
-	i := &discordgo.InteractionCreate{
+func TestDispatch_RoutesToMatchingProvider(t *testing.T) {
+	coffee := stubCoffeeProvider()
+	gippity := stubGippityProvider()
+	m := newTestModule(coffee, gippity)
+	s, requests := adminDiscordSession(t)
+
+	sub := &discordgo.ApplicationCommandInteractionDataOption{Name: "beverages", Type: discordgo.ApplicationCommandOptionSubCommand}
+	m.onAdminInteractionCreate(s, adminInteraction("admin", ownerInteractionGroup("coffee", sub)))
+
+	awaitRequest(t, requests) // deferred ephemeral
+	if len(coffee.calls) != 1 {
+		t.Fatalf("coffee provider calls = %d, want 1", len(coffee.calls))
+	}
+	if coffee.calls[0].Name != "beverages" {
+		t.Errorf("coffee sub = %q, want %q", coffee.calls[0].Name, "beverages")
+	}
+	if len(gippity.calls) != 0 {
+		t.Errorf("gippity provider calls = %d, want 0", len(gippity.calls))
+	}
+}
+
+func TestDispatch_NonOwnerDenied(t *testing.T) {
+	coffee := stubCoffeeProvider()
+	m := newTestModule(coffee)
+	s, requests := adminDiscordSession(t)
+
+	sub := &discordgo.ApplicationCommandInteractionDataOption{Name: "beverages", Type: discordgo.ApplicationCommandOptionSubCommand}
+	m.onAdminInteractionCreate(s, adminInteraction("admin", ownerInteractionGroup("coffee", sub), "not-the-owner"))
+
+	req := awaitRequest(t, requests)
+	if req.method != http.MethodPost {
+		t.Errorf("method = %s, want POST", req.method)
+	}
+	if len(coffee.calls) != 0 {
+		t.Errorf("provider called for non-owner: %d calls", len(coffee.calls))
+	}
+	var resp discordgo.InteractionResponse
+	if err := json.Unmarshal(req.body, &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.Type != discordgo.InteractionResponseChannelMessageWithSource {
+		t.Errorf("response Type = %v, want ChannelMessageWithSource", resp.Type)
+	}
+	if resp.Data == nil || resp.Data.Content != "Access denied." {
+		t.Errorf("response content = %+v, want Access denied.", resp.Data)
+	}
+	if resp.Data == nil || resp.Data.Flags != discordgo.MessageFlagsEphemeral {
+		t.Errorf("response flags = %v, want ephemeral", resp.Data)
+	}
+}
+
+func TestDispatch_InfoUsesInjectedRenderer(t *testing.T) {
+	m := newTestModule()
+	m.SetInfoText(func(*discordgo.Session) string { return "stats-here" })
+	s, requests := adminDiscordSession(t)
+
+	m.onAdminInteractionCreate(s, adminInteraction("admin", ownerInteractionGroup("info", nil)))
+
+	awaitRequest(t, requests) // deferred ephemeral
+	editReq := awaitRequest(t, requests)
+	if !strings.Contains(string(editReq.body), "stats-here") {
+		t.Errorf("edit body = %s, want it to contain rendered info", editReq.body)
+	}
+}
+
+func TestDispatch_UnknownGroupIsIgnored(t *testing.T) {
+	m := newTestModule(stubCoffeeProvider())
+	s, requests := adminDiscordSession(t)
+
+	m.onAdminInteractionCreate(s, adminInteraction("admin", ownerInteractionGroup("nope", nil)))
+
+	awaitRequest(t, requests) // deferred ephemeral, then no further request
+	select {
+	case req := <-requests:
+		t.Fatalf("unexpected extra request: %+v", req)
+	case <-time.After(50 * time.Millisecond):
+	}
+}
+
+func TestListener_IgnoresForeignCommand(t *testing.T) {
+	m := newTestModule(stubCoffeeProvider())
+	s, requests := adminDiscordSession(t)
+
+	m.onAdminInteractionCreate(s, adminInteraction("gippity", nil))
+
+	select {
+	case req := <-requests:
+		t.Fatalf("unexpected request for foreign command: %+v", req)
+	case <-time.After(50 * time.Millisecond):
+	}
+}
+
+func TestListener_IgnoresNonCommandInteraction(t *testing.T) {
+	m := newTestModule(stubCoffeeProvider())
+	s, requests := adminDiscordSession(t)
+
+	m.onAdminInteractionCreate(s, &discordgo.InteractionCreate{
+		Interaction: &discordgo.Interaction{Type: discordgo.InteractionMessageComponent, Data: discordgo.MessageComponentInteractionData{CustomID: "x"}},
+	})
+
+	select {
+	case req := <-requests:
+		t.Fatalf("unexpected request for component interaction: %+v", req)
+	case <-time.After(50 * time.Millisecond):
+	}
+}
+
+func TestHandleAdminCommand_NoOptions(t *testing.T) {
+	m := newTestModule(stubCoffeeProvider())
+	s, requests := adminDiscordSession(t)
+
+	m.onAdminInteractionCreate(s, adminInteraction("admin", nil))
+
+	select {
+	case req := <-requests:
+		t.Fatalf("unexpected request for empty /admin: %+v", req)
+	case <-time.After(50 * time.Millisecond):
+	}
+}
+
+func findOption(opts []*discordgo.ApplicationCommandOption, name string) *discordgo.ApplicationCommandOption {
+	for _, o := range opts {
+		if o.Name == name {
+			return o
+		}
+	}
+	return nil
+}
+
+func ownerInteractionGroup(name string, sub *discordgo.ApplicationCommandInteractionDataOption) []*discordgo.ApplicationCommandInteractionDataOption {
+	group := &discordgo.ApplicationCommandInteractionDataOption{
+		Name: name,
+		Type: discordgo.ApplicationCommandOptionSubCommandGroup,
+	}
+	if sub != nil {
+		group.Options = []*discordgo.ApplicationCommandInteractionDataOption{sub}
+	}
+	return []*discordgo.ApplicationCommandInteractionDataOption{group}
+}
+
+// adminInteraction builds an /admin interaction from the given user.
+func adminInteraction(name string, options []*discordgo.ApplicationCommandInteractionDataOption, userID ...string) *discordgo.InteractionCreate {
+	uid := "owner-1"
+	if len(userID) > 0 {
+		uid = userID[0]
+	}
+	return &discordgo.InteractionCreate{
 		Interaction: &discordgo.Interaction{
+			ID: "interaction", AppID: "app", Token: "token",
+			Type: discordgo.InteractionApplicationCommand,
+			Data: discordgo.ApplicationCommandInteractionData{Name: name, Options: options},
 			Member: &discordgo.Member{
-				User: &discordgo.User{ID: "member-user-id"},
+				User: &discordgo.User{ID: uid},
 			},
 		},
 	}
-	got := callerID(i)
-	if got != "member-user-id" {
-		t.Errorf("callerID = %q, want %q", got, "member-user-id")
-	}
 }
 
-func TestCallerID_User(t *testing.T) {
-	i := &discordgo.InteractionCreate{
-		Interaction: &discordgo.Interaction{
-			User: &discordgo.User{ID: "direct-user-id"},
-		},
-	}
-	got := callerID(i)
-	if got != "direct-user-id" {
-		t.Errorf("callerID = %q, want %q", got, "direct-user-id")
-	}
+type discordRequest struct {
+	method string
+	path   string
+	body   []byte
 }
 
-func TestCallerID_Neither(t *testing.T) {
-	i := &discordgo.InteractionCreate{
-		Interaction: &discordgo.Interaction{},
+// adminDiscordSession returns a session that routes all REST calls to a local
+// test server, plus a channel of the captured requests.
+func adminDiscordSession(t *testing.T) (*discordgo.Session, <-chan discordRequest) {
+	t.Helper()
+	requests := make(chan discordRequest, 4)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		requests <- discordRequest{method: r.Method, path: r.URL.Path, body: body}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	t.Cleanup(server.Close)
+	origAPI, origWebhooks := discordgo.EndpointAPI, discordgo.EndpointWebhooks
+	discordgo.EndpointAPI = server.URL + "/"
+	discordgo.EndpointWebhooks = server.URL + "/webhooks/"
+	t.Cleanup(func() {
+		discordgo.EndpointAPI = origAPI
+		discordgo.EndpointWebhooks = origWebhooks
+	})
+	s, err := discordgo.New("Bot test")
+	if err != nil {
+		t.Fatal(err)
 	}
-	got := callerID(i)
-	if got != "" {
-		t.Errorf("callerID = %q, want empty string", got)
+	return s, requests
+}
+
+func awaitRequest(t *testing.T, requests <-chan discordRequest) discordRequest {
+	t.Helper()
+	select {
+	case req := <-requests:
+		return req
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for a Discord request")
+		return discordRequest{}
 	}
 }
