@@ -392,6 +392,29 @@ func TestRecordDateOption(t *testing.T) {
 	}
 }
 
+func TestRecordDailyOneWinnerPerDay(t *testing.T) {
+	m, _ := newTestModule(t)
+	m.now = func() time.Time { return time.Date(2026, time.September, 24, 13, 0, 0, 0, time.Local) }
+	addRecord(t, m, "one", "c1", "alice", "d1-a", time.Date(2026, time.September, 10, 13, 37, 0, 0, time.Local), 500)
+	addRecord(t, m, "one", "c1", "bob", "d1-b", time.Date(2026, time.September, 10, 13, 37, 1, 0, time.Local), 20)
+	addRecord(t, m, "one", "c1", "alice", "d2-a", time.Date(2026, time.September, 11, 13, 37, 0, 0, time.Local), 40)
+	addRecord(t, m, "one", "c1", "bob", "d2-b", time.Date(2026, time.September, 11, 13, 37, 0, 0, time.Local), 700)
+
+	body, err := m.recordResponse("one", recordRequest{subcommand: "daily", period: datastore.PeriodMonth, periodName: "month"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(body, "daily winners") {
+		t.Errorf("daily header = %q", body)
+	}
+	if got := strings.Count(body, " ms"); got != 2 {
+		t.Errorf("daily rows = %d, want one per day (2): %q", got, body)
+	}
+	if !strings.Contains(body, "20 ms") || !strings.Contains(body, "40 ms") || strings.Contains(body, "500 ms") || strings.Contains(body, "700 ms") {
+		t.Errorf("daily output = %q", body)
+	}
+}
+
 func TestLegacyRecordDisplay(t *testing.T) {
 	m, _ := newTestModule(t)
 	date := time.Date(2024, time.February, 19, 13, 37, 0, 0, time.UTC)

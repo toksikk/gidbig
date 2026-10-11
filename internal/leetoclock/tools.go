@@ -17,8 +17,8 @@ var leetoclockRecordsParameters = json.RawMessage(`{
   "properties": {
     "subcommand": {
       "type": "string",
-      "enum": ["top", "player"],
-      "description": "top lists the best players; player lists one player's best attempts."
+      "enum": ["top", "daily", "player"],
+      "description": "top lists the best players over the range; daily lists one winner per calendar day; player lists one player's best attempts. Use daily for questions like 'who won each day'."
     },
     "period": {
       "type": "string",
@@ -58,7 +58,7 @@ func (m *Module) registerTools() {
 	}
 	m.tools.Register(tool.Def{
 		Name:        "leetoclock_records",
-		Description: "Look up Leet o'Clock reaction-time records: a top-players board or one player's best attempts, for the current server or globally, for a period preset, one date, or a from/to day range. Read-only.",
+		Description: "Look up Leet o'Clock reaction-time records for the current server or globally. Subcommands: top (best players over a period), daily (one winner per calendar day), player (one player's best attempts). Accepts a period preset, one date, or a from/to day range. Use daily to answer 'who won each day'. Read-only.",
 		Parameters:  leetoclockRecordsParameters,
 		Handler:     m.recordsHandler,
 	})
@@ -88,10 +88,12 @@ func (m *Module) recordsHandler(_ context.Context, env tool.Env, args json.RawMe
 	switch strings.ToLower(strings.TrimSpace(in.Subcommand)) {
 	case "top":
 		r.subcommand = "top"
+	case "daily":
+		r.subcommand = "daily"
 	case "player":
 		r.subcommand = "player"
 	default:
-		return `choose subcommand "top" or "player"`, nil
+		return `choose subcommand "top", "daily" or "player"`, nil
 	}
 
 	period, err := parsePeriod(in.Period)

@@ -281,6 +281,13 @@ func (m *Module) recordResponse(guildID string, r recordRequest) (string, error)
 		}
 		return renderTop(r, records, m.serverName, m.playerDisplayName), nil
 	}
+	if r.subcommand == "daily" {
+		records, err := m.dailyWinners(queryGuild, r)
+		if err != nil {
+			return "", err
+		}
+		return renderDaily(r, records, m.serverName, m.playerDisplayName), nil
+	}
 	records, count, err := m.playerRecords(r.userID, queryGuild, r)
 	if err != nil {
 		return "", err
@@ -331,6 +338,14 @@ func (m *Module) playerRecords(userID, guildID string, r recordRequest) ([]datas
 		return m.store.PlayerRecordsBetween(userID, guildID, start, end)
 	}
 	return m.store.PlayerRecords(userID, guildID, r.period, m.now())
+}
+
+// dailyWinners resolves the requested window for a one-winner-per-day query.
+func (m *Module) dailyWinners(guildID string, r recordRequest) ([]datastore.ScoreRecord, error) {
+	if start, end, ok := m.recordWindow(r); ok {
+		return m.store.DailyWinnersBetween(guildID, start, end)
+	}
+	return m.store.DailyWinners(guildID, r.period, m.now())
 }
 
 // Only use guild names already available in the session state; global lookups
@@ -438,6 +453,36 @@ func renderTop(r recordRequest, records []datastore.ScoreRecord, serverName func
 			}
 		}
 		line := fmt.Sprintf("%d. %s — %d ms · %s", idx+1, name, record.Score, recordDate(record))
+		if r.scope == "global" {
+			line += " · " + serverName(record.GuildID)
+		} else {
+			line += recordLink(record)
+		}
+		body = appendRecordLine(body, line+"\n")
+	}
+	return boundedRecords(body)
+}
+
+// renderDaily lists one winner per game date, oldest first. It is the shape that
+// answers "who won each day" directly, unlike renderTop, which ranks players.
+func renderDaily(r recordRequest, records []datastore.ScoreRecord, serverName func(string) string, playerName func(string, string) string) string {
+	scope := "current server"
+	if r.scope == "global" {
+		scope = "global"
+	}
+	body := fmt.Sprintf("**Leet o'Clock daily winners · %s · %s**\n", scope, r.periodName)
+	if len(records) == 0 {
+		return boundedRecords(body + "No valid scores in this period.")
+	}
+	for _, record := range records {
+		name := fmt.Sprintf("<@%s>", record.UserID)
+		if r.public {
+			name = playerName(record.GuildID, record.UserID)
+			if name == "" {
+				name = "User ID " + safePlayerName(record.UserID)
+			}
+		}
+		line := fmt.Sprintf("%s — %s — %d ms", recordDate(record), name, record.Score)
 		if r.scope == "global" {
 			line += " · " + serverName(record.GuildID)
 		} else {
