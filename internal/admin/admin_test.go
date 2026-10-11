@@ -266,6 +266,32 @@ func TestDispatch_InfoUsesInjectedRenderer(t *testing.T) {
 	}
 }
 
+func TestDispatch_InfoWithoutRenderer(t *testing.T) {
+	m := newTestModule()
+	s, requests := adminDiscordSession(t)
+
+	m.onAdminInteractionCreate(s, adminInteraction("admin", ownerInteractionGroup("info", nil)))
+
+	awaitRequest(t, requests) // deferred ephemeral
+	editReq := awaitRequest(t, requests)
+	if !strings.Contains(string(editReq.body), "Info unavailable.") {
+		t.Errorf("edit body = %s, want the missing-renderer fallback", editReq.body)
+	}
+}
+
+func TestListener_WithoutInitDoesNotPanic(t *testing.T) {
+	m := New(stubCoffeeProvider()) // deliberately no Init
+	s, requests := adminDiscordSession(t)
+
+	m.onAdminInteractionCreate(s, adminInteraction("admin", ownerInteractionGroup("info", nil)))
+
+	// No owner is configured yet, so the pre-wired gate denies the caller.
+	req := awaitRequest(t, requests)
+	if !strings.Contains(string(req.body), "Access denied.") {
+		t.Errorf("body = %s, want the denial from the pre-wired gate", req.body)
+	}
+}
+
 func TestDispatch_UnknownGroupIsIgnored(t *testing.T) {
 	m := newTestModule(stubCoffeeProvider())
 	s, requests := adminDiscordSession(t)
@@ -366,7 +392,9 @@ type discordRequest struct {
 }
 
 // adminDiscordSession returns a session that routes all REST calls to a local
-// test server, plus a channel of the captured requests.
+// test server, plus a channel of the captured requests. It swaps the
+// process-global discordgo endpoint variables, so tests in this package must
+// not call t.Parallel(); cleanup restores the originals after each test.
 func adminDiscordSession(t *testing.T) (*discordgo.Session, <-chan discordRequest) {
 	t.Helper()
 	requests := make(chan discordRequest, 4)

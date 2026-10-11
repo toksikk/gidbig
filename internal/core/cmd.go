@@ -319,9 +319,13 @@ func StartGidbig() {
 		bgSupervisor.Start(bgCtx, gippityMod.Background()...)
 	}
 	// Admin aggregates the provider modules under /admin. Build the provider
-	// list here, once every provider has had a chance to initialize, so admin
-	// needs no edits when a new AdminProvider module is added.
-	adminProviders := []bot.AdminProvider{coffeeMod}
+	// list from modules that initialized successfully, so the /admin tree never
+	// advertises a provider whose Init failed. Adding a new AdminProvider module
+	// needs no edits inside internal/admin.
+	var adminProviders []bot.AdminProvider
+	if coffeeReady {
+		adminProviders = append(adminProviders, coffeeMod)
+	}
 	if gippityReady {
 		adminProviders = append(adminProviders, gippityMod)
 	}

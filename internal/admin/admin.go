@@ -24,7 +24,12 @@ type Module struct {
 // New returns an admin Module that exposes each provider's subcommand group
 // under /admin.
 func New(providers ...bot.AdminProvider) *Module {
-	return &Module{providers: providers}
+	m := &Module{providers: providers}
+	// Pre-wire the owner gate so onAdminInteractionCreate never dereferences a
+	// nil handler if Listeners() runs without a prior Init. Init rebuilds it
+	// with the configured owner ID; until then every caller is denied.
+	m.dispatch = bot.OwnerOnly("")(m.handleAdminCommand)
+	return m
 }
 
 // SetInfoText injects the renderer for the built-in /admin info subcommand. The
@@ -37,11 +42,12 @@ func (m *Module) Name() string { return "admin" }
 // Init wires the owner gate from Deps. The owner ID comes from Deps.OwnerID, or
 // from the config when running without a composition root.
 func (m *Module) Init(d bot.Deps) error {
-	switch {
-	case d.OwnerID != "":
-		m.ownerID = d.OwnerID
-	case d.Config != nil:
+	m.ownerID = d.OwnerID
+	if m.ownerID == "" && d.Config != nil {
 		m.ownerID = d.Config.Discord.OwnerID
+	}
+	if m.ownerID == "" {
+		slog.Warn("admin: no owner ID configured; /admin denies all callers")
 	}
 	m.dispatch = bot.OwnerOnly(m.ownerID)(m.handleAdminCommand)
 	slog.Info("admin: initialized", "providers", len(m.providers))
