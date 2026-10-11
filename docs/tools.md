@@ -63,7 +63,7 @@ No change to `internal/gippity` or `internal/core` is needed to add a tool.
 | `list_sounds` | soundboard | sound collections and the sound names in each |
 | `coffee_status` | coffee | the current guild's coffee machine levels and leaderboards |
 | `coffee_stats` | coffee | one user's drinks, refills and grounds stats in the current guild (accepts an ID, name, nickname or mention) |
-| `leetoclock_records` | leetoclock | a top-players board or one player's records for the current guild, or globally, for a period or one `date` (accepts an ID, name, nickname or mention) |
+| `leetoclock_records` | leetoclock | a top-players board or one player's records for the current guild, or globally, for a period preset, one `date`, or an inclusive `from`/`to` day range (accepts an ID, name, nickname or mention) |
 | `anticheat_lookup` | anticheat | a game/vendor match from the cached GamingOnLinux anti-cheat list |
 | `wardogs_status` | wardogs | the cached WARDOGS Linux/Proton support verdict |
 | `weather` | wttrin | current weather or forecast for a location, from the cached wttr.in lookup |

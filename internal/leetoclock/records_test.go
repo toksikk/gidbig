@@ -31,7 +31,7 @@ func TestRecordCommandsSchema(t *testing.T) {
 			}
 		}
 	}
-	for _, choice := range []string{"month", "7d", "30d", "all"} {
+	for _, choice := range []string{"month", "today", "yesterday", "week", "7d", "30d", "year", "all"} {
 		found := false
 		for _, opt := range command.Options[0].Options[0].Choices {
 			if opt.Value == choice {
@@ -314,6 +314,35 @@ func TestRecordPeriodsAndGuildScope(t *testing.T) {
 	global, err := m.recordResponse("one", recordRequest{subcommand: "top", scope: "global", period: datastore.PeriodMonth, periodName: "month"})
 	if err != nil || !strings.Contains(global, "0 ms") || strings.Contains(global, "discord.com/channels") {
 		t.Errorf("global top: %s, %v", global, err)
+	}
+}
+
+func TestParsePeriodPresets(t *testing.T) {
+	all := []datastore.Period{
+		datastore.PeriodMonth, datastore.PeriodToday, datastore.PeriodYesterday,
+		datastore.PeriodWeek, datastore.PeriodLast7Days, datastore.PeriodLast30Days,
+		datastore.PeriodYear, datastore.PeriodAllTime,
+	}
+	for _, period := range all {
+		name := periodNames[period]
+		if name == "" {
+			t.Fatalf("period %q has no display name", period)
+		}
+		got, err := parsePeriod(name)
+		if err != nil || got != period {
+			t.Errorf("parsePeriod(%q) = %q, %v; want %q", name, got, err, period)
+		}
+	}
+	for _, value := range []string{"", " Month ", "today", "today"} {
+		if _, err := parsePeriod(value); err != nil {
+			t.Errorf("parsePeriod(%q) = %v", value, err)
+		}
+	}
+	if got, err := parsePeriod(""); err != nil || got != datastore.PeriodMonth {
+		t.Errorf("empty period = %q, %v; want month", got, err)
+	}
+	if _, err := parsePeriod("bogus"); err == nil {
+		t.Error("invalid period accepted")
 	}
 }
 

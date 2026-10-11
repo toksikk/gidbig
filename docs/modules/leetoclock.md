@@ -9,13 +9,14 @@ Daily game: players race to post exactly when the clock hits `13:37` (configurab
 - Debug mode: one minute after start, fast tick.
 - LLM tool: `leetoclock_records` mirrors `/leetoclock top|player`, scoped to the caller's guild. The `user` argument accepts an ID, name, nickname or mention; partial names resolve against the caller's guild via `util.ResolveMemberQuery`, and ambiguous names return a candidate list.
 - Date lookup: pass `date:YYYY-MM-DD` (command option `date`, tool argument `date`) to query one game date. It overrides `period`, so a question about a named day cannot be answered with a neighbouring period's numbers.
+- Date range: the tool's `from`/`to` arguments (`YYYY-MM-DD`, inclusive) query an arbitrary window that no `period` preset can express. Set either side alone for an open-ended window: `from` alone reaches to today, `to` alone reaches back to the earliest stored game. `date` and `from`/`to` are mutually exclusive.
 
 ## Record commands
 
 - `/leetoclock top` shows this server's ten best distinct players for the current calendar month. Example: `/leetoclock top period:7d scope:global public:true` posts the last seven days' top players across all servers in the invoking channel.
 - `/leetoclock player` shows your current-month records in this server, including valid attempt count and ten best scores. Example: `/leetoclock player user:@someone period:all scope:global` looks up that player's records across servers without linking to other servers' messages.
 
-Both commands default to private (ephemeral) responses. Set `public:true` to share in the invoking channel. Set `scope:global` for cross-server records; otherwise results cover all channels in the current server. Global results show server names when available and never link to cross-server messages. Period choices: `month` (current calendar month), `7d` (past 7 days), `30d` (past 30 days), `all` (all stored history). Only scores at or after the target time count; early-bird negative scores are excluded.
+Both commands default to private (ephemeral) responses. Set `public:true` to share in the invoking channel. Set `scope:global` for cross-server records; otherwise results cover all channels in the current server. Global results show server names when available and never link to cross-server messages. Period choices: `month` (current calendar month), `today`, `yesterday`, `week` (current calendar week from Monday), `7d` (past 7 days), `30d` (past 30 days), `year` (current calendar year), `all` (all stored history). The `date` option queries a single day; the LLM tool also accepts `from`/`to` for an arbitrary day range. Only scores at or after the target time count; early-bird negative scores are excluded.
 
 Public `/leetoclock top` uses plain display names, resolving uncached players through Discord; if lookup fails, it shows their user ID instead of hiding their identity. It never uses player mentions. Private results can display player mentions without sending notifications.
 

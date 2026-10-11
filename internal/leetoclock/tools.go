@@ -22,12 +22,20 @@ var leetoclockRecordsParameters = json.RawMessage(`{
     },
     "period": {
       "type": "string",
-      "enum": ["month", "7d", "30d", "all"],
-      "description": "Game date range. Defaults to the current month. Ignored when date is given."
+      "enum": ["month", "today", "yesterday", "week", "7d", "30d", "year", "all"],
+      "description": "Game date range. Defaults to the current month. Ignored when date or from/to is given."
     },
     "date": {
       "type": "string",
-      "description": "One specific game date, YYYY-MM-DD. Use it to answer questions about a named day; it overrides period."
+      "description": "One specific game date, YYYY-MM-DD. Use it to answer questions about a named day; it overrides period and from/to."
+    },
+    "from": {
+      "type": "string",
+      "description": "First game date of an inclusive range, YYYY-MM-DD. Use with to, or alone for everything up to today; overrides period."
+    },
+    "to": {
+      "type": "string",
+      "description": "Last game date of an inclusive range, YYYY-MM-DD. Use with from, or alone for everything up to that date; overrides period."
     },
     "scope": {
       "type": "string",
@@ -50,7 +58,7 @@ func (m *Module) registerTools() {
 	}
 	m.tools.Register(tool.Def{
 		Name:        "leetoclock_records",
-		Description: "Look up Leet o'Clock reaction-time records: a top-players board or one player's best attempts, for the current server or globally. Read-only.",
+		Description: "Look up Leet o'Clock reaction-time records: a top-players board or one player's best attempts, for the current server or globally, for a period preset, one date, or a from/to day range. Read-only.",
 		Parameters:  leetoclockRecordsParameters,
 		Handler:     m.recordsHandler,
 	})
@@ -64,6 +72,8 @@ func (m *Module) recordsHandler(_ context.Context, env tool.Env, args json.RawMe
 		Subcommand string `json:"subcommand"`
 		Period     string `json:"period"`
 		Date       string `json:"date"`
+		From       string `json:"from"`
+		To         string `json:"to"`
 		Scope      string `json:"scope"`
 		User       string `json:"user"`
 	}
@@ -84,22 +94,29 @@ func (m *Module) recordsHandler(_ context.Context, env tool.Env, args json.RawMe
 		return `choose subcommand "top" or "player"`, nil
 	}
 
-	switch strings.ToLower(strings.TrimSpace(in.Period)) {
-	case "", "month":
-		r.period, r.periodName = datastore.PeriodMonth, "month"
-	case "7d":
-		r.period, r.periodName = datastore.PeriodLast7Days, "7d"
-	case "30d":
-		r.period, r.periodName = datastore.PeriodLast30Days, "30d"
-	case "all":
-		r.period, r.periodName = datastore.PeriodAllTime, "all"
-	default:
+	period, err := parsePeriod(in.Period)
+	if err != nil {
 		return "invalid period", nil
 	}
+	r.period, r.periodName = period, periodNames[period]
 
 	day, err := parseRecordDay(in.Date)
 	if err != nil {
 		return "invalid date: use YYYY-MM-DD", nil
+	}
+	from, err := parseRecordDay(in.From)
+	if err != nil {
+		return "invalid from: use YYYY-MM-DD", nil
+	}
+	to, err := parseRecordDay(in.To)
+	if err != nil {
+		return "invalid to: use YYYY-MM-DD", nil
+	}
+	if !day.IsZero() && (!from.IsZero() || !to.IsZero()) {
+		return "use either date or from/to, not both", nil
+	}
+	if !from.IsZero() && !to.IsZero() && from.After(to) {
+		return "from must not be after to", nil
 	}
 
 	switch strings.ToLower(strings.TrimSpace(in.Scope)) {
@@ -131,6 +148,9 @@ func (m *Module) recordsHandler(_ context.Context, env tool.Env, args json.RawMe
 	if !day.IsZero() {
 		r.day = day
 		r.periodName = day.Format("2006-01-02")
+	} else if !from.IsZero() || !to.IsZero() {
+		r.from, r.to = from, to
+		r.periodName = recordRangeName(from, to)
 	}
 
 	return m.recordResponse(env.GuildID, r)

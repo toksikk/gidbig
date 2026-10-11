@@ -10,8 +10,12 @@ type Period string
 
 const (
 	PeriodMonth      Period = "month"
+	PeriodToday      Period = "today"
+	PeriodYesterday  Period = "yesterday"
+	PeriodWeek       Period = "week"
 	PeriodLast7Days  Period = "last7days"
 	PeriodLast30Days Period = "last30days"
+	PeriodYear       Period = "year"
 	PeriodAllTime    Period = "alltime"
 	maxHistoryRows          = 10
 )
@@ -33,10 +37,21 @@ func historyBounds(period Period, now time.Time) (time.Time, time.Time, error) {
 	switch period {
 	case "", PeriodMonth:
 		return time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.Local), now, nil
+	case PeriodToday:
+		return time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.Local), now, nil
+	case PeriodYesterday:
+		today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.Local)
+		return today.AddDate(0, 0, -1), today, nil
+	case PeriodWeek:
+		// Calendar week starting on Monday, from local midnight up to now.
+		midnight := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.Local)
+		return midnight.AddDate(0, 0, -int((midnight.Weekday()+6)%7)), now, nil
 	case PeriodLast7Days:
 		return now.Add(-7 * 24 * time.Hour), now, nil
 	case PeriodLast30Days:
 		return now.Add(-30 * 24 * time.Hour), now, nil
+	case PeriodYear:
+		return time.Date(now.Year(), time.January, 1, 0, 0, 0, 0, time.Local), now, nil
 	case PeriodAllTime:
 		return time.Time{}, now, nil
 	default:

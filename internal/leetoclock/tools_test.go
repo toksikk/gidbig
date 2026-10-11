@@ -3,6 +3,7 @@ package leetoclock
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -106,6 +107,94 @@ func TestRecordsHandlerDate(t *testing.T) {
 	}
 	if !strings.Contains(bad, "invalid date") {
 		t.Errorf("invalid date output = %q", bad)
+	}
+}
+
+func TestRecordsHandlerDateRange(t *testing.T) {
+	m := registerRecordTools(t)
+	m.now = func() time.Time { return time.Date(2026, time.September, 24, 13, 0, 0, 0, time.Local) }
+	player := "111111111111111111"
+	addRecord(t, m, "guild-1", "c1", player, "m-jul-08", time.Date(2026, time.July, 8, 13, 37, 0, 0, time.Local), 100)
+	addRecord(t, m, "guild-1", "c1", player, "m-jul-10", time.Date(2026, time.July, 10, 13, 37, 0, 0, time.Local), 137)
+	addRecord(t, m, "guild-1", "c1", player, "m-jul-12", time.Date(2026, time.July, 12, 13, 37, 0, 0, time.Local), 200)
+
+	def, _ := m.tools.Get("leetoclock_records")
+	call := func(args string) string {
+		t.Helper()
+		out, err := def.Handler(context.Background(), tool.Env{GuildID: "guild-1"}, json.RawMessage(args))
+		if err != nil {
+			t.Fatalf("handler(%s): %v", args, err)
+		}
+		return out
+	}
+
+	// A closed range includes both ends and nothing outside it.
+	out := call(`{"subcommand":"player","user":"` + player + `","from":"2026-07-08","to":"2026-07-10"}`)
+	if !strings.Contains(out, "Valid attempts: 2") || !strings.Contains(out, "100 ms") || !strings.Contains(out, "137 ms") || strings.Contains(out, "200 ms") {
+		t.Errorf("closed range output = %q", out)
+	}
+	if !strings.Contains(out, "2026-07-08 – 2026-07-10") {
+		t.Errorf("closed range label = %q", out)
+	}
+
+	// An open start reaches back to the earliest stored game.
+	out = call(`{"subcommand":"player","user":"` + player + `","to":"2026-07-08"}`)
+	if !strings.Contains(out, "Valid attempts: 1") || !strings.Contains(out, "100 ms") || !strings.Contains(out, "until 2026-07-08") {
+		t.Errorf("open start output = %q", out)
+	}
+
+	// An open end reaches forward to now.
+	out = call(`{"subcommand":"player","user":"` + player + `","from":"2026-07-11"}`)
+	if !strings.Contains(out, "Valid attempts: 1") || !strings.Contains(out, "200 ms") || !strings.Contains(out, "from 2026-07-11") {
+		t.Errorf("open end output = %q", out)
+	}
+
+	// A range overrides period, and the top board only keeps each player's best.
+	out = call(`{"subcommand":"top","from":"2026-07-08","to":"2026-07-10"}`)
+	if !strings.Contains(out, "100 ms") || strings.Contains(out, "137 ms") || strings.Contains(out, "200 ms") {
+		t.Errorf("top range output = %q", out)
+	}
+
+	if got := call(`{"subcommand":"top","date":"2026-07-08","from":"2026-07-01"}`); !strings.Contains(got, "not both") {
+		t.Errorf("date+range output = %q", got)
+	}
+	if got := call(`{"subcommand":"top","from":"2026-07-10","to":"2026-07-08"}`); !strings.Contains(got, "after") {
+		t.Errorf("reversed range output = %q", got)
+	}
+	if got := call(`{"subcommand":"top","from":"07/08/2026"}`); !strings.Contains(got, "invalid from") {
+		t.Errorf("invalid from output = %q", got)
+	}
+	if got := call(`{"subcommand":"top","to":"07/08/2026"}`); !strings.Contains(got, "invalid to") {
+		t.Errorf("invalid to output = %q", got)
+	}
+}
+
+func TestRecordsHandlerPeriodPresets(t *testing.T) {
+	m := registerRecordTools(t)
+	m.now = func() time.Time { return time.Date(2026, time.September, 24, 13, 0, 0, 0, time.Local) }
+	player := "111111111111111111"
+	addRecord(t, m, "guild-1", "c1", player, "today", time.Date(2026, time.September, 24, 8, 0, 0, 0, time.Local), 1)
+	addRecord(t, m, "guild-1", "c1", player, "yesterday", time.Date(2026, time.September, 23, 8, 0, 0, 0, time.Local), 2)
+	addRecord(t, m, "guild-1", "c1", player, "last-month", time.Date(2026, time.August, 24, 8, 0, 0, 0, time.Local), 3)
+
+	def, _ := m.tools.Get("leetoclock_records")
+	for _, tc := range []struct {
+		period string
+		want   int
+	}{
+		{"today", 1},
+		{"yesterday", 1},
+		{"week", 2},
+		{"year", 3},
+		{"all", 3},
+	} {
+		out, err := def.Handler(context.Background(), tool.Env{GuildID: "guild-1"}, json.RawMessage(`{"subcommand":"player","user":"`+player+`","period":"`+tc.period+`"}`))
+		if err != nil {
+			t.Fatalf("period %s: %v", tc.period, err)
+		}
+		if !strings.Contains(out, fmt.Sprintf("Valid attempts: %d", tc.want)) {
+			t.Errorf("period %s output = %q, want %d attempts", tc.period, out, tc.want)
+		}
 	}
 }
 
