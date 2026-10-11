@@ -10,6 +10,7 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/toksikk/gidbig/internal/bot"
 	"github.com/toksikk/gidbig/internal/llm"
+	"github.com/toksikk/gidbig/internal/tool"
 	"github.com/toksikk/gidbig/internal/util"
 
 	openai "github.com/openai/openai-go/v3"
@@ -69,6 +70,15 @@ type Module struct {
 	classifierModel      string
 	classifierRateLimit  int
 
+	// tools is the shared tool registry. When toolsEnabled is true the answer
+	// path offers the registered tools to the model and runs a bounded tool
+	// loop; toolMaxIterations caps tool-call rounds and toolAllowed optionally
+	// restricts which tools are offered.
+	tools             *tool.Registry
+	toolsEnabled      bool
+	toolMaxIterations int
+	toolAllowed       map[string]bool
+
 	llmClient *llm.Client
 }
 
@@ -80,6 +90,7 @@ func New() *Module {
 		classifierRateLimit:      30,
 		classifierCount:          make(map[string]int),
 		classifierCountLastReset: make(map[string]time.Time),
+		toolMaxIterations:        defaultToolMaxIterations,
 	}
 	m.generateAnswerFunc = m.generateAnswer
 	m.chatCompletionFunc = func(ctx context.Context, params openai.ChatCompletionNewParams) (*openai.ChatCompletion, error) {
@@ -138,7 +149,20 @@ func (m *Module) Init(d bot.Deps) error {
 		if d.Config.Gippity.ClassifierRateLimitPerHour > 0 {
 			m.classifierRateLimit = d.Config.Gippity.ClassifierRateLimitPerHour
 		}
+		m.toolsEnabled = d.Config.Gippity.Tools.Enabled
+		if d.Config.Gippity.Tools.MaxIterations > 0 {
+			m.toolMaxIterations = d.Config.Gippity.Tools.MaxIterations
+		}
+		if len(d.Config.Gippity.Tools.Allowed) > 0 {
+			m.toolAllowed = make(map[string]bool, len(d.Config.Gippity.Tools.Allowed))
+			for _, name := range d.Config.Gippity.Tools.Allowed {
+				m.toolAllowed[name] = true
+			}
+		}
 	}
+
+	m.tools = d.Tools
+	m.registerSearchHistoryTool()
 
 	m.userMessageCount = make(map[string]int)
 	m.userMessageCountLastReset = make(map[string]time.Time)

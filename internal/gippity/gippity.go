@@ -10,6 +10,7 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/toksikk/gidbig/internal/llm"
+	"github.com/toksikk/gidbig/internal/tool"
 	"github.com/toksikk/gidbig/internal/util"
 
 	openai "github.com/openai/openai-go/v3"
@@ -505,19 +506,16 @@ Manche Namen sind Pseudonyme (Benutzer 1, 2, …) für anonyme Teilnehmer. Echte
 		}
 	}
 
-	chatCompletion, err := m.chatCompletionFunc(context.Background(), openai.ChatCompletionNewParams{
-		Messages:            messages,
-		Model:               m.llmClient.Model(),
-		N:                   openai.Int(1),
-		MaxCompletionTokens: openai.Int(300),
-	})
+	env := tool.Env{GuildID: mc.GuildID, ChannelID: mc.ChannelID}
+	if mc.Author != nil {
+		env.UserID = mc.Author.ID
+	}
 
-	slog.Debug("Chat completion", "chatCompletion", chatCompletion)
-
+	answer, err := m.completeWithTools(context.Background(), env, messages)
 	if err != nil {
 		slog.Error("Error while getting completion", "error", err)
 		return "", err
 	}
 
-	return llm.CompletionContent(chatCompletion)
+	return answer, nil
 }

@@ -6,6 +6,7 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/toksikk/gidbig/internal/cfg"
 	"github.com/toksikk/gidbig/internal/llm"
+	"github.com/toksikk/gidbig/internal/tool"
 	"gorm.io/gorm"
 )
 
@@ -25,4 +26,9 @@ type Deps struct {
 	// Stats collects StatsProviders from modules registered with the Bot. The
 	// core module reads it for /status and /admin info.
 	Stats *StatsRegistry
+
+	// Tools collects the LLM tool definitions modules register during Init.
+	// The gippity answer loop reads it while composing an answer. A module
+	// registers its own tools; no second wiring phase is needed.
+	Tools *tool.Registry
 }

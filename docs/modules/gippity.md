@@ -9,6 +9,7 @@ LLM chat for Discord: answers when the bot is mentioned, keeps per-channel histo
 - Rate limit: `rate_limit_messages_per_hour` per user (reply budget). Non-mention classifier calls have a separate `classifier_rate_limit_per_hour` per-user budget.
 - Reply target: `reply_in_thread` (default `false`) posts the answer inside a public thread started on the mentioning message instead of the channel. The thread name is derived from that message (mentions, backticks and control/format characters stripped, clamped to 100 characters). Messages that already arrive in a thread are answered in place, since Discord does not nest threads, and a failed thread start falls back to the channel. Rate-limit notices follow the same setting.
 - Non-mention responses: `respond_to_all_messages` (default `false`) enables the classifier decision for messages that do not mention the bot. Each user must additionally opt in with `/gippity nonmention set:on` (`gippity_user_consent`, default off). Direct mentions always bypass the classifier and the consent check. The decision uses `classifier_model` (empty → `llm.model`) with `temperature=0` and a 5-token cap, parses a strict `YES`/`NO`, and fails closed on any provider or parsing error. Vision/attachment descriptions run only after a positive decision, and over-budget non-mentions are skipped silently.
+- Tool calling: `gippity.tools` (see [tools](../tools.md)) optionally offers registered tools to the model and runs a bounded tool loop in `completeWithTools` (`gippity_tools.go`). `enabled` (default `false`) keeps the pre-tool single-call path; `max_iterations` (default 3) caps tool-call rounds before a final tool-free call; `allowed` optionally restricts tool names. The tool scope (`tool.Env{GuildID, ChannelID, UserID}`) is taken from the originating message, never from model arguments, and the whole loop is bounded by a 60s context deadline. gippity owns `search_chat_history` (scope-clamped channel/guild history search with prompt-path privacy parity); the core module owns `bot_status`.
 
 ## Message answer flow
 
@@ -21,6 +22,7 @@ sequenceDiagram
     participant V as Vision LLM
     participant C as Classifier LLM
     participant L as LLM
+    participant T as Tool
 
     U->>D: message (+ attachments)
     D->>G: onMessageCreate
@@ -46,8 +48,14 @@ sequenceDiagram
         G->>L: typing indicator
         G->>DB: getLastNMessagesFromDatabase(10)
         G->>G: build system prompt (personality, season, reactions, pseudonyms)
-        G->>L: Chat.Completions.New
-        L-->>G: answer
+        loop bounded by max_iterations (tools enabled)
+            G->>L: Chat.Completions.New (tools, tool_choice=auto)
+            L-->>G: tool_calls or answer
+            opt tool_calls returned
+                G->>T: run tool in caller scope
+                T-->>G: truncated result
+            end
+        end
         alt reply_in_thread and channel is not a thread
             G->>D: MessageThreadStartComplex(name from message)
             D-->>G: thread

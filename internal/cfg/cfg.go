@@ -12,8 +12,9 @@ import (
 // Defaults applied to optional operational tuning fields when absent from
 // config.yaml, preserving legacy behavior.
 const (
-	defaultSoundboardQueueMaxDepth = 6
-	defaultGippityRateLimitPerHour = 30
+	defaultSoundboardQueueMaxDepth  = 6
+	defaultGippityRateLimitPerHour  = 30
+	defaultGippityToolMaxIterations = 3
 )
 
 // LeetoclockEmojisConfig holds optional custom Discord emoji IDs used as
@@ -79,6 +80,18 @@ type Config struct {
 		// ClassifierRateLimitPerHour caps classifier calls per user per hour.
 		// Defaults to 30 when omitted.
 		ClassifierRateLimitPerHour int `yaml:"classifier_rate_limit_per_hour,omitempty"`
+		// Tools configures the LLM tool-calling loop that lets the answer path
+		// consult internal data (for example chat history). Off by default:
+		// when disabled the answer path is a single completion call.
+		Tools struct {
+			Enabled bool `yaml:"enabled,omitempty"`
+			// MaxIterations caps tool-call rounds before the loop forces a
+			// final answer. Defaults to 3 when omitted.
+			MaxIterations int `yaml:"max_iterations,omitempty"`
+			// Allowed optionally restricts which registered tools are offered
+			// to the model. Empty means all registered tools.
+			Allowed []string `yaml:"allowed,omitempty"`
+		} `yaml:"tools,omitempty"`
 	} `yaml:"gippity"`
 	Soundboard struct {
 		QueueMaxDepth int `yaml:"queue_max_depth,omitempty"`
@@ -132,6 +145,7 @@ func loadFile() *Config {
 func decodeConfig(r io.Reader) (*Config, error) {
 	cfg := Config{}
 	cfg.Gippity.RateLimitMessagesPerHour = defaultGippityRateLimitPerHour
+	cfg.Gippity.Tools.MaxIterations = defaultGippityToolMaxIterations
 	cfg.Soundboard.QueueMaxDepth = defaultSoundboardQueueMaxDepth
 	if err := yaml.NewDecoder(r).Decode(&cfg); err != nil {
 		return nil, errors.New("could not decode config: " + err.Error())
@@ -147,6 +161,9 @@ func decodeConfig(r io.Reader) (*Config, error) {
 	}
 	if cfg.Gippity.RateLimitMessagesPerHour <= 0 {
 		return nil, errors.New("gippity.rate_limit_messages_per_hour must be greater than zero")
+	}
+	if cfg.Gippity.Tools.Enabled && cfg.Gippity.Tools.MaxIterations <= 0 {
+		return nil, errors.New("gippity.tools.max_iterations must be greater than zero when gippity.tools.enabled is true")
 	}
 	if cfg.Soundboard.QueueMaxDepth <= 0 {
 		return nil, errors.New("soundboard.queue_max_depth must be greater than zero")
