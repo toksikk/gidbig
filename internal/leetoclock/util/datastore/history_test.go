@@ -335,6 +335,55 @@ func TestTopPlayersAndPlayerRecordsBetween(t *testing.T) {
 	expectMessages(t, all, "night", "morning", "before")
 }
 
+func TestDailyWinners(t *testing.T) {
+	f := newHistoryFixture(t)
+	day1 := time.Date(2026, time.March, 9, 13, 37, 0, 0, time.Local)
+	day2 := day1.AddDate(0, 0, 1)
+	day3 := day2.AddDate(0, 0, 1)
+	f.add("alice", "one", "c1", "d1-alice", day1, 500)
+	f.add("bob", "one", "c2", "d1-bob-best", day1, 20)
+	f.add("bob", "one", "c1", "d1-bob-worse", day1, 900)
+	f.add("carol", "two", "c3", "d2-carol", day2, 40)
+	f.add("early", "one", "c1", "d1-negative", day1, -1)
+	f.add("alice", "one", "c1", "d3-alice", day3, 5)
+
+	start, end := DayRange(day1, day2)
+	got, err := f.store.DailyWinnersBetween("one", start, end)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// One winner per day: bob's 20 ms beats alice's 500 ms on day 1 and the
+	// negative early-bird score is ignored; day 2 has no game in this guild.
+	expectMessages(t, got, "d1-bob-best")
+
+	global, err := f.store.DailyWinnersBetween("", start, end)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expectMessages(t, global, "d1-bob-best", "d2-carol")
+
+	// The period form covers the same days and stops before the next day.
+	periodWinners, err := f.store.DailyWinners("one", PeriodAllTime, f.now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expectMessages(t, periodWinners, "d1-bob-best")
+}
+
+func TestDailyWinnersGroupsByLocalDay(t *testing.T) {
+	f := newHistoryFixture(t)
+	// Two attempts on the same local calendar day, one just after midnight.
+	f.add("alice", "one", "c1", "after-midnight", time.Date(2026, time.March, 9, 0, 5, 0, 0, time.Local), 300)
+	f.add("bob", "one", "c1", "afternoon", time.Date(2026, time.March, 9, 15, 0, 0, 0, time.Local), 90)
+
+	start, end := DayRange(time.Date(2026, time.March, 9, 0, 0, 0, 0, time.Local), time.Date(2026, time.March, 9, 0, 0, 0, 0, time.Local))
+	got, err := f.store.DailyWinnersBetween("one", start, end)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expectMessages(t, got, "afternoon")
+}
+
 func TestHistoryReadErrors(t *testing.T) {
 	f := newHistoryFixture(t)
 	if _, err := f.store.TopPlayers("one", "invalid", f.now); err == nil {

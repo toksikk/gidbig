@@ -2,6 +2,7 @@ package datastore
 
 import (
 	"fmt"
+	"sort"
 	"time"
 )
 
@@ -18,6 +19,9 @@ const (
 	PeriodYear       Period = "year"
 	PeriodAllTime    Period = "alltime"
 	maxHistoryRows          = 10
+	// maxDailyRows caps how many day winners a daily query returns. The most
+	// recent days win when a window holds more.
+	maxDailyRows = 40
 )
 
 // ScoreRecord contains one valid attempt and its Discord message location.
@@ -167,4 +171,54 @@ func (s *Store) PlayerRecordsBetween(userID, guildID string, start, end time.Tim
 		return records, 0, nil
 	}
 	return records, rows[0].Total, nil
+}
+
+// DailyWinners returns the winning valid attempt for each local game date in a
+// period, oldest first (at most one row per day). Empty guildID spans all
+// guilds. Within a day the winner is the lowest non-negative score, matching the
+// leaderboard's ranking.
+func (s *Store) DailyWinners(guildID string, period Period, now time.Time) ([]ScoreRecord, error) {
+	start, end, err := historyBounds(period, now)
+	if err != nil {
+		return nil, err
+	}
+	return s.DailyWinnersBetween(guildID, start, end)
+}
+
+// DailyWinnersBetween is DailyWinners for an explicit half-open [start, end)
+// window. Rows are read in score order, so the first row seen for a local day is
+// that day's winner; day grouping uses the bot's local timezone to match the
+// calendar boundaries used elsewhere. When a window holds more than maxDailyRows
+// days, the most recent days are returned.
+func (s *Store) DailyWinnersBetween(guildID string, start, end time.Time) ([]ScoreRecord, error) {
+	from, args := historyQuery(start, end, guildID, "")
+	query := `SELECT ` + recordColumns + `
+		` + from + `
+		ORDER BY s.score, julianday(g.game_date), s.message_id, p.user_id`
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var rows []ScoreRecord
+	if err := s.db.Raw(query, args...).Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+
+	best := make(map[string]ScoreRecord, len(rows))
+	order := make([]string, 0, len(rows))
+	for _, row := range rows {
+		key := row.GameDate.In(time.Local).Format("2006-01-02")
+		if _, ok := best[key]; ok {
+			continue
+		}
+		best[key] = row
+		order = append(order, key)
+	}
+	sort.Strings(order)
+	if len(order) > maxDailyRows {
+		order = order[len(order)-maxDailyRows:]
+	}
+	winners := make([]ScoreRecord, 0, len(order))
+	for _, key := range order {
+		winners = append(winners, best[key])
+	}
+	return winners, nil
 }

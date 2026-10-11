@@ -198,6 +198,47 @@ func TestRecordsHandlerPeriodPresets(t *testing.T) {
 	}
 }
 
+func TestRecordsHandlerDaily(t *testing.T) {
+	m := registerRecordTools(t)
+	m.now = func() time.Time { return time.Date(2026, time.September, 24, 13, 0, 0, 0, time.Local) }
+	addRecord(t, m, "guild-1", "c1", "alice", "d1-a", time.Date(2026, time.September, 10, 13, 37, 0, 0, time.Local), 60)
+	addRecord(t, m, "guild-1", "c1", "bob", "d1-b", time.Date(2026, time.September, 10, 13, 37, 1, 0, time.Local), 200)
+	addRecord(t, m, "guild-1", "c1", "bob", "d2", time.Date(2026, time.September, 11, 13, 37, 0, 0, time.Local), 90)
+
+	def, _ := m.tools.Get("leetoclock_records")
+	out, err := def.Handler(context.Background(), tool.Env{GuildID: "guild-1"}, json.RawMessage(`{"subcommand":"daily","period":"month"}`))
+	if err != nil {
+		t.Fatalf("handler: %v", err)
+	}
+	if !strings.Contains(out, "daily winners") || !strings.Contains(out, "60 ms") || !strings.Contains(out, "90 ms") || strings.Contains(out, "200 ms") {
+		t.Errorf("daily output = %q", out)
+	}
+}
+
+func TestRecordsToolSchemaHasDaily(t *testing.T) {
+	var schema struct {
+		Properties struct {
+			Subcommand struct {
+				Enum []string `json:"enum"`
+			} `json:"subcommand"`
+		} `json:"properties"`
+	}
+	if err := json.Unmarshal(leetoclockRecordsParameters, &schema); err != nil {
+		t.Fatalf("schema: %v", err)
+	}
+	for _, want := range []string{"top", "daily", "player"} {
+		found := false
+		for _, value := range schema.Properties.Subcommand.Enum {
+			if value == want {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("subcommand enum %v lacks %q", schema.Properties.Subcommand.Enum, want)
+		}
+	}
+}
+
 func TestRegisterToolsNilRegistryIsSafe(t *testing.T) {
 	m := New()
 	m.registerTools()
