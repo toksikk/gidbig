@@ -6,6 +6,7 @@ import (
 	"errors"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -95,6 +96,51 @@ func TestIsLimitedUserUsesConfiguredLimit(t *testing.T) {
 	}
 	if !m.isLimitedUser(message) {
 		t.Fatal("third message was not limited")
+	}
+}
+
+func TestStartTypingKeepAliveRefreshesUntilStopped(t *testing.T) {
+	m, _ := setupGippityTest(t)
+	old := typingKeepAliveInterval
+	typingKeepAliveInterval = 5 * time.Millisecond
+	t.Cleanup(func() { typingKeepAliveInterval = old })
+
+	var mu sync.Mutex
+	var calls int
+	m.channelTypingFunc = func(_ *discordgo.Session, _ string) {
+		mu.Lock()
+		calls++
+		mu.Unlock()
+	}
+
+	stop := m.startTypingKeepAlive("channel-1")
+
+	deadline := time.Now().Add(time.Second)
+	for {
+		mu.Lock()
+		n := calls
+		mu.Unlock()
+		if n >= 3 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("typing indicator did not refresh, calls = %d", n)
+		}
+		time.Sleep(time.Millisecond)
+	}
+
+	stop()
+	stop() // idempotent
+
+	mu.Lock()
+	before := calls
+	mu.Unlock()
+	time.Sleep(30 * time.Millisecond)
+	mu.Lock()
+	after := calls
+	mu.Unlock()
+	if after != before {
+		t.Fatalf("typing indicator kept refreshing after stop: %d -> %d", before, after)
 	}
 }
 
