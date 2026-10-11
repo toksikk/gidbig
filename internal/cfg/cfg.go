@@ -93,6 +93,10 @@ type Config struct {
 		// ClassifierRateLimitPerHour caps classifier calls per user per hour.
 		// Defaults to 30 when omitted.
 		ClassifierRateLimitPerHour int `yaml:"classifier_rate_limit_per_hour,omitempty"`
+		// ClassifierNames lists extra names a message may use to address the
+		// bot. The bot's own Discord username and display name are always
+		// included, so this is only needed for nicknames or aliases.
+		ClassifierNames []string `yaml:"classifier_names,omitempty"`
 		// Tools configures the LLM tool-calling loop that lets the answer path
 		// consult internal data (for example chat history). Off by default:
 		// when disabled the answer path is a single completion call.

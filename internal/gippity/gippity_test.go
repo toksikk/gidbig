@@ -1346,6 +1346,58 @@ func TestClassifyShouldRespond_FallsBackToLLMModel(t *testing.T) {
 	}
 }
 
+func TestClassifierBotNames(t *testing.T) {
+	m, session := setupGippityTest(t)
+	session.State.User = &discordgo.User{ID: "bot-user", Username: "gustaff", GlobalName: "Gustaff"}
+	m.classifierNames = []string{" gustaff ", "", "Gippity"}
+
+	if got, want := strings.Join(m.classifierBotNames(), ","), "gustaff,Gippity"; got != want {
+		t.Errorf("classifierBotNames() = %q, want %q", got, want)
+	}
+
+	m.classifierNames = nil
+	session.State.User = nil
+	if got := m.classifierBotNames(); len(got) != 0 {
+		t.Errorf("classifierBotNames() = %v, want empty", got)
+	}
+}
+
+func TestClassifierSystemPromptNamesBot(t *testing.T) {
+	if got := classifierSystemPrompt(nil); got != classifierSystemPromptBase {
+		t.Errorf("classifierSystemPrompt(nil) = %q, want the base prompt", got)
+	}
+	if got := classifierSystemPrompt([]string{"gustaff"}); !strings.Contains(got, "gustaff") {
+		t.Errorf("classifierSystemPrompt = %q, want it to name the bot", got)
+	}
+}
+
+func TestClassifyShouldRespond_PromptNamesBot(t *testing.T) {
+	m, session := setupGippityTest(t)
+	session.State.User = &discordgo.User{ID: "bot-user", Username: "gustaff"}
+	m.classifierNames = []string{"Gippity"}
+
+	var system string
+	m.chatCompletionFunc = func(_ context.Context, params openai.ChatCompletionNewParams) (*openai.ChatCompletion, error) {
+		for _, msg := range params.Messages {
+			if msg.OfSystem != nil {
+				system = msg.OfSystem.Content.OfString.Value
+			}
+		}
+		return &openai.ChatCompletion{
+			Choices: []openai.ChatCompletionChoice{{Message: openai.ChatCompletionMessage{Content: "YES"}}},
+		}, nil
+	}
+
+	if _, err := m.classifyShouldRespond(context.Background(), gippityTestMessage("gustaff, was ist das?")); err != nil {
+		t.Fatalf("classifyShouldRespond: %v", err)
+	}
+	for _, want := range []string{"gustaff", "Gippity", "by name"} {
+		if !strings.Contains(system, want) {
+			t.Errorf("classifier prompt %q lacks %q", system, want)
+		}
+	}
+}
+
 func TestOnMessageCreate_NonMentionDisabledNeverClassifies(t *testing.T) {
 	m, session := setupGippityTest(t)
 	m.respondToAllMessages = false

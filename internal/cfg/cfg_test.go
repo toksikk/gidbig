@@ -2,6 +2,7 @@ package cfg
 
 import (
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -73,6 +74,7 @@ gippity:
   respond_to_all_messages: true
   classifier_model: "gpt-4o-mini"
   classifier_rate_limit_per_hour: 5
+  classifier_names: ["gustaff", "Gippity"]
 `
 	cfg, err := decodeConfig(strings.NewReader(yaml))
 	if err != nil {
@@ -86,6 +88,9 @@ gippity:
 	}
 	if cfg.Gippity.ClassifierRateLimitPerHour != 5 {
 		t.Errorf("gippity.classifier_rate_limit_per_hour = %d, want 5", cfg.Gippity.ClassifierRateLimitPerHour)
+	}
+	if want := []string{"gustaff", "Gippity"}; !reflect.DeepEqual(cfg.Gippity.ClassifierNames, want) {
+		t.Errorf("gippity.classifier_names = %v, want %v", cfg.Gippity.ClassifierNames, want)
 	}
 
 	omitted := `
