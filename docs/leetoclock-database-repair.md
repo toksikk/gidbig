@@ -10,7 +10,7 @@ Deployments that started with a fresh `gidbig.db`, already repaired their old da
 
 ## Repair
 
-1. Stop the bot so the database cannot change during backup and repair. Locate its active SQLite file: `database.path` in `config.yaml`, otherwise `gidbig.db` in the bot's working directory.
+1. Stop the bot so the database cannot change during backup and repair. The bot uses `gidbig.db` in its working directory.
 2. From the repository root, run `python3 scripts/repair-leetoclock-games.py /path/to/gidbig.db`. Python 3.6 or newer and its standard library suffice. The script first makes a timestamped SQLite backup alongside the database (using a SQL dump if Python's `sqlite3` lacks native backup support), then repairs matching games in one transaction. It refuses unknown integer-date rows and rolls back if foreign-key validation fails.
 3. Start the bot and check `/leetoclock top period:all` and `/leetoclock player period:all` in each server. Negative early-bird scores remain excluded from records by design.
 

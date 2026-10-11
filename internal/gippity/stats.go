@@ -16,28 +16,25 @@ func (m *Module) Stats(ctx context.Context) (bot.ModuleStats, error) {
 	db := m.db.WithContext(ctx)
 
 	var messages, mentions, users, channels, edits, images, privacyOff int64
-	queries := []struct {
-		dst *int64
-		run func() error
-	}{
-		{&messages, func() error { return db.Model(&ChatMessage{}).Count(&messages).Error }},
-		{&mentions, func() error {
+	queries := []func() error{
+		func() error { return db.Model(&ChatMessage{}).Count(&messages).Error },
+		func() error {
 			return db.Model(&ChatMessage{}).Where("is_bot_mention = ?", true).Count(&mentions).Error
-		}},
-		{&users, func() error {
+		},
+		func() error {
 			return db.Model(&ChatMessage{}).Distinct("user_id").Count(&users).Error
-		}},
-		{&channels, func() error {
+		},
+		func() error {
 			return db.Model(&ChatMessage{}).Distinct("channel_id").Count(&channels).Error
-		}},
-		{&edits, func() error { return db.Model(&ChatHistoryEdit{}).Count(&edits).Error }},
-		{&images, func() error { return db.Model(&ChatAttachment{}).Count(&images).Error }},
-		{&privacyOff, func() error {
+		},
+		func() error { return db.Model(&ChatHistoryEdit{}).Count(&edits).Error },
+		func() error { return db.Model(&ChatAttachment{}).Count(&images).Error },
+		func() error {
 			return db.Model(&UserPrivacy{}).Where("privacy_enabled = ?", false).Count(&privacyOff).Error
-		}},
+		},
 	}
-	for _, q := range queries {
-		if err := q.run(); err != nil {
+	for _, run := range queries {
+		if err := run(); err != nil {
 			return bot.ModuleStats{}, err
 		}
 	}

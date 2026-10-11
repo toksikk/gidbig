@@ -19,6 +19,7 @@ import (
 	"github.com/toksikk/gidbig/internal/gippity"
 	"github.com/toksikk/gidbig/internal/leetoclock"
 	"github.com/toksikk/gidbig/internal/llm"
+	"github.com/toksikk/gidbig/internal/shareddb"
 	"github.com/toksikk/gidbig/internal/soundboard"
 	"github.com/toksikk/gidbig/internal/stoll"
 	"github.com/toksikk/gidbig/internal/wardogs"
@@ -186,15 +187,21 @@ func StartGidbig() {
 	LogVersion()
 	var err error
 
+	if conf.Database.Path != "" {
+		slog.Warn("database.path is no longer supported and is ignored; the shared database is always "+shareddb.Filename,
+			"configured_path", conf.Database.Path)
+	}
+
 	// Open the single SQLite database shared by every module. Modules receive
 	// it through bot.Deps.DB instead of opening the file themselves.
-	sharedDB, err := openSharedDatabase(cfg.DefaultDatabaseFilename)
+	sharedDB, err := shareddb.Open(shareddb.Filename)
 	if err != nil {
 		slog.Error("Failed to open shared database", "error", err)
 		os.Exit(1)
 		return
 	}
-	slog.Info("Using shared database", "path", cfg.DefaultDatabaseFilename)
+	slog.Info("Using shared database", "path", shareddb.Filename)
+	warnLegacyDatabases(sharedDB)
 
 	// Create a discord session
 	slog.Info("Starting discord session...")
@@ -373,7 +380,7 @@ func StartGidbig() {
 		statusProviders = append(statusProviders, leetoMod)
 	}
 	statusProviders = append(statusProviders, wttrinMod)
-	statusDBPaths = []string{cfg.DefaultDatabaseFilename}
+	statusDBPaths = []string{shareddb.Filename}
 
 	cmds := []*discordgo.ApplicationCommand{statusCommand()}
 	cmds = append(cmds, coreSlashCommands()...)

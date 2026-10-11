@@ -7,9 +7,8 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/toksikk/gidbig/internal/bot"
-	"github.com/toksikk/gidbig/internal/cfg"
+	"github.com/toksikk/gidbig/internal/shareddb"
 	"github.com/toksikk/gidbig/internal/util"
-	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -88,7 +87,7 @@ func (m *Module) openDB(d bot.Deps) error {
 		return m.migrateDB()
 	}
 
-	db, err := gorm.Open(sqlite.Open(cfg.DefaultDatabaseFilename), &gorm.Config{})
+	db, err := shareddb.Open(shareddb.Filename)
 	if err != nil {
 		return err
 	}

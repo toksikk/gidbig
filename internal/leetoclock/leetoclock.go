@@ -13,6 +13,7 @@ import (
 	"github.com/toksikk/gidbig/internal/bot"
 	"github.com/toksikk/gidbig/internal/cfg"
 	"github.com/toksikk/gidbig/internal/leetoclock/util/datastore"
+	"github.com/toksikk/gidbig/internal/shareddb"
 	"github.com/toksikk/gidbig/internal/util"
 )
 
@@ -106,7 +107,7 @@ func (m *Module) Init(d bot.Deps) error {
 		store, err = datastore.Use(d.DB)
 		m.ownsDB = false
 	} else {
-		store, err = datastore.Open(cfg.DefaultDatabaseFilename)
+		store, err = datastore.Open(shareddb.Filename)
 		m.ownsDB = true
 	}
 	if err != nil {

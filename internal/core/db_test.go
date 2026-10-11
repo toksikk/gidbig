@@ -1,7 +1,11 @@
 package gidbig
 
 import (
+	"bytes"
+	"log/slog"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/bwmarrin/discordgo"
@@ -10,16 +14,67 @@ import (
 	"github.com/toksikk/gidbig/internal/coffee"
 	"github.com/toksikk/gidbig/internal/gippity"
 	"github.com/toksikk/gidbig/internal/leetoclock"
+	"github.com/toksikk/gidbig/internal/shareddb"
 )
+
+// captureLogs redirects the default slog logger into a buffer for the duration
+// of the test.
+func captureLogs(t *testing.T) *bytes.Buffer {
+	t.Helper()
+	buf := &bytes.Buffer{}
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(buf, nil)))
+	t.Cleanup(func() { slog.SetDefault(previous) })
+	return buf
+}
+
+func TestWarnLegacyDatabases_WarnsWhenLegacyFileUnmigrated(t *testing.T) {
+	t.Chdir(t.TempDir())
+	if err := os.WriteFile("gippity.db", []byte{}, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	shared, err := shareddb.Open(filepath.Join(t.TempDir(), "gidbig.db"))
+	if err != nil {
+		t.Fatalf("shareddb.Open: %v", err)
+	}
+	logs := captureLogs(t)
+
+	warnLegacyDatabases(shared)
+
+	if !strings.Contains(logs.String(), "legacy per-module databases found") {
+		t.Errorf("expected a legacy database warning, got %q", logs.String())
+	}
+}
+
+func TestWarnLegacyDatabases_SilentWhenMigrated(t *testing.T) {
+	t.Chdir(t.TempDir())
+	if err := os.WriteFile("gippity.db", []byte{}, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	shared, err := shareddb.Open(filepath.Join(t.TempDir(), "gidbig.db"))
+	if err != nil {
+		t.Fatalf("shareddb.Open: %v", err)
+	}
+	if err := shared.Exec("CREATE TABLE gippity_chat_history (id integer primary key)").Error; err != nil {
+		t.Fatal(err)
+	}
+	logs := captureLogs(t)
+
+	warnLegacyDatabases(shared)
+
+	if strings.Contains(logs.String(), "legacy per-module databases found") {
+		t.Errorf("expected no legacy database warning once migrated, got %q", logs.String())
+	}
+}
 
 // TestSharedDatabaseTableIsolation migrates every persisted module into one
 // gidbig.db and asserts that their tables coexist under module prefixes without
 // colliding on generic names.
 func TestSharedDatabaseTableIsolation(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "gidbig.db")
-	db, err := openSharedDatabase(path)
+	db, err := shareddb.Open(path)
 	if err != nil {
-		t.Fatalf("openSharedDatabase: %v", err)
+		t.Fatalf("shareddb.Open: %v", err)
 	}
 	t.Cleanup(func() {
 		if sqlDB, dbErr := db.DB(); dbErr == nil {
