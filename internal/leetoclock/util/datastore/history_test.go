@@ -207,6 +207,52 @@ func TestHistoryPeriods(t *testing.T) {
 	}
 }
 
+func TestHistoryCalendarPeriods(t *testing.T) {
+	f := newHistoryFixture(t)
+	now := f.now
+	if now.Weekday() != time.Tuesday {
+		t.Fatalf("fixture now is a %s, want Tuesday for a stable week start", now.Weekday())
+	}
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.Local)
+	weekStart := today.AddDate(0, 0, -1) // Monday
+	yearStart := time.Date(now.Year(), time.January, 1, 0, 0, 0, 0, time.Local)
+	for _, row := range []struct {
+		id   string
+		date time.Time
+	}{
+		{"year-before", yearStart.Add(-time.Second)},
+		{"year-start", yearStart},
+		{"week-before", weekStart.Add(-time.Second)},
+		{"yesterday-start", today.AddDate(0, 0, -1)},
+		{"yesterday-noon", today.AddDate(0, 0, -1).Add(13*time.Hour + 37*time.Minute)},
+		{"today-start", today},
+		{"today-noon", today.Add(13*time.Hour + 37*time.Minute)},
+		{"future", now.Add(time.Second)},
+	} {
+		f.add("alice", "one", "c1", row.id, row.date, 0)
+	}
+	for _, tc := range []struct {
+		period Period
+		want   []string
+	}{
+		{PeriodToday, []string{"today-start", "today-noon"}},
+		{PeriodYesterday, []string{"yesterday-start", "yesterday-noon"}},
+		{PeriodWeek, []string{"yesterday-start", "yesterday-noon", "today-start", "today-noon"}},
+		{PeriodYear, []string{"year-start", "week-before", "yesterday-start", "yesterday-noon", "today-start", "today-noon"}},
+	} {
+		t.Run(string(tc.period), func(t *testing.T) {
+			got, count, err := f.store.PlayerRecords("alice", "one", tc.period, now)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if count != int64(len(tc.want)) {
+				t.Errorf("count = %d, want %d", count, len(tc.want))
+			}
+			expectMessages(t, got, tc.want...)
+		})
+	}
+}
+
 func TestHistoryLocalMonthAndRollingDST(t *testing.T) {
 	location, err := time.LoadLocation("America/New_York")
 	if err != nil {

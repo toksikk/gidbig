@@ -24,8 +24,10 @@ func recordCommands() []*discordgo.ApplicationCommand {
 		return &discordgo.ApplicationCommandOption{
 			Type: discordgo.ApplicationCommandOptionString, Name: "period", Description: "Game date range (default: current month)",
 			Choices: []*discordgo.ApplicationCommandOptionChoice{
-				{Name: "Current month", Value: "month"}, {Name: "Last 7 days", Value: "7d"},
-				{Name: "Last 30 days", Value: "30d"}, {Name: "All time", Value: "all"},
+				{Name: "Current month", Value: "month"}, {Name: "Today", Value: "today"},
+				{Name: "Yesterday", Value: "yesterday"}, {Name: "This week", Value: "week"},
+				{Name: "Last 7 days", Value: "7d"}, {Name: "Last 30 days", Value: "30d"},
+				{Name: "This year", Value: "year"}, {Name: "All time", Value: "all"},
 			},
 		}
 	}
@@ -66,6 +68,48 @@ type recordRequest struct {
 	// day is an explicit game date. When non-zero it overrides period and
 	// bounds the query to that one local day.
 	day time.Time
+	// from and to bound an explicit inclusive local-day range. Either side may
+	// be zero to leave that bound open; when set they override period.
+	from time.Time
+	to   time.Time
+}
+
+// periodNames maps a resolved period to the label shown in record headers. The
+// label is also the value accepted from the slash command and the LLM tool.
+var periodNames = map[datastore.Period]string{
+	datastore.PeriodMonth:      "month",
+	datastore.PeriodToday:      "today",
+	datastore.PeriodYesterday:  "yesterday",
+	datastore.PeriodWeek:       "week",
+	datastore.PeriodLast7Days:  "7d",
+	datastore.PeriodLast30Days: "30d",
+	datastore.PeriodYear:       "year",
+	datastore.PeriodAllTime:    "all",
+}
+
+// parsePeriod resolves a slash-command or tool period value. An empty value
+// means the current calendar month.
+func parsePeriod(value string) (datastore.Period, error) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", "month":
+		return datastore.PeriodMonth, nil
+	case "today":
+		return datastore.PeriodToday, nil
+	case "yesterday":
+		return datastore.PeriodYesterday, nil
+	case "week":
+		return datastore.PeriodWeek, nil
+	case "7d":
+		return datastore.PeriodLast7Days, nil
+	case "30d":
+		return datastore.PeriodLast30Days, nil
+	case "year":
+		return datastore.PeriodYear, nil
+	case "all":
+		return datastore.PeriodAllTime, nil
+	default:
+		return "", fmt.Errorf("invalid period")
+	}
 }
 
 // parseRecordDay parses a YYYY-MM-DD game date in the bot's local timezone. An
@@ -80,6 +124,22 @@ func parseRecordDay(value string) (time.Time, error) {
 		return time.Time{}, fmt.Errorf("date %q must use YYYY-MM-DD", value)
 	}
 	return day, nil
+}
+
+// recordRangeName labels an explicit day range for record headers. A single
+// day collapses to that date; one-sided ranges read as "from ..." or
+// "until ...".
+func recordRangeName(from, to time.Time) string {
+	if !from.IsZero() && !to.IsZero() {
+		if from.Equal(to) {
+			return from.Format("2006-01-02")
+		}
+		return from.Format("2006-01-02") + " – " + to.Format("2006-01-02")
+	}
+	if !from.IsZero() {
+		return "from " + from.Format("2006-01-02")
+	}
+	return "until " + to.Format("2006-01-02")
 }
 
 func parseRecordRequest(i *discordgo.InteractionCreate) (recordRequest, error) {
@@ -103,19 +163,11 @@ func parseRecordRequest(i *discordgo.InteractionCreate) (recordRequest, error) {
 			if !ok {
 				return r, fmt.Errorf("invalid period")
 			}
-			r.periodName = value
-			switch value {
-			case "month":
-				r.period = datastore.PeriodMonth
-			case "7d":
-				r.period = datastore.PeriodLast7Days
-			case "30d":
-				r.period = datastore.PeriodLast30Days
-			case "all":
-				r.period = datastore.PeriodAllTime
-			default:
+			period, err := parsePeriod(value)
+			if err != nil {
 				return r, fmt.Errorf("invalid period")
 			}
+			r.period, r.periodName = period, periodNames[period]
 		case "date":
 			value, ok := opt.Value.(string)
 			if !ok {
@@ -243,12 +295,31 @@ func (m *Module) recordResponse(guildID string, r recordRequest) (string, error)
 	return renderPlayer(r, records, count, false, m.serverName), nil
 }
 
-// topRecords resolves the requested window for a leaderboard query. An explicit
-// date wins over the period, so a date-specific question is not answered with a
-// neighbouring period's numbers.
-func (m *Module) topRecords(guildID string, r recordRequest) ([]datastore.ScoreRecord, error) {
+// recordWindow resolves an explicit date or day range into a half-open window.
+// ok is false when neither is set, so the period presets should apply instead.
+// An open `to` side extends to now, because the store cannot express an open
+// upper bound.
+func (m *Module) recordWindow(r recordRequest) (time.Time, time.Time, bool) {
 	if !r.day.IsZero() {
 		start, end := datastore.DayRange(r.day, r.day)
+		return start, end, true
+	}
+	if !r.from.IsZero() || !r.to.IsZero() {
+		to := r.to
+		if to.IsZero() {
+			to = m.now()
+		}
+		start, end := datastore.DayRange(r.from, to)
+		return start, end, true
+	}
+	return time.Time{}, time.Time{}, false
+}
+
+// topRecords resolves the requested window for a leaderboard query. An explicit
+// date or range wins over the period, so a date-specific question is not
+// answered with a neighbouring period's numbers.
+func (m *Module) topRecords(guildID string, r recordRequest) ([]datastore.ScoreRecord, error) {
+	if start, end, ok := m.recordWindow(r); ok {
 		return m.store.TopPlayersBetween(guildID, start, end)
 	}
 	return m.store.TopPlayers(guildID, r.period, m.now())
@@ -256,8 +327,7 @@ func (m *Module) topRecords(guildID string, r recordRequest) ([]datastore.ScoreR
 
 // playerRecords is topRecords for one player's records plus their attempt count.
 func (m *Module) playerRecords(userID, guildID string, r recordRequest) ([]datastore.ScoreRecord, int64, error) {
-	if !r.day.IsZero() {
-		start, end := datastore.DayRange(r.day, r.day)
+	if start, end, ok := m.recordWindow(r); ok {
 		return m.store.PlayerRecordsBetween(userID, guildID, start, end)
 	}
 	return m.store.PlayerRecords(userID, guildID, r.period, m.now())
