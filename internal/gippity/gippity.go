@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
@@ -376,8 +377,38 @@ func (m *Module) isMentioned(mc *discordgo.MessageCreate) bool {
 	return false
 }
 
+// typingKeepAliveInterval is how often the typing indicator is refreshed while
+// an answer is being generated. Discord expires the indicator after roughly 10
+// seconds, so a slow request (tool calls, long completions) would otherwise
+// drop it before the reply is sent.
+var typingKeepAliveInterval = 8 * time.Second
+
+// startTypingKeepAlive shows the typing indicator immediately and then keeps
+// refreshing it in the background until the returned stop function is called.
+// Callers should defer stop so the indicator also ends when generation fails.
+// stop is safe to call more than once.
+func (m *Module) startTypingKeepAlive(channelID string) func() {
+	done := make(chan struct{})
+	var once sync.Once
+	m.channelTypingFunc(m.session, channelID)
+	go func() {
+		ticker := time.NewTicker(typingKeepAliveInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-ticker.C:
+				m.channelTypingFunc(m.session, channelID)
+			}
+		}
+	}()
+	return func() { once.Do(func() { close(done) }) }
+}
+
 func (m *Module) generateAnswer(mc *discordgo.MessageCreate, imageURLs []string) (string, error) {
-	m.channelTypingFunc(m.session, mc.ChannelID)
+	stopTyping := m.startTypingKeepAlive(mc.ChannelID)
+	defer stopTyping()
 
 	chatHistory, err := m.getLastNMessagesFromDatabase(mc.ChannelID, 10)
 	if err != nil {
