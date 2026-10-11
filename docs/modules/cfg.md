@@ -6,7 +6,7 @@ Directory `internal/cfg`. YAML config load + validation.
 - `loadFile()` – opens `config.yaml`, exits process on error.
 - `decodeConfig()` – defaults + required-field validation.
 
-Required: `discord.token`, non-empty `gippity.allowed_guilds`. `web.session_secret` required when `web.port != 0`. Defaults: soundboard queue depth 6, gippity rate limit 30/h.
+Required: `discord.token`, non-empty `gippity.allowed_guilds`. `web.session_secret` required when `web.port != 0`. Defaults: soundboard queue depth 6, gippity reply rate limit 30/h, gippity classifier rate limit 30/h, gippity `reply_in_thread`/`respond_to_all_messages` false.
 
 ## Load flow
 

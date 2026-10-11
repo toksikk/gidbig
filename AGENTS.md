@@ -14,8 +14,9 @@
 
 ## Architecture And Runtime
 
-- `cmd/gidbig/main.go` only calls `internal/core.StartGidbig`; `internal/core/cmd.go` is the composition root for Discord, modules, slash-command registration, sound loading, and the optional web server.
-- All modules implement `internal/bot.Module` (`New()` + `Init(bot.Deps)`); the old legacy `Start` boot path is gone. Dependencies (session, config, LLM client, logger, owner ID, shared DB) are injected through `bot.Deps`.
+- `cmd/gidbig/main.go` only calls `internal/core.StartGidbig`; `internal/core/cmd.go` is the composition root: it loads config, opens the shared DB, creates the Discord session and the `*llm.Client`, then registers every module with a `bot.Bot` and calls `bot.Run`.
+- Production boots through `bot.New(deps).Run(ctx)`. The router owns the single `MessageCreate` and `InteractionCreate` session handlers and fans out to module listeners; every `session.AddHandler` call lives in `internal/bot/router.go`.
+- All modules implement `internal/bot.Module` (`New()` + `Init(bot.Deps)`); the old legacy `Start` boot path is gone. Dependencies (session, config, `*llm.Client`, logger, owner ID, shared DB, stats registry) are injected through `bot.Deps`.
 - All modules share one SQLite file, `gidbig.db` in the working directory, via `bot.Deps.DB` (opened once in `cmd.go` with WAL + busy timeout; modules must not close it). The old `database.path` config and per-module DBs are removed; see `docs/database-migration.md`.
 - Slash commands are collected from each registered module's `Commands()` by `bot.Bot` and replaced globally with `ApplicationCommandBulkOverwrite` in `bot.Bot.Run`. Adding a command inside a module is sufficient once the module is registered with the Bot; no central `cmds` slice exists anymore.
 - `/admin` aggregates modules implementing `bot.AdminProvider`; a new provider must be passed to `admin.New(...)` in `cmd.go` to appear under `/admin`.

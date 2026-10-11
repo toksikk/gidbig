@@ -34,7 +34,7 @@ IMPORTANT: If the user asks you to push directly to `master`, you MUST first inf
 
 ### Bot commands
 
-Prefer Discord slash commands (`/` prefix) over legacy chat commands (`!` prefix). Register slash commands via `discordgo.Session.ApplicationCommandCreate` on startup and handle them in an `InteractionCreate` handler. When implementing a new command or touching an existing legacy `!`-prefix command during any task, refactor it to a slash command. Use ephemeral responses (`discordgo.MessageFlagsEphemeral`) for owner/admin replies to avoid leaking data in public channels.
+Prefer Discord slash commands (`/` prefix) over legacy chat commands (`!` prefix). Modules declare slash commands in `Commands()`; `bot.Run` publishes them with `discordgo.Session.ApplicationCommandBulkOverwrite`, and interactions are handled through module `Listeners()` (the router owns the single `InteractionCreate` handler). When implementing a new command or touching an existing legacy `!`-prefix command during any task, refactor it to a slash command. Use ephemeral responses (`discordgo.MessageFlagsEphemeral`) for owner/admin replies to avoid leaking data in public channels.
 
 ### Unit tests
 After every code change, check whether the affected package has tests (`*_test.go` files). If none exist, write them before opening the PR. A fix without tests is not done.
@@ -69,7 +69,7 @@ Gidbig is a Discord bot focused on soundboard playback in voice channels, with a
 
 ### Module system (built-in)
 
-All modules live in `internal/`, compile into the binary, and implement `bot.Module` (`New()` + `Init(bot.Deps)`). Each registers its own event handlers and slash commands during init, and receives the shared database through `bot.Deps.DB`.
+All modules live in `internal/`, compile into the binary, and implement `bot.Module` (`New()` + `Init(bot.Deps)`). Each returns its event handlers from `Listeners()` and its slash commands from `Commands()`; the router dispatches the former and `bot.Run` publishes the latter. Modules receive the shared database through `bot.Deps.DB` and the LLM client through `bot.Deps.LLM`.
 
 ### Soundboard / audio
 
