@@ -8,6 +8,7 @@ import (
 
 	"github.com/toksikk/gidbig/internal/leetoclock/util/datastore"
 	"github.com/toksikk/gidbig/internal/tool"
+	"github.com/toksikk/gidbig/internal/util"
 )
 
 // leetoclockRecordsParameters is the JSON schema for the leetoclock_records tool.
@@ -35,7 +36,7 @@ var leetoclockRecordsParameters = json.RawMessage(`{
     },
     "user": {
       "type": "string",
-      "description": "Discord user ID for subcommand \"player\". Omit for the caller."
+      "description": "Player to look up for subcommand \"player\": a Discord user ID, username, nickname or mention. Partial names are matched against this server's members. Omit for the caller."
     }
   },
   "required": ["subcommand"]
@@ -111,8 +112,15 @@ func (m *Module) recordsHandler(_ context.Context, env tool.Env, args json.RawMe
 	}
 
 	if r.subcommand == "player" {
-		r.userID = strings.TrimSpace(in.User)
-		if r.userID == "" {
+		if raw := strings.TrimSpace(in.User); raw != "" && !util.IsUserID(raw) {
+			match, ok, note := m.resolveUser(env.GuildID, raw)
+			if !ok {
+				return note, nil
+			}
+			r.userID = match.ID
+		} else if raw != "" {
+			r.userID = raw
+		} else {
 			r.userID = env.UserID
 		}
 		if r.userID == "" {
@@ -126,4 +134,14 @@ func (m *Module) recordsHandler(_ context.Context, env tool.Env, args json.RawMe
 	}
 
 	return m.recordResponse(env.GuildID, r)
+}
+
+// resolveUser resolves a free-text player name to a guild member, defaulting to
+// util.ResolveMemberQuery. It scopes the lookup to guildID so a name can never
+// resolve to a member of another server.
+func (m *Module) resolveUser(guildID, query string) (util.MemberMatch, bool, string) {
+	if m.resolveMember == nil {
+		return util.ResolveMemberQuery(m.session, guildID, query)
+	}
+	return m.resolveMember(m.session, guildID, query)
 }

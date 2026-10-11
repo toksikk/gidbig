@@ -7,7 +7,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bwmarrin/discordgo"
 	"github.com/toksikk/gidbig/internal/tool"
+	"github.com/toksikk/gidbig/internal/util"
 )
 
 func registerRecordTools(t *testing.T) *Module {
@@ -110,4 +112,53 @@ func TestRecordsHandlerDate(t *testing.T) {
 func TestRegisterToolsNilRegistryIsSafe(t *testing.T) {
 	m := New()
 	m.registerTools()
+}
+
+func TestRecordsHandlerResolvesPlayerName(t *testing.T) {
+	m := registerRecordTools(t)
+	addRecord(t, m, "guild-1", "chan-1", "42", "m1", time.Now(), 137)
+	m.resolveMember = func(_ *discordgo.Session, guildID, query string) (util.MemberMatch, bool, string) {
+		if guildID != "guild-1" || query != "s1kk" {
+			return util.MemberMatch{}, false, "unexpected lookup"
+		}
+		return util.MemberMatch{ID: "42", Username: "sikk"}, true, ""
+	}
+
+	def, _ := m.tools.Get("leetoclock_records")
+	out, err := def.Handler(context.Background(), tool.Env{GuildID: "guild-1"}, json.RawMessage(`{"subcommand":"player","user":"s1kk"}`))
+	if err != nil {
+		t.Fatalf("handler: %v", err)
+	}
+	if !strings.Contains(out, "<@42>") {
+		t.Errorf("resolved player output = %q, want mention of 42", out)
+	}
+}
+
+func TestRecordsHandlerAmbiguousPlayerName(t *testing.T) {
+	m := registerRecordTools(t)
+	m.resolveMember = func(_ *discordgo.Session, _, _ string) (util.MemberMatch, bool, string) {
+		return util.MemberMatch{}, false, `"sikk" matches several members; ask the user which one`
+	}
+
+	def, _ := m.tools.Get("leetoclock_records")
+	out, err := def.Handler(context.Background(), tool.Env{GuildID: "guild-1"}, json.RawMessage(`{"subcommand":"player","user":"sikk"}`))
+	if err != nil {
+		t.Fatalf("handler: %v", err)
+	}
+	if !strings.Contains(out, "several members") {
+		t.Errorf("ambiguous player output = %q", out)
+	}
+}
+
+func TestRecordsHandlerNumericUserSkipsResolution(t *testing.T) {
+	m := registerRecordTools(t)
+	m.resolveMember = func(_ *discordgo.Session, _, _ string) (util.MemberMatch, bool, string) {
+		t.Fatal("resolver called for a numeric user ID")
+		return util.MemberMatch{}, false, ""
+	}
+
+	def, _ := m.tools.Get("leetoclock_records")
+	if _, err := def.Handler(context.Background(), tool.Env{GuildID: "guild-1"}, json.RawMessage(`{"subcommand":"player","user":"123456789012345678"}`)); err != nil {
+		t.Fatalf("handler: %v", err)
+	}
 }

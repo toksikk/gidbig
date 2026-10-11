@@ -57,6 +57,10 @@ type Module struct {
 	renewGame        func(datastore.Game)
 	tickInterval     time.Duration
 
+	// resolveMember turns a free-text player name from a tool call into a
+	// Discord user ID. Defaults to util.ResolveMemberQuery; overridable in tests.
+	resolveMember func(*discordgo.Session, string, string) (util.MemberMatch, bool, string)
+
 	emojiZonk      string
 	emojiLol       string
 	emojiNotAmused string
@@ -73,6 +77,7 @@ func New() *Module {
 		season:                    util.CurrentSeason,
 		messageTimestamp:          util.GetTimestampOfMessage,
 		reactOnMessage:            util.ReactOnMessage,
+		resolveMember:             util.ResolveMemberQuery,
 		tickInterval:              time.Minute,
 		emojiZonk:                 fallbackZonk,
 		emojiLol:                  fallbackLol,

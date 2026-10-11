@@ -4,6 +4,7 @@ Directory `internal/util`. Shared helpers. Not user-facing.
 
 - `AIResponder` – LLM generation with few-shot examples + deterministic fallback (used by eso, coffee).
 - `discordhelper.go` – channel/guild names, member lists, mention resolve/restore, user lookup, emoji reactions queue.
+- `userresolve.go` – resolve a free-text name to a guild member (`ResolveMemberQuery`, `ResolveMember`, `IsUserID`). Case-insensitive, separator- and leetspeak-tolerant; reads session state plus the List Guild Members REST endpoint, scoped to one guild.
 - `season.go` – `Season` detection, Easter computus (Meeus-Jones-Butcher).
 - `util.go` – `RandomRange`, emoji byte constants.
 

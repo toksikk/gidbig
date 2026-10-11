@@ -8,7 +8,7 @@ Coffee machine economy per guild: beans, water, milk, grounds, tea bags. Tracks 
 - Components: drink menu, Take-cup button (opener-only).
 - Persistence: GORM/SQLite (`store.go`, `machine.go`).
 - Background: `runOrderExpiry` expires unclaimed ready drinks.
-- LLM tools: `coffee_status` (guild machine levels + leaderboards), `coffee_stats` (one user's stats, defaults to the caller).
+- LLM tools: `coffee_status` (guild machine levels + leaderboards), `coffee_stats` (one user's stats, defaults to the caller). The `user` argument accepts an ID, name, nickname or mention; partial names resolve against the current guild and ambiguous names return a candidate list.
 
 ## Brew + pickup flow
 
