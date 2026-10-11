@@ -17,10 +17,14 @@ import (
 
 func TestRecordCommandsSchema(t *testing.T) {
 	command := New().Commands()[0]
-	if command.Name != "leetoclock" || len(command.Options) != 2 || command.Options[0].Name != "top" || command.Options[1].Name != "player" {
+	if command.Name != "leetoclock" || len(command.Options) != 3 || command.Options[0].Name != "top" || command.Options[1].Name != "daily" || command.Options[2].Name != "player" {
 		t.Fatalf("unexpected command: %#v", command)
 	}
-	for index, want := range [][]string{{"period", "date", "scope", "public"}, {"user", "period", "date", "scope", "public"}} {
+	for index, want := range [][]string{
+		{"period", "date", "scope", "public"},
+		{"period", "date", "scope", "public"},
+		{"user", "period", "date", "scope", "public"},
+	} {
 		sub := command.Options[index]
 		if sub.Type != discordgo.ApplicationCommandOptionSubCommand || len(sub.Options) != len(want) {
 			t.Fatalf("subcommand = %#v", sub)
@@ -412,6 +416,22 @@ func TestRecordDailyOneWinnerPerDay(t *testing.T) {
 	}
 	if !strings.Contains(body, "20 ms") || !strings.Contains(body, "40 ms") || strings.Contains(body, "500 ms") || strings.Contains(body, "700 ms") {
 		t.Errorf("daily output = %q", body)
+	}
+
+	// The slash command resolves to the same request.
+	r, err := parseRecordRequest(recordInteraction("daily", "one", "alice", recordOption("period", "month")))
+	if err != nil {
+		t.Fatalf("parse daily: %v", err)
+	}
+	if r.subcommand != "daily" {
+		t.Errorf("subcommand = %q, want daily", r.subcommand)
+	}
+	fromSlash, err := m.recordResponse("one", r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fromSlash != body {
+		t.Errorf("slash daily output differs:\n%s\n%s", fromSlash, body)
 	}
 }
 
