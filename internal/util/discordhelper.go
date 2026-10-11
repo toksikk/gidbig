@@ -1,6 +1,7 @@
 package util
 
 import (
+	"fmt"
 	"log/slog"
 	"regexp"
 	"strconv"
@@ -22,61 +23,76 @@ type reactionItem struct {
 
 var reactionItemChannel chan (reactionItem)
 
-func getAllMembersOfChannel(discordSession *discordgo.Session, channelID string) ([]*discordgo.Member, error) {
-	channel, err := discordSession.Channel(channelID)
-	if err != nil {
-		slog.Error("Could not retrieve Channel", "channelID", channelID)
-		return nil, err
-	}
-	guild, err := discordSession.Guild(channel.GuildID)
-	if err != nil {
-		slog.Error("Could not retrieve Guild", "guildID", channel.GuildID)
-		return nil, err
-	}
-	members := []*discordgo.Member{}
+// guildMembersPageSize is the largest page the List Guild Members endpoint accepts.
+const guildMembersPageSize = 1000
 
-	for _, member := range guild.Members {
-		permissions, err := discordSession.State.UserChannelPermissions(member.User.ID, channelID)
+// listGuildMembers fetches every member of a guild over REST, paging with the
+// `after` cursor. Unlike GET /guilds/{id}, this endpoint returns members, but it
+// requires the Server Members Intent to be enabled in the Developer Portal.
+func listGuildMembers(discordSession *discordgo.Session, guildID string) ([]*discordgo.Member, error) {
+	all := []*discordgo.Member{}
+	after := ""
+	for {
+		page, err := discordSession.GuildMembers(guildID, after, guildMembersPageSize)
 		if err != nil {
-			slog.Error("Could not get permissions of user for channel", "userID", member.User.ID, "channelID", channelID)
 			return nil, err
 		}
-		if permissions&discordgo.PermissionViewChannel != 0 {
-			members = append(members, member)
+		all = append(all, page...)
+		if len(page) < guildMembersPageSize {
+			break
 		}
+		last := page[len(page)-1]
+		if last == nil || last.User == nil || last.User.ID == after {
+			break
+		}
+		after = last.User.ID
 	}
-
-	return members, nil
+	return all, nil
 }
 
-// GetAllMembersOfChannelAsString retrieves all members of a specified Discord channel
+// viewableMemberNames returns the display names of members whose permissions in
+// the channel include ViewChannel, preserving member order. A permission lookup
+// that fails skips that member instead of aborting the whole list.
+func viewableMemberNames(members []*discordgo.Member, permissions func(userID string) (int64, error)) []string {
+	names := make([]string, 0, len(members))
+	for _, member := range members {
+		if member == nil || member.User == nil {
+			continue
+		}
+		perms, err := permissions(member.User.ID)
+		if err != nil {
+			slog.Warn("Could not get permissions of user for channel", "userID", member.User.ID, "error", err)
+			continue
+		}
+		if perms&discordgo.PermissionViewChannel == 0 {
+			continue
+		}
+		names = append(names, member.DisplayName())
+	}
+	return names
+}
+
+// GetAllMembersOfChannelAsString retrieves the members who can view a channel
 // and returns their display names as a comma-separated string.
 //
-// Parameters:
-//   - discordSession: A pointer to the discordgo.Session instance.
-//   - channelID: The ID of the Discord channel.
-//
-// Returns:
-//
-//	A string containing the display names of all members in the specified channel,
-//	separated by commas. If an error occurs, an empty string is returned.
-func GetAllMembersOfChannelAsString(discordSession *discordgo.Session, channelID string) string {
-	members, err := getAllMembersOfChannel(discordSession, channelID)
+// It lists the guild's members over REST (List Guild Members requires the Server
+// Members Intent) and keeps only those with ViewChannel. It returns an error
+// when the channel or member list cannot be fetched, so callers can tell an
+// empty channel apart from a failed lookup.
+func GetAllMembersOfChannelAsString(discordSession *discordgo.Session, channelID string) (string, error) {
+	channel, err := discordSession.Channel(channelID)
 	if err != nil {
-		slog.Error("Could not get members of channel", "channelID", channelID)
-		return ""
+		slog.Error("Could not retrieve Channel", "channelID", channelID, "error", err)
+		return "", fmt.Errorf("get channel %s: %w", channelID, err)
 	}
-
-	membersString := ""
-
-	for i, member := range members {
-		membersString += member.DisplayName()
-		if i != len(members)-1 {
-			membersString += ", "
-		}
+	members, err := listGuildMembers(discordSession, channel.GuildID)
+	if err != nil {
+		slog.Error("Could not retrieve Guild members", "guildID", channel.GuildID, "error", err)
+		return "", fmt.Errorf("list members of guild %s: %w", channel.GuildID, err)
 	}
-
-	return membersString
+	return strings.Join(viewableMemberNames(members, func(userID string) (int64, error) {
+		return discordSession.State.UserChannelPermissions(userID, channelID)
+	}), ", "), nil
 }
 
 // GetChannelName returns the name of a channel

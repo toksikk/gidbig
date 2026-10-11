@@ -57,7 +57,13 @@ func (m *Module) getChannelMembersHandler(_ context.Context, env tool.Env, _ jso
 	if env.ChannelID == "" {
 		return "no channel available", nil
 	}
-	members := m.channelMembersFunc(m.session, env.ChannelID)
+	members, err := m.channelMembersFunc(m.session, env.ChannelID)
+	if err != nil {
+		// Returned as a result, not an error, so the model can tell the user the
+		// list is unavailable (for example a missing Server Members Intent)
+		// instead of the tool loop hiding the reason behind a generic failure.
+		return fmt.Sprintf("could not list channel members: %v", err), nil
+	}
 	if members == "" {
 		return "no members found in this channel", nil
 	}

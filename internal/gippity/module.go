@@ -47,7 +47,7 @@ type Module struct {
 	generateAnswerFunc         func(*discordgo.MessageCreate, []string) (string, error)
 	chatCompletionFunc         func(context.Context, openai.ChatCompletionNewParams) (*openai.ChatCompletion, error)
 	channelTypingFunc          func(*discordgo.Session, string)
-	channelMembersFunc         func(*discordgo.Session, string) string
+	channelMembersFunc         func(*discordgo.Session, string) (string, error)
 	describeImagesFunc         func([]string) (string, error)
 	visionCompletionFunc       func(context.Context, openai.ChatCompletionNewParams) (*openai.ChatCompletion, error)
 	fetchReferencedMessageFunc func(*discordgo.Session, *discordgo.MessageReference) (*discordgo.Message, error)

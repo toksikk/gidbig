@@ -423,7 +423,7 @@ func (m *Module) generateAnswer(mc *discordgo.MessageCreate, imageURLs []string)
 	// never loses it.
 	membersNote := ""
 	if !m.channelMembersToolOffered() {
-		if members := m.channelMembersFunc(m.session, mc.ChannelID); members != "" {
+		if members, err := m.channelMembersFunc(m.session, mc.ChannelID); err == nil && members != "" {
 			membersNote = "Im Channel: " + members + ".\n"
 		}
 	}

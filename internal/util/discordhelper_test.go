@@ -1,10 +1,88 @@
 package util
 
 import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/bwmarrin/discordgo"
 )
+
+func TestViewableMemberNamesFiltersByPermission(t *testing.T) {
+	members := []*discordgo.Member{
+		{User: &discordgo.User{ID: "1", Username: "alice"}},
+		{User: &discordgo.User{ID: "2", Username: "bob"}},
+		{User: &discordgo.User{ID: "3", Username: "carol"}},
+		{User: nil},
+		nil,
+	}
+	permissions := func(userID string) (int64, error) {
+		switch userID {
+		case "1":
+			return discordgo.PermissionViewChannel, nil
+		case "2":
+			return 0, nil
+		case "3":
+			return 0, errors.New("boom")
+		}
+		return 0, nil
+	}
+
+	got := viewableMemberNames(members, permissions)
+	if len(got) != 1 || got[0] != "alice" {
+		t.Fatalf("viewableMemberNames = %v, want [alice]", got)
+	}
+}
+
+// guildMemberPage builds a JSON member-list response of n members starting at id.
+func guildMemberPage(start, n int) string {
+	items := make([]map[string]any, 0, n)
+	for i := 0; i < n; i++ {
+		id := fmt.Sprintf("%05d", start+i)
+		items = append(items, map[string]any{
+			"user": map[string]any{"id": id, "username": "u" + id},
+		})
+	}
+	b, _ := json.Marshal(items)
+	return string(b)
+}
+
+func TestListGuildMembersPaginates(t *testing.T) {
+	var requests int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Query().Get("after") == "" {
+			_, _ = w.Write([]byte(guildMemberPage(0, 1000)))
+			return
+		}
+		_, _ = w.Write([]byte(guildMemberPage(1000, 3)))
+	}))
+	t.Cleanup(server.Close)
+
+	origGuilds := discordgo.EndpointGuilds
+	discordgo.EndpointGuilds = server.URL + "/guilds/"
+	t.Cleanup(func() { discordgo.EndpointGuilds = origGuilds })
+
+	s, err := discordgo.New("Bot test")
+	if err != nil {
+		t.Fatalf("discordgo.New: %v", err)
+	}
+
+	got, err := listGuildMembers(s, "guild-1")
+	if err != nil {
+		t.Fatalf("listGuildMembers: %v", err)
+	}
+	if len(got) != 1003 {
+		t.Fatalf("members = %d, want 1003", len(got))
+	}
+	if requests != 2 {
+		t.Fatalf("requests = %d, want 2 (paginated)", requests)
+	}
+}
 
 func TestResolveMentions_NoMentions(t *testing.T) {
 	s, _ := discordgo.New("Bot fake-token")
