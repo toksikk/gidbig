@@ -3,7 +3,7 @@
 Directory `internal/bot`. Shared module framework. Not user-facing.
 
 - `module.go` – `Module` interface (`Name`, `Init`, `Commands`, `Listeners`, `Components`, `Background`, `Shutdown`) and `AdminProvider`.
-- `deps.go` – `Deps` (Session, Config, LLM, Logger, OwnerID).
+- `deps.go` – `Deps` (Session, Config, LLM, Logger, OwnerID, DB).
 - `router.go` – command/component dispatch with middleware. No-op until modules migrate.
 - `bot.go` – `Bot` wiring Router + supervisor.
 - `background.go` – `BackgroundSupervisor` runs panic-safe goroutines.

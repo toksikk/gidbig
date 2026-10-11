@@ -10,7 +10,7 @@ One file per internal package. Each doc: what it does + sequence diagram of the 
 | [soundboard](soundboard.md) | `/list` `/play` | Audio collection loading, per-guild voice playback queue |
 | [coffee](coffee.md) | `/brew` `/coffeemachine` `/setbeverage` | Coffee machine economy, orders, stats |
 | [gippity](gippity.md) | `/gippity` | LLM chat over Discord messages, vision, privacy |
-| [leetoclock](leetoclock.md) | – | Daily reaction-time game + scoreboard |
+| [leetoclock](leetoclock.md) | `/leetoclock` | Daily reaction-time game + scoreboard |
 | [wttrin](wttrin.md) | `/wttr` `/wttrf` | Weather + forecast via wttr.in + LLM outro |
 | [eso](eso.md) | `/eso` | Esoteric nonsense generator (LLM, fallback) |
 | [stoll](stoll.md) | `/stoll` | Random Dr. Axel Stoll quote |
@@ -25,5 +25,6 @@ One file per internal package. Each doc: what it does + sequence diagram of the 
 | --- | --- |
 | [bot](bot.md) | Module interface, router, background supervisor, middleware |
 | [cfg](cfg.md) | YAML config load + validation |
+| [shareddb](shareddb.md) | Shared `gidbig.db` open helper (WAL + busy timeout) |
 | [llm](llm.md) | OpenAI/OpenRouter client, personalities, language detect |
 | [util](util.md) | Discord helpers, AI responder, reactions, season logic |

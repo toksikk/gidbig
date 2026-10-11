@@ -29,7 +29,7 @@ sequenceDiagram
     core->>dg: New("Bot token") + Open()
     dg-->>core: READY
     core->>llm: Initialize + ResolvePersonality
-    core->>mod: Init(Deps) for soundboard/coffee/eso/gamerstatus/gippity/leetoclock/stoll/wttrin
+    core->>mod: Init(Deps) for soundboard/coffee/eso/gamerstatus/gippity/admin/leetoclock/anticheat/stoll/wardogs/wttrin
     mod-->>core: listeners + background tasks
     core->>dg: ApplicationCommandBulkOverwrite(cmds)
     core->>web: go startWebServer() (if configured)

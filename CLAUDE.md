@@ -58,36 +58,36 @@ Gidbig is a Discord bot focused on soundboard playback in voice channels, with a
 ### Startup flow (`internal/core/cmd.go:StartGidbig`)
 
 1. Load `config.yaml` → setup structured logging (text in dev, JSON in prod)
-2. Scan `./audio/` for `{prefix}_{soundname}.dca` files → build `COLLECTIONS`
-3. Start optional web server (requires OAuth credentials in config)
-4. Pre-load all `.dca` audio into memory as Opus frame buffers
-5. Open Discord WebSocket, register `onMessageCreate` and interaction handlers
-6. Initialize LLM client and resolve personality
-7. Initialize each module (anticheat, coffee, eso, gamerstatus, gippity, leetoclock, stoll, wttrin) via its `Init()` or `Start()` call
-8. Register all slash commands via `ApplicationCommandBulkOverwrite`
+2. Open the shared `gidbig.db` (WAL + busy timeout) and warn about legacy per-module databases
+3. Scan `./audio/` for `{prefix}_{soundname}.dca` files → build sound collections
+4. Open Discord WebSocket, register `onMessageCreate` and interaction handlers, start the watchdog
+5. Initialize LLM client and resolve personality
+6. Initialize each module (soundboard, coffee, eso, gamerstatus, gippity, admin, leetoclock, anticheat, stoll, wardogs, wttrin) via `Init(bot.Deps)`, registering listeners and background tasks
+7. Register all slash commands via `ApplicationCommandBulkOverwrite`
+8. Start the optional web server (requires OAuth credentials in config)
 
 ### Module system (built-in)
 
-All modules live in `internal/`, compile into the binary, and implement `bot.Module` (or use `Start(*discordgo.Session)` for legacy modules). Each registers its own event handlers and slash commands during init.
+All modules live in `internal/`, compile into the binary, and implement `bot.Module` (`New()` + `Init(bot.Deps)`). Each registers its own event handlers and slash commands during init, and receives the shared database through `bot.Deps.DB`.
 
 ### Soundboard / audio
 
-- Audio files: `./audio/{prefix}_{soundname}.dca` (DCA = pre-encoded Opus frames)
-- `soundCollection` groups sounds under a command prefix; `soundClip` holds a weight and pre-loaded `[][]byte` buffer of Opus frames
-- `onMessageCreate` matches `!{prefix} [soundname]` → `enqueuePlay()` → per-guild queue (max 6 items, mutex-protected) → `playSound()` sends Opus packets to voice channel
-- Weighted random selection when no specific sound is named
+- Audio files: `./audio/{prefix}_{soundname}.dca` (DCA = pre-encoded Opus frames), scanned into per-prefix `soundCollection`s; each `soundClip` holds a weight and pre-loaded `[][]byte` buffer of Opus frames.
+- Slash `/play` resolves the collection and sound (weighted random when the sound is omitted) → `enqueuePlay()` → per-guild queue (configurable `soundboard.queue_max_depth`, default 6, mutex-protected) → `playSound()` sends Opus packets to the voice channel. The web UI reaches the same path through the module's `Enqueue` API.
 
 ### Web server (`internal/core/webserver.go`)
 
-Standard library `net/http` (`ServeMux`) + AES-GCM encrypted cookie session store. Discord OAuth2 (identify + guilds). Session key is derived from the Web SessionSecret. Routes: `/`, `/discordLogin`, `/discordCallback`, `/playsound` (POST), `/logout`, `/api/queue`, `/health`. IP addresses are anonymized to /16 (IPv4) or /64 (IPv6).
+Standard library `net/http` (`ServeMux`) + AES-GCM encrypted cookie session store. Discord OAuth2 (identify + guilds). Session key is derived from the Web SessionSecret. Routes: `/`, `/discordLogin`, `/discordCallback`, `/playsound` (POST), `/logout`, `/api/queue`, `/api/eso`, `/health`, and `/static/`. IP addresses are anonymized to /16 (IPv4) or /64 (IPv6).
 
 ### Key packages
 
 | Package | Role |
 |---|---|---|
-| `internal/core` | Discord session, soundboard, web server |
+| `internal/core` | Discord session, slash commands, web server, shared-DB wiring |
 | `internal/cfg` | YAML config loading |
-| `internal/bot` | Module interface, deps, router, middleware |
+| `internal/bot` | Module interface, deps, router, middleware, background supervisor |
+| `internal/shareddb` | Opens the shared `gidbig.db` (WAL + busy timeout) |
+| `internal/soundboard` | Audio collection loading and per-guild voice playback queue |
 | `internal/admin` | `/admin` slash command, admin subcommand registry |
 | `internal/anticheat` | GamingOnLinux anti-cheat compatibility lookup with a cached CSV dataset |
 | `internal/llm` | Shared OpenAI/LLM client |
@@ -97,6 +97,7 @@ Standard library `net/http` (`ServeMux`) + AES-GCM encrypted cookie session stor
 | `internal/eso` | Conspiracy-text generator |
 | `internal/stoll` | Quote/Stoll module |
 | `internal/wttrin` | Weather module |
+| `internal/wardogs` | WARDOGS Linux/Proton support check |
 | `internal/gamerstatus` | Rotating custom status |
 | `internal/util` | Shared Discord helpers and random utilities |
 
@@ -129,7 +130,7 @@ llm:
 dev_mode: true
 ```
 
-Web server only starts when `web.port`, `web.oauth.client_id`, and `web.oauth.client_secret` are all set.
+Web server only starts when `web.port` is nonzero and `web.oauth.client_id`, `web.oauth.client_secret`, and `web.oauth.redirect_uri` are all set. Config validation also requires `web.session_secret` whenever `web.port` is nonzero.
 
 ### Deployment
 
@@ -137,4 +138,4 @@ When a PR is merged to `master`, `pipeline.yaml` dispatches a deploy event to th
 
 ### Pinned dependencies
 
-`go.mod` pins `bwmarrin/discordgo` to fork commit `yeongaori/discordgo-fork@930441e7` (2026-03-07) via a `replace` directive. Don't bump it without verifying voice playback in a DAVE-enabled Discord channel: every fork release after `c77a807b` (2026-03-08) removed the immediate `HandleExecuteTransition` call from the DAVE Welcome handler, so DAVE never activates, frames are sent without DAVE encryption, and Discord clients silently drop them — see #113. Reasoning is also in the `go.mod` comment above the `replace` line.
+`go.mod` pins `bwmarrin/discordgo` to fork commit `yeongaori/discordgo-fork@94d3e03d` (2026-09-13) via a `replace` directive. Don't bump it without verifying voice playback in a DAVE-enabled Discord channel: the previous baseline `930441e7` lacked the Op7/Op9 handshake-deadlock fix, and releases after `c77a807b` (2026-03-08) had removed the immediate `HandleExecuteTransition` call from the DAVE Welcome handler, so DAVE never activated, frames were sent without DAVE encryption, and Discord clients silently dropped them — see #113. The `94d3e03d` pin restores immediate DAVE Welcome activation, but **live DAVE playback on this pin is still pending**; run the live check in [docs/discord-gateway-recovery.md](docs/discord-gateway-recovery.md) before deploying a pin change. Reasoning is also in the `go.mod` comment above the `replace` line.

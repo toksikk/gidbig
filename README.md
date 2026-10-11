@@ -10,13 +10,12 @@ Gidbig is a Discord bot written in Go — soundboard playback in voice channels,
 
 - 🏓 **Ping/Pong** — send exact lowercase `ping` or `pong`; the bot replies `Pong!` or `Ping!` and updates its game status
 - 🔊 **Soundboard** — plays pre-encoded `.dca` audio files in your voice channel
-  - `!<prefix>` — play a random sound from that collection
-  - `!<prefix> <soundname>` — play a specific sound
-  - `!list` — list all available sound collections
-  - `!uptime` — owner-only uptime command
+  - `/play <collection> [sound]` — play a specific sound, or a random one from the collection when `sound` is omitted
+  - `/list` — list all available sound collections
   - Files live in `audio/` as `{prefix}_{soundname}.dca`; an optional matching `.txt` file supplies the Web UI description
 - 🌐 **Web UI** — browser interface to trigger sounds; requires Discord OAuth2 credentials in config
 - 📊 **`/status`** — owner-only ephemeral command showing versions, uptime, memory/runtime statistics, and guild/user counts
+- ⏱️ **`/uptime`** — owner-only uptime command
 - 🛡️ **`/admin`** — owner-only administrative commands
 
 ### 🔌 Modules
@@ -28,10 +27,10 @@ Gidbig is a Discord bot written in Go — soundboard playback in voice channels,
 | 🔮 **eso** | `/eso [thema]` generates esoteric pseudoscience nonsense through the LLM, with a local fallback |
 | 🎮 **gamerstatus** | Rotates the bot's Discord game/activity status every 5–15 minutes after an initial 5-minute delay |
 | 🤖 **gippity** | Responds through an LLM when mentioned in an allowed guild, stores conversation history in SQLite, and provides `/gippity privacy set:on\|off` |
-| 🕐 **leetoclock** | Daily 13:37 game — messages around 13:37 score by time offset; the top three at or after 13:37 rank alongside early/late categories |
+| 🕐 **leetoclock** | Daily 13:37 game — messages around 13:37 score by time offset; the top three at or after 13:37 rank alongside early/late categories. `/leetoclock top` and `/leetoclock player` show records |
 | 🧌 **stoll** | `/stoll` — Stoll-related commands |
 | 🐧 **wardogs** | `/wardogs` — reports whether WARDOGS officially supports Linux/Proton, read from the community tracker doeswardogshavelinux.support (10 min cache) |
-| 🌤️ **wttrin** | `!wttr <location>` / `!wttrf <location>` — current weather / forecast with an LLM-generated outro |
+| 🌤️ **wttrin** | `/wttr location:<location>` / `/wttrf location:<location>` — current weather / forecast with an LLM-generated outro |
 
 ## 🚀 Quickstart
 
@@ -89,18 +88,18 @@ The web server starts only when `web.port`, `web.session_secret`, `web.oauth.cli
 ### 2. Add audio files 🎵
 
 Drop `.dca` files into `./audio/` following the naming scheme `{prefix}_{soundname}.dca`. Prefix and sound name must be nonempty and cannot contain underscores.
-Example: `airhorn_default.dca` → `!airhorn default`
+Example: `airhorn_default.dca` → `/play airhorn default`
 
 ### 3. Build and run 🔨
 
-Local builds require Go 1.25 and a CGO-capable C compiler for SQLite.
+Local builds require Go 1.26 and a CGO-capable C compiler for SQLite.
 
 ```bash
 make build
 ./bin/gidbig
 ```
 
-Run the binary from a working directory containing `config.yaml`, `audio/`, `web/`, and a writable `plugins/` directory.
+Run the binary from a working directory containing `config.yaml`, `audio/`, and `web/`. It writes the shared SQLite database to `gidbig.db` there.
 
 ## 🛠️ Build
 
@@ -131,7 +130,6 @@ starts, tags, and CI-only changes never deploy.
 make docker
 
 # Prepare writable persistent storage
-mkdir -p data/plugins
 touch data/gidbig.db
 
 # Run with Web UI on port 8080
@@ -139,17 +137,11 @@ docker run -it \
   -p 8080:8080 \
   --mount type=bind,source=$(pwd)/config.yaml,target=/gidbig/config.yaml \
   --mount type=bind,source=$(pwd)/audio,target=/gidbig/audio \
-  --mount type=bind,source=$(pwd)/data/plugins,target=/gidbig/plugins \
   --mount type=bind,source=$(pwd)/data/gidbig.db,target=/gidbig/gidbig.db \
   gidbig:$(git describe --tags)
 ```
 
-The database file is fixed at `gidbig.db` in the bot's working directory. All modules share it. Upgrading from an older release that used per-module files (`coffee.db`, `leetoclock.sqlite`, `gippity.db`) requires a one-time data migration, see [docs/database-migration.md](docs/database-migration.md). The Docker mount above places the file at the expected path. `docker-compose.yml` is also available, but add equivalent writable persistence mounts before using it in production.
-
-## 🗺️ Roadmap
-
-- 🔀 **Finish migrating `!`-prefix commands to Discord slash commands** — wttrin remains a legacy command
-- 🏗️ **Finish module migration** — remove the remaining legacy boot path in `core/cmd.go`
+The database file is fixed at `gidbig.db` in the bot's working directory. All modules share it. Upgrading from an older release that used per-module files (`coffee.db`, `plugins/leetoclock.sqlite`, `gippity.db`) requires a one-time data migration, see [docs/database-migration.md](docs/database-migration.md). The Docker mount above places the file at the expected path. `docker-compose.yml` is also available, but add equivalent writable persistence mounts before using it in production.
 
 ## 📄 License
 
