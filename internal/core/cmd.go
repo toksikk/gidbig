@@ -30,9 +30,6 @@ var (
 	// discordgo session
 	discord *discordgo.Session
 
-	// Config struct to pass around
-	conf *cfg.Config
-
 	// Start time for uptime calculation
 	startTime = time.Now()
 
@@ -42,39 +39,6 @@ var (
 	// Soundboard module instance for web server access
 	soundboardMod *soundboard.Module
 )
-
-func onReady(s *discordgo.Session, event *discordgo.Ready) {
-	slog.Info("Discord READY", "user", event.User.String(), "guilds", len(event.Guilds))
-}
-
-func appendLeetoCommands(commands []*discordgo.ApplicationCommand, module *leetoclock.Module, ready bool) []*discordgo.ApplicationCommand {
-	if ready {
-		return append(commands, module.Commands()...)
-	}
-	return commands
-}
-
-func onConnect(s *discordgo.Session, event *discordgo.Connect) {
-	slog.Info("Discord WebSocket connected",
-		"shard_id", s.ShardID,
-		"shard_count", s.ShardCount,
-		"reconnect_enabled", s.ShouldReconnectOnError,
-	)
-}
-
-func onDisconnect(s *discordgo.Session, event *discordgo.Disconnect) {
-	// Callbacks run asynchronously and can arrive after the next Connect.
-	// Do not wait for the session lock or claim this is the current state.
-	slog.Warn("Discord WebSocket disconnect event received; automatic reconnect enabled",
-		"shard_id", s.ShardID,
-		"shard_count", s.ShardCount,
-		"reconnect_enabled", s.ShouldReconnectOnError,
-	)
-}
-
-func onResumed(s *discordgo.Session, event *discordgo.Resumed) {
-	slog.Info("Discord session resumed")
-}
 
 // statusInteractionResponse builds the ephemeral interaction response for /status.
 // Owner gets the status payload; non-owners get a denial. build is injectable for testing.
@@ -91,66 +55,6 @@ func statusInteractionResponse(userID, ownerID string, build func() *discordgo.I
 	return &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseChannelMessageWithSource,
 		Data: build(),
-	}
-}
-
-func onStatusInteractionCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	if i.Type != discordgo.InteractionApplicationCommand {
-		return
-	}
-	data := i.ApplicationCommandData()
-	if data.Name != "status" {
-		return
-	}
-
-	var userID string
-	if i.Member != nil && i.Member.User != nil {
-		userID = i.Member.User.ID
-	} else if i.User != nil {
-		userID = i.User.ID
-	}
-
-	view, format := statusOptions(data.Options)
-	if view == statusViewUsers {
-		if userID != conf.Discord.OwnerID {
-			respondEphemeral(s, i, "Access denied.")
-			return
-		}
-		respondStatusUsers(s, i, format)
-		return
-	}
-	resp := statusInteractionResponse(userID, conf.Discord.OwnerID, func() *discordgo.InteractionResponseData {
-		snap := collectStatus(context.Background(), s, statusProviders, statusDBPaths)
-		return statusResponseData(snap, view, format)
-	})
-	if err := s.InteractionRespond(i.Interaction, resp); err != nil {
-		slog.Error("could not respond to /status interaction", "error", err)
-	}
-}
-
-func onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
-	if m.Content == "ping" || m.Content == "pong" {
-		// If the message is "ping" reply with "Pong!"
-		if m.Content == "ping" {
-			msg, err := s.ChannelMessageSend(m.ChannelID, "Pong!")
-			if err != nil {
-				slog.Error("could not send channel message", "message", msg, "error", err)
-			}
-		}
-
-		// If the message is "pong" reply with "Ping!"
-		if m.Content == "pong" {
-			msg, err := s.ChannelMessageSend(m.ChannelID, "Ping!")
-			if err != nil {
-				slog.Error("could not send channel message", "message", msg, "error", err)
-			}
-		}
-
-		// Updating bot status
-		err := s.UpdateGameStatus(0, "Ping Pong with "+m.Author.Username)
-		if err != nil {
-			slog.Error("could not set game status", "error", err)
-		}
 	}
 }
 
@@ -180,12 +84,50 @@ func setupLogging(config *cfg.Config) {
 	slog.SetDefault(logger)
 }
 
+// newDiscordSession creates the Discord session and applies the transport and
+// sharding configuration before the gateway is opened.
+func newDiscordSession(conf *cfg.Config) (*discordgo.Session, error) {
+	session, err := discordgo.New("Bot " + conf.Discord.Token)
+	if err != nil {
+		return nil, err
+	}
+
+	// The pinned discordgo fork sets no read/write deadlines on its
+	// websockets, so a degraded network can hang Open() (waiting for the
+	// Hello packet while holding the session lock) or the heartbeat write
+	// (holding wsMutex) forever, silently stalling the reconnect loop.
+	// Bound every read/write at the transport level so stalls turn into
+	// errors and discordgo reconnects on its own. See wsdeadline.go.
+	session.Dialer = newDeadlineDialer()
+
+	// Capture gateway reconnect attempts and failures in the same structured
+	// log stream as the application. Dev mode additionally enables payload and
+	// heartbeat-level diagnostics.
+	configureDiscordgoLogging(session, conf.DevMode)
+
+	session.ShardID = conf.Discord.ShardID
+	session.ShardCount = conf.Discord.ShardCount
+	if session.ShardCount <= 0 {
+		session.ShardCount = 1
+	}
+	return session, nil
+}
+
+// registerOrLog registers a module and logs (but does not fail) on error, so a
+// broken module never takes the whole bot down.
+func registerOrLog(b *bot.Bot, m bot.Module) bool {
+	if err := b.RegisterModule(m); err != nil {
+		slog.Error("module init failed", "module", m.Name(), "error", err)
+		return false
+	}
+	return true
+}
+
 // StartGidbig obviously
 func StartGidbig() {
-	conf = cfg.GetConfig()
+	conf := cfg.GetConfig()
 	setupLogging(conf)
 	LogVersion()
-	var err error
 
 	if conf.Database.Path != "" {
 		slog.Warn("database.path is no longer supported and is ignored; the shared database is always "+shareddb.Filename,
@@ -205,51 +147,9 @@ func StartGidbig() {
 
 	// Create a discord session
 	slog.Info("Starting discord session...")
-	discord, err = discordgo.New("Bot " + conf.Discord.Token)
+	discord, err = newDiscordSession(conf)
 	if err != nil {
 		slog.Error("Failed to create discord session", "error", err)
-		os.Exit(1)
-		return
-	}
-
-	// The pinned discordgo fork sets no read/write deadlines on its
-	// websockets, so a degraded network can hang Open() (waiting for the
-	// Hello packet while holding the session lock) or the heartbeat write
-	// (holding wsMutex) forever, silently stalling the reconnect loop.
-	// Bound every read/write at the transport level so stalls turn into
-	// errors and discordgo reconnects on its own. See wsdeadline.go.
-	discord.Dialer = newDeadlineDialer()
-
-	// Capture gateway reconnect attempts and failures in the same structured
-	// log stream as the application. Dev mode additionally enables payload and
-	// heartbeat-level diagnostics.
-	configureDiscordgoLogging(discord, conf.DevMode)
-
-	// Set sharding info
-	discord.ShardID = conf.Discord.ShardID
-	discord.ShardCount = conf.Discord.ShardCount
-
-	if discord.ShardCount <= 0 {
-		discord.ShardCount = 1
-	}
-
-	discord.AddHandler(onReady)
-	discord.AddHandler(onConnect)
-	discord.AddHandler(onDisconnect)
-	discord.AddHandler(onResumed)
-	discord.AddHandler(onMessageCreate)
-	discord.AddHandler(onStatusInteractionCreate)
-	discord.AddHandler(onCoreSlashInteractionCreate)
-
-	watchdogCtx, stopWatchdog := context.WithCancel(context.Background())
-	defer stopWatchdog()
-	go runDiscordWatchdog(watchdogCtx, discord, discordWatchdogInterval, discordWatchdogTimeout, func() {
-		os.Exit(1)
-	})
-
-	err = discord.Open()
-	if err != nil {
-		slog.Error("Failed to create discord websocket connection", "error", err)
 		os.Exit(1)
 		return
 	}
@@ -263,65 +163,52 @@ func StartGidbig() {
 		conf.LLM.Title,
 	); err != nil {
 		slog.Error("llm: init failed", "error", err)
-		_ = discord.Close()
 		os.Exit(1)
 		return
 	}
 	llm.ResolvePersonality(conf.LLM.Personality, conf.LLM.Preset)
+
+	deps := bot.Deps{
+		Session: discord,
+		Config:  conf,
+		LLM:     llm.GetClient(),
+		Logger:  slog.Default(),
+		OwnerID: conf.Discord.OwnerID,
+		DB:      sharedDB,
+		Stats:   bot.NewStatsRegistry(),
+	}
+
+	b := bot.New(deps)
+	// Core owns /status, /uptime and the core Discord handlers. It is
+	// registered before the gateway opens so its lifecycle handlers are active
+	// from the first connect.
+	coreMod := NewCore()
+	registerOrLog(b, coreMod)
+
+	watchdogCtx, stopWatchdog := context.WithCancel(context.Background())
+	defer stopWatchdog()
+	go runDiscordWatchdog(watchdogCtx, discord, discordWatchdogInterval, discordWatchdogTimeout, func() {
+		os.Exit(1)
+	})
+
+	if err := discord.Open(); err != nil {
+		slog.Error("Failed to create discord websocket connection", "error", err)
+		os.Exit(1)
+		return
+	}
+
 	soundboardMod = soundboard.New()
-	soundboardReady := false
-	if err := soundboardMod.Init(bot.Deps{Session: discord, Config: conf}); err != nil {
-		slog.Error("soundboard: init failed", "error", err)
-	} else {
-		soundboardReady = true
-		for _, l := range soundboardMod.Listeners() {
-			discord.AddHandler(l)
-		}
-	}
+	registerOrLog(b, soundboardMod)
 	coffeeMod := coffee.New()
-	coffeeReady := false
-	if err := coffeeMod.Init(bot.Deps{Session: discord, Config: conf, DB: sharedDB}); err != nil {
-		slog.Error("coffee: init failed", "error", err)
-	} else {
-		coffeeReady = true
-		for _, l := range coffeeMod.Listeners() {
-			discord.AddHandler(l)
-		}
-	}
+	coffeeReady := registerOrLog(b, coffeeMod)
 	esoMod = eso.New()
-	if err := esoMod.Init(bot.Deps{Session: discord, OwnerID: conf.Discord.OwnerID}); err != nil {
-		slog.Error("eso: init failed", "error", err)
-	} else {
-		for _, l := range esoMod.Listeners() {
-			discord.AddHandler(l)
-		}
-	}
-	bgCtx, bgCancel := context.WithCancel(context.Background())
-	bgSupervisor := bot.NewSupervisor()
-	if coffeeReady {
-		bgSupervisor.Start(bgCtx, coffeeMod.Background()...)
-	}
-	gamerstatusMod := gamerstatus.New()
-	if err := gamerstatusMod.Init(bot.Deps{Session: discord, OwnerID: conf.Discord.OwnerID}); err != nil {
-		slog.Error("gamerstatus: init failed", "error", err)
-	} else {
-		bgSupervisor.Start(bgCtx, gamerstatusMod.Background()...)
-	}
+	registerOrLog(b, esoMod)
+	registerOrLog(b, gamerstatus.New())
 	gippityMod := gippity.New()
-	gippityReady := false
-	if err := gippityMod.Init(bot.Deps{Session: discord, Config: conf, DB: sharedDB}); err != nil {
-		slog.Error("gippity: init failed", "error", err)
-	} else {
-		gippityReady = true
-		for _, l := range gippityMod.Listeners() {
-			discord.AddHandler(l)
-		}
-		bgSupervisor.Start(bgCtx, gippityMod.Background()...)
-	}
-	// Admin aggregates the provider modules under /admin. Build the provider
-	// list from modules that initialized successfully, so the /admin tree never
-	// advertises a provider whose Init failed. Adding a new AdminProvider module
-	// needs no edits inside internal/admin.
+	gippityReady := registerOrLog(b, gippityMod)
+
+	// Admin aggregates the provider modules under /admin. Adding a new
+	// AdminProvider module needs no edits inside internal/admin.
 	var adminProviders []bot.AdminProvider
 	if coffeeReady {
 		adminProviders = append(adminProviders, coffeeMod)
@@ -330,94 +217,14 @@ func StartGidbig() {
 		adminProviders = append(adminProviders, gippityMod)
 	}
 	adminMod := admin.New(adminProviders...)
-	adminMod.SetInfoText(buildBotStatsMessage)
-	if err := adminMod.Init(bot.Deps{Session: discord, Config: conf, OwnerID: conf.Discord.OwnerID}); err != nil {
-		slog.Error("admin: init failed", "error", err)
-	} else {
-		for _, l := range adminMod.Listeners() {
-			discord.AddHandler(l)
-		}
-	}
-	leetoMod := leetoclock.New()
-	leetoReady := false
-	if err := leetoMod.Init(bot.Deps{Session: discord, Config: conf, DB: sharedDB}); err != nil {
-		slog.Error("leetoclock: init failed", "error", err)
-	} else {
-		leetoReady = true
-		for _, l := range leetoMod.Listeners() {
-			discord.AddHandler(l)
-		}
-		bgSupervisor.Start(bgCtx, leetoMod.Background()...)
-	}
-	anticheatMod := anticheat.New()
-	if err := anticheatMod.Init(bot.Deps{Session: discord, OwnerID: conf.Discord.OwnerID}); err != nil {
-		slog.Error("anticheat: init failed", "error", err)
-	} else {
-		for _, l := range anticheatMod.Listeners() {
-			discord.AddHandler(l)
-		}
-		bgSupervisor.Start(bgCtx, anticheatMod.Background()...)
-	}
-	stollMod := stoll.New()
-	if err := stollMod.Init(bot.Deps{Session: discord, OwnerID: conf.Discord.OwnerID}); err != nil {
-		slog.Error("stoll: init failed", "error", err)
-	} else {
-		for _, l := range stollMod.Listeners() {
-			discord.AddHandler(l)
-		}
-	}
-	wardogsMod := wardogs.New()
-	if err := wardogsMod.Init(bot.Deps{Session: discord, OwnerID: conf.Discord.OwnerID}); err != nil {
-		slog.Error("wardogs: init failed", "error", err)
-	} else {
-		for _, l := range wardogsMod.Listeners() {
-			discord.AddHandler(l)
-		}
-	}
-	wttrinMod := wttrin.New()
-	if err := wttrinMod.Init(bot.Deps{Session: discord, OwnerID: conf.Discord.OwnerID, LLM: llm.GetClient()}); err != nil {
-		slog.Error("wttrin: init failed", "error", err)
-	} else {
-		for _, l := range wttrinMod.Listeners() {
-			discord.AddHandler(l)
-		}
-	}
+	adminMod.SetInfoText(coreMod.statsMessage)
+	registerOrLog(b, adminMod)
 
-	statusProviders = nil
-	if soundboardReady {
-		statusProviders = append(statusProviders, soundboardMod)
-	}
-	if coffeeReady {
-		statusProviders = append(statusProviders, coffeeMod)
-	}
-	if gippityReady {
-		statusProviders = append(statusProviders, gippityMod)
-	}
-	if leetoReady {
-		statusProviders = append(statusProviders, leetoMod)
-	}
-	statusProviders = append(statusProviders, wttrinMod)
-	statusDBPaths = []string{shareddb.Filename}
-
-	cmds := []*discordgo.ApplicationCommand{statusCommand()}
-	cmds = append(cmds, coreSlashCommands()...)
-	if soundboardReady {
-		cmds = append(cmds, soundboardMod.Commands()...)
-	}
-	cmds = append(cmds, adminMod.Commands()...)
-	cmds = append(cmds, coffeeMod.Commands()...)
-	cmds = append(cmds, esoMod.Commands()...)
-	if gippityReady {
-		cmds = append(cmds, gippityMod.Commands()...)
-	}
-	cmds = appendLeetoCommands(cmds, leetoMod, leetoReady)
-	cmds = append(cmds, anticheatMod.Commands()...)
-	cmds = append(cmds, stollMod.Commands()...)
-	cmds = append(cmds, wardogsMod.Commands()...)
-	cmds = append(cmds, wttrinMod.Commands()...)
-	if _, err := discord.ApplicationCommandBulkOverwrite(discord.State.User.ID, "", cmds); err != nil {
-		slog.Error("Failed to register slash commands", "error", err)
-	}
+	registerOrLog(b, leetoclock.New())
+	registerOrLog(b, anticheat.New())
+	registerOrLog(b, stoll.New())
+	registerOrLog(b, wardogs.New())
+	registerOrLog(b, wttrin.New())
 
 	// Start Webserver if a valid port is provided and if ClientID and ClientSecret are set
 	if conf.Web.Port != 0 && conf.Web.Port >= 1 && conf.Web.Oauth.ClientID != "" && conf.Web.Oauth.ClientSecret != "" && conf.Web.Oauth.RedirectURI != "" {
@@ -432,41 +239,19 @@ func StartGidbig() {
 	slog.Info("Gidbig is ready. Quit with CTRL-C.")
 	setStartedStatus()
 
-	c := make(chan os.Signal, 1)
-	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
-	<-c
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	if err := b.Run(ctx); err != nil {
+		slog.Error("bot run failed", "error", err)
+	}
 
 	slog.Info("shutting down")
-
 	stopWatchdog()
-	bgCancel()
 
 	shutdownDone := make(chan struct{})
 	go func() {
 		defer close(shutdownDone)
-		// Background tasks can also be blocked on the Discord session lock.
-		// Include their wait in the shutdown deadline.
-		bgSupervisor.Wait()
-		if err := discord.Close(); err != nil {
-			slog.Error("error closing discord session", "error", err)
-		}
-		if err := gippityMod.Shutdown(); err != nil {
-			slog.Error("gippity: shutdown failed", "error", err)
-		}
-		if leetoReady {
-			if err := leetoMod.Shutdown(); err != nil {
-				slog.Error("leetoclock: shutdown failed", "error", err)
-			}
-		}
-		if err := coffeeMod.Shutdown(); err != nil {
-			slog.Error("coffee: shutdown failed", "error", err)
-		}
-		// Close the shared database last, after modules stopped using it.
-		if sqlDB, dbErr := sharedDB.DB(); dbErr == nil {
-			if err := sqlDB.Close(); err != nil {
-				slog.Error("error closing shared database", "error", err)
-			}
-		}
+		b.Shutdown()
 	}()
 
 	select {
@@ -475,5 +260,12 @@ func StartGidbig() {
 	case <-time.After(10 * time.Second):
 		slog.Warn("shutdown timed out after 10s, forcing exit")
 		logGoroutineStacks()
+	}
+
+	// Close the shared database last, after modules stopped using it.
+	if sqlDB, dbErr := sharedDB.DB(); dbErr == nil {
+		if err := sqlDB.Close(); err != nil {
+			slog.Error("error closing shared database", "error", err)
+		}
 	}
 }

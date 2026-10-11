@@ -51,7 +51,7 @@ func TestBuildBotStatsMessageIncludesVersion(t *testing.T) {
 	version = "v1.2.3"
 	t.Cleanup(func() { version = originalVersion })
 
-	got := buildBotStatsMessage(&discordgo.Session{})
+	got := NewCore().statsMessage(&discordgo.Session{})
 	if !strings.Contains(got, "gidbig v1.2.3") {
 		t.Fatalf("status missing bot version:\n%s", got)
 	}

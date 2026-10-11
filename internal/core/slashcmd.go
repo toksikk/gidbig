@@ -53,19 +53,3 @@ func deferInteraction(s *discordgo.Session, i *discordgo.InteractionCreate) bool
 	}
 	return true
 }
-
-// onCoreSlashInteractionCreate dispatches the /uptime command.
-func onCoreSlashInteractionCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	if i.Type != discordgo.InteractionApplicationCommand {
-		return
-	}
-	if i.ApplicationCommandData().Name != "uptime" {
-		return
-	}
-	user := interactionUser(i)
-	if user == nil || user.ID != conf.Discord.OwnerID {
-		respondEphemeral(s, i, "Access denied.")
-		return
-	}
-	respondEphemeral(s, i, buildUptimeBody())
-}

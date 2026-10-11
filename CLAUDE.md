@@ -59,12 +59,13 @@ Gidbig is a Discord bot focused on soundboard playback in voice channels, with a
 
 1. Load `config.yaml` → setup structured logging (text in dev, JSON in prod)
 2. Open the shared `gidbig.db` (WAL + busy timeout) and warn about legacy per-module databases
-3. Scan `./audio/` for `{prefix}_{soundname}.dca` files → build sound collections
-4. Open Discord WebSocket, register `onMessageCreate` and interaction handlers, start the watchdog
-5. Initialize LLM client and resolve personality
-6. Initialize each module (soundboard, coffee, eso, gamerstatus, gippity, admin, leetoclock, anticheat, stoll, wardogs, wttrin) via `Init(bot.Deps)`, registering listeners and background tasks
-7. Register all slash commands via `ApplicationCommandBulkOverwrite`
+3. Create the Discord session (dial deadline dialer, gateway logging, sharding) and initialize the LLM client
+4. Build `bot.Deps`, create the `bot.Bot`, register the core module before `Open` so lifecycle handlers are active from the first connect
+5. Start the watchdog and open the Discord WebSocket
+6. Register each module (soundboard, coffee, eso, gamerstatus, gippity, admin, leetoclock, anticheat, stoll, wardogs, wttrin) with `bot.RegisterModule`; the router funnels their listeners into a single `MessageCreate` and `InteractionCreate` session handler and registers their stats providers
+7. `bot.Run(ctx)` publishes all collected slash commands via `ApplicationCommandBulkOverwrite`, starts background tasks, and blocks until the signal context is cancelled
 8. Start the optional web server (requires OAuth credentials in config)
+9. On shutdown, `bot.Shutdown` cancels the context, waits for background tasks, shuts modules down, and closes the session
 
 ### Module system (built-in)
 
