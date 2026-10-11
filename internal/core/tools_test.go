@@ -50,6 +50,28 @@ func TestBotStatusHandlerReportsAllModules(t *testing.T) {
 	if !strings.Contains(out, "msgs") || !strings.Contains(out, "cups") {
 		t.Errorf("output missing module counters: %q", out)
 	}
+	if !strings.HasPrefix(out, "runtime: ") {
+		t.Errorf("output missing runtime line: %q", out)
+	}
+	for _, want := range []string{"heap=", "sys=", "goroutines=", "gc_cycles=", "uptime="} {
+		if !strings.Contains(out, want) {
+			t.Errorf("runtime line missing %q: %q", want, out)
+		}
+	}
+}
+
+func TestBotStatusHandlerRuntimeOnlyWithoutModules(t *testing.T) {
+	m := &Module{stats: bot.NewStatsRegistry(), tools: tool.NewRegistry()}
+	m.registerTools()
+
+	def, _ := m.tools.Get("bot_status")
+	out, err := def.Handler(context.Background(), tool.Env{}, json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatalf("handler: %v", err)
+	}
+	if !strings.Contains(out, "runtime: ") || !strings.Contains(out, "heap=") {
+		t.Errorf("runtime output = %q", out)
+	}
 }
 
 func TestBotStatusHandlerFiltersByModule(t *testing.T) {

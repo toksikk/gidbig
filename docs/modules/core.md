@@ -4,7 +4,7 @@ Package `gidbig`, directory `internal/core`. Composition root and core module.
 
 - `cmd.go` – `StartGidbig`: builds session, wires modules through `bot.Bot`, waits for signal, shuts down.
 - `module.go` – the core `bot.Module`: lifecycle logging (`onReady`/`onConnect`/`onDisconnect`/`onResumed`), ping/pong, `/status`, `/uptime`.
-- `tools.go` – registers the `bot_status` LLM tool, which aggregates `StatsProvider`s for the answer path.
+- `tools.go` – registers the `bot_status` LLM tool, which reports the process runtime line (heap, sys, stack, goroutines, GC cycles, uptime) plus aggregated `StatsProvider` counters for the answer path.
 - `slashcmd.go` – `/uptime` rendering helpers.
 - `status.go` / `status_users.go` – `/status` snapshot collection and rendering.
 - `webserver.go` – optional OAuth session web UI, sound + eso APIs.

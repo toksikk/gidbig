@@ -4,8 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"runtime"
 	"strings"
+	"time"
 
+	humanize "github.com/dustin/go-humanize"
 	"github.com/toksikk/gidbig/internal/tool"
 )
 
@@ -28,15 +31,30 @@ func (m *Module) registerTools() {
 	}
 	m.tools.Register(tool.Def{
 		Name:        "bot_status",
-		Description: "Report the bot's own runtime counters per module, for example stored messages or mentions. Read-only. Optionally filter by module name.",
+		Description: "Report the bot's own runtime status: memory (heap, sys), goroutines, GC cycles, uptime and per-module counters such as stored messages or mentions. Read-only. Optionally filter by module name.",
 		Parameters:  botStatusParameters,
 		Handler:     m.botStatusHandler,
 	})
 }
 
+// botRuntimeStatus summarizes process memory and scheduler state, the same
+// figures /status shows in its Runtime section.
+func botRuntimeStatus() string {
+	mem := runtime.MemStats{}
+	runtime.ReadMemStats(&mem)
+	return fmt.Sprintf(
+		"runtime: heap=%s heap_sys=%s sys=%s stack=%s goroutines=%d gc_cycles=%d uptime=%s version=%s",
+		humanize.IBytes(mem.HeapAlloc), humanize.IBytes(mem.HeapSys), humanize.IBytes(mem.Sys),
+		humanize.IBytes(mem.StackInuse), runtime.NumGoroutine(), mem.NumGC,
+		formatUptime(time.Since(startTime)), currentVersion(),
+	)
+}
+
 // botStatusHandler aggregates every StatsProvider into compact one-line
 // summaries. It returns only counters already exposed to /status, never tokens
-// or secrets. The optional module argument filters by module name.
+// or secrets. The optional module argument filters by module name. The runtime
+// line is always first, so a memory question is answered even when a module
+// also matches.
 func (m *Module) botStatusHandler(ctx context.Context, _ tool.Env, args json.RawMessage) (string, error) {
 	if m.stats == nil {
 		return "", fmt.Errorf("bot_status: stats registry not initialized")
@@ -53,17 +71,21 @@ func (m *Module) botStatusHandler(ctx context.Context, _ tool.Env, args json.Raw
 	filter := strings.ToLower(strings.TrimSpace(in.Module))
 
 	var b strings.Builder
+	b.WriteString(botRuntimeStatus())
+	b.WriteString("\n")
+	matched := 0
 	for _, ms := range stats {
 		if filter != "" && strings.ToLower(ms.Name) != filter {
 			continue
 		}
+		matched++
 		if ms.Err != nil {
 			fmt.Fprintf(&b, "%s: n/a (%v)\n", ms.Name, ms.Err)
 			continue
 		}
 		fmt.Fprintf(&b, "%s: %s\n", ms.Name, joinStats(ms.Stats.Summary))
 	}
-	if b.Len() == 0 {
+	if filter != "" && matched == 0 {
 		return fmt.Sprintf("no module named %q", in.Module), nil
 	}
 	return strings.TrimRight(b.String(), "\n"), nil
