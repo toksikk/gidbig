@@ -7,6 +7,7 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/toksikk/gidbig/internal/bot"
+	"github.com/toksikk/gidbig/internal/cfg"
 	"github.com/toksikk/gidbig/internal/util"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -87,11 +88,7 @@ func (m *Module) openDB(d bot.Deps) error {
 		return m.migrateDB()
 	}
 
-	dbPath := "gidbig.db"
-	if d.Config != nil && d.Config.Database.Path != "" {
-		dbPath = d.Config.Database.Path
-	}
-	db, err := gorm.Open(sqlite.Open(dbPath), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(cfg.DefaultDatabaseFilename), &gorm.Config{})
 	if err != nil {
 		return err
 	}

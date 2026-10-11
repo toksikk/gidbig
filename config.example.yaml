@@ -10,9 +10,6 @@ web:
         redirect_uri: "YOUR_REDIRECT_URI"
     session_secret: "base64-encoded-32-random-bytes"
     port: 8080
-database:
-    # Single SQLite file shared by all modules. Defaults to gidbig.db.
-    path: "gidbig.db"
 gippity:
     allowed_guilds:
         - "YOUR_DISCORD_GUILD_ID"

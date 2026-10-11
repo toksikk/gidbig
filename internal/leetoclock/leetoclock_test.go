@@ -11,7 +11,24 @@ import (
 	"github.com/toksikk/gidbig/internal/cfg"
 	"github.com/toksikk/gidbig/internal/leetoclock/util/datastore"
 	"github.com/toksikk/gidbig/internal/util"
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
 )
+
+// openTestDB returns a migrated shared database for tests that inject Deps.DB.
+func openTestDB(t *testing.T) *gorm.DB {
+	t.Helper()
+	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "gidbig.db")), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open test database: %v", err)
+	}
+	t.Cleanup(func() {
+		if sqlDB, dbErr := db.DB(); dbErr == nil {
+			_ = sqlDB.Close()
+		}
+	})
+	return db
+}
 
 func TestModuleInterface(t *testing.T) {
 	var _ bot.Module = New()
@@ -160,14 +177,13 @@ func TestInitAppliesLeetoclockConfig(t *testing.T) {
 	newInitModule := func(t *testing.T, lec cfg.LeetoclockConfig) *Module {
 		t.Helper()
 		conf := &cfg.Config{}
-		conf.Database.Path = filepath.Join(t.TempDir(), "gidbig.db")
 		conf.Leetoclock = lec
 		session, err := discordgo.New("Bot test")
 		if err != nil {
 			t.Fatal(err)
 		}
 		m := New()
-		if err := m.Init(bot.Deps{Session: session, Config: conf}); err != nil {
+		if err := m.Init(bot.Deps{Session: session, Config: conf, DB: openTestDB(t)}); err != nil {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() {
@@ -249,14 +265,13 @@ func TestInitAppliesEmojiConfig(t *testing.T) {
 	newInitModule := func(t *testing.T, lec cfg.LeetoclockConfig) *Module {
 		t.Helper()
 		conf := &cfg.Config{}
-		conf.Database.Path = filepath.Join(t.TempDir(), "gidbig.db")
 		conf.Leetoclock = lec
 		session, err := discordgo.New("Bot test")
 		if err != nil {
 			t.Fatal(err)
 		}
 		m := New()
-		if err := m.Init(bot.Deps{Session: session, Config: conf}); err != nil {
+		if err := m.Init(bot.Deps{Session: session, Config: conf, DB: openTestDB(t)}); err != nil {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() {
@@ -310,14 +325,13 @@ func TestAnnouncementTitle(t *testing.T) {
 func newTestModule(t *testing.T) (*Module, *discordgo.Session) {
 	t.Helper()
 	conf := &cfg.Config{}
-	conf.Database.Path = filepath.Join(t.TempDir(), "gidbig.db")
 	session, err := discordgo.New("Bot test")
 	if err != nil {
 		t.Fatal(err)
 	}
 	session.State.User = &discordgo.User{ID: "bot"}
 	m := New()
-	if err := m.Init(bot.Deps{Session: session, Config: conf}); err != nil {
+	if err := m.Init(bot.Deps{Session: session, Config: conf, DB: openTestDB(t)}); err != nil {
 		t.Fatal(err)
 	}
 	m.reactOnMessage = func(*discordgo.Session, string, string, string, string) {}

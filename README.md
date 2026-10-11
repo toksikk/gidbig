@@ -146,7 +146,7 @@ docker run -it \
   gidbig:$(git describe --tags)
 ```
 
-The database mount must match `database.path`. All modules share this single SQLite file; upgrading from an older release that used per-module files (`coffee.db`, `leetoclock.sqlite`, `gippity.db`) requires a one-time data migration, see [docs/database-migration.md](docs/database-migration.md). `docker-compose.yml` is also available, but add equivalent writable persistence mounts before using it in production.
+The database file is fixed at `gidbig.db` in the bot's working directory. All modules share it. Upgrading from an older release that used per-module files (`coffee.db`, `leetoclock.sqlite`, `gippity.db`) requires a one-time data migration, see [docs/database-migration.md](docs/database-migration.md). The Docker mount above places the file at the expected path. `docker-compose.yml` is also available, but add equivalent writable persistence mounts before using it in production.
 
 ## 🗺️ Roadmap
 
