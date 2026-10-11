@@ -2,6 +2,7 @@ package coffee
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -64,6 +65,7 @@ type Module struct {
 	sendIntroDM          func(*discordgo.Session, string, string)
 	detectLanguage       func(*discordgo.Session, string) (string, error)
 	generateLLMMessage   func(context.Context, string, string) (string, error)
+	llmClient            *llm.Client
 	deferInteraction     func(*discordgo.Session, *discordgo.InteractionCreate, bool) error
 	deferUpdate          func(*discordgo.Session, *discordgo.InteractionCreate) error
 	editDeferredResponse func(*discordgo.Session, *discordgo.InteractionCreate, string)
@@ -86,8 +88,10 @@ func New() *Module {
 	m.season = util.CurrentSeason
 	m.reactOnMessage = util.ReactOnMessage
 	m.sendIntroDM = m.sendIntroDMImpl
-	m.detectLanguage = llm.DetectChannelLanguage
-	m.generateLLMMessage = llm.GenerateMessage
+	m.detectLanguage = func(_ *discordgo.Session, _ string) (string, error) { return "English", nil }
+	m.generateLLMMessage = func(context.Context, string, string) (string, error) {
+		return "", errors.New("llm: client not initialized")
+	}
 	m.deferInteraction = m.deferInteractionImpl
 	m.deferUpdate = m.deferUpdateImpl
 	m.editDeferredResponse = m.editDeferredResponseImpl
@@ -106,6 +110,11 @@ func (m *Module) Name() string { return "coffee" }
 // Init opens the beverage-preference store using the shared database injected
 // through Deps, or gidbig.db when running without a composition root.
 func (m *Module) Init(d bot.Deps) error {
+	if d.LLM != nil {
+		m.llmClient = d.LLM
+		m.detectLanguage = d.LLM.DetectChannelLanguage
+		m.generateLLMMessage = d.LLM.GenerateMessage
+	}
 	if d.DB != nil {
 		if err := m.useStore(d.DB); err != nil {
 			return fmt.Errorf("coffee: migrate store: %w", err)
@@ -283,7 +292,7 @@ func (m *Module) generateInteractionMessage(s *discordgo.Session, channelID, sce
 	if lang == "" {
 		lang = "English"
 	}
-	systemPrompt := "Discord bot running a coffee station in a community chat. " + llm.Personality() + " Respond in " + lang + "."
+	systemPrompt := "Discord bot running a coffee station in a community chat. " + m.llmClient.Personality() + " Respond in " + lang + "."
 	msg, err := m.generateLLMMessage(context.Background(), systemPrompt, scenario)
 	if err != nil || strings.TrimSpace(msg) == "" {
 		return fallback
@@ -358,7 +367,7 @@ func (m *Module) warmUITranslation(
 	if lang == "" {
 		lang = "English"
 	}
-	systemPrompt := "Discord bot running a coffee station in a community chat. " + llm.Personality() + " Respond in " + lang + "."
+	systemPrompt := "Discord bot running a coffee station in a community chat. " + m.llmClient.Personality() + " Respond in " + lang + "."
 	out, err := generateMessage(context.Background(), systemPrompt,
 		"Translate this coffee-station line into the channel's language, keeping every `/slash-command`, **markdown** marker and emoji exactly as written. Reply with only the translated line:\n"+english)
 	out = strings.TrimSpace(out)

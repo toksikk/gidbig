@@ -2,13 +2,13 @@ package eso
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math/rand/v2"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/toksikk/gidbig/internal/bot"
-	"github.com/toksikk/gidbig/internal/llm"
 	"github.com/toksikk/gidbig/internal/util"
 )
 
@@ -30,6 +30,13 @@ func (m *Module) Name() string { return "eso" }
 func (m *Module) Init(d bot.Deps) error {
 	m.session = d.Session
 
+	generateFn := func(context.Context, string, string) (string, error) {
+		return "", errors.New("llm: client not initialized")
+	}
+	if d.LLM != nil {
+		generateFn = d.LLM.GenerateMessage
+	}
+
 	pool := make([]string, 20)
 	for i := range pool {
 		pool[i] = buildMessage()
@@ -39,7 +46,7 @@ func (m *Module) Init(d bot.Deps) error {
 		ExamplePool:          pool,
 		ExampleCount:         5,
 		Fallback:             buildMessage,
-		GenerateFn:           llm.GenerateMessage,
+		GenerateFn:           generateFn,
 		OnFallback: func(err error) {
 			slog.Warn("eso: LLM generation failed; using fallback", "error", err)
 		},

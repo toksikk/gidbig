@@ -117,7 +117,7 @@ func (m *Module) classifyShouldRespond(ctx context.Context, mc *discordgo.Messag
 
 	model := m.classifierModel
 	if model == "" {
-		model = llm.Model()
+		model = m.llmClient.Model()
 	}
 
 	completion, err := m.chatCompletionFunc(ctx, openai.ChatCompletionNewParams{
@@ -401,7 +401,7 @@ Keine abschließenden Fragen zum Weiterreden.
 ---
 Manche Namen sind Pseudonyme (Benutzer 1, 2, …) für anonyme Teilnehmer. Echte Identität nicht erraten — nicht aus Kontext, Schreibstil oder anderen Signalen. Anonymisierte Inhalte ersetzt und nicht verfügbar; als opake Kontextnachrichten behandeln.`
 
-	systemMessage := systemMessageBase + "\n" + m.enrichSystemMessage(llm.Personality())
+	systemMessage := systemMessageBase + "\n" + m.enrichSystemMessage(m.llmClient.Personality())
 
 	messages := []openai.ChatCompletionMessageParamUnion{}
 	messages = append(messages, openai.SystemMessage(systemMessage))
@@ -507,7 +507,7 @@ Manche Namen sind Pseudonyme (Benutzer 1, 2, …) für anonyme Teilnehmer. Echte
 
 	chatCompletion, err := m.chatCompletionFunc(context.Background(), openai.ChatCompletionNewParams{
 		Messages:            messages,
-		Model:               llm.Model(),
+		Model:               m.llmClient.Model(),
 		N:                   openai.Int(1),
 		MaxCompletionTokens: openai.Int(300),
 	})

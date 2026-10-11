@@ -3,6 +3,7 @@ package wttrin
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -246,6 +247,7 @@ type wttrinResponse struct {
 // Module implements bot.Module for the wttrin weather plugin.
 type Module struct {
 	session      *discordgo.Session
+	llmClient    *llm.Client
 	detectLang   func(*discordgo.Session, string) (string, error)
 	generateFn   func(context.Context, string, string) (string, error)
 	getWeatherFn func(string) (wttrinResponse, error)
@@ -272,8 +274,10 @@ type weatherCall struct {
 // New returns a new wttrin Module with default LLM functions.
 func New() *Module {
 	return &Module{
-		detectLang:   llm.DetectChannelLanguage,
-		generateFn:   llm.GenerateMessage,
+		detectLang: func(_ *discordgo.Session, _ string) (string, error) { return "English", nil },
+		generateFn: func(context.Context, string, string) (string, error) {
+			return "", errors.New("llm: client not initialized")
+		},
 		getWeatherFn: getWeather,
 		now:          time.Now,
 		cache:        make(map[string]weatherCacheEntry),
@@ -286,10 +290,9 @@ func (m *Module) Name() string { return "wttrin" }
 func (m *Module) Init(d bot.Deps) error {
 	m.session = d.Session
 	if d.LLM != nil {
-		llmClient := d.LLM
-		m.generateFn = func(ctx context.Context, system, user string) (string, error) {
-			return llm.GenerateMessageWith(ctx, llmClient, system, user)
-		}
+		m.llmClient = d.LLM
+		m.detectLang = d.LLM.DetectChannelLanguage
+		m.generateFn = d.LLM.GenerateMessage
 	}
 	slog.Info("wttrin: initialized")
 	return nil
@@ -420,7 +423,7 @@ func (m *Module) buildLLMWeatherOutro(s *discordgo.Session, channelID, location,
 		slog.Warn("wttrin: language detection failed", "error", err)
 		lang = "English"
 	}
-	systemPrompt := "Discord bot. One sentence on current weather for the location — set mood, no raw numbers. " + llm.Personality() + " Respond in " + lang + "."
+	systemPrompt := "Discord bot. One sentence on current weather for the location — set mood, no raw numbers. " + m.llmClient.Personality() + " Respond in " + lang + "."
 	userPrompt := "Location: " + location + "\n" + weatherData
 	outro, err := m.generateFn(context.Background(), systemPrompt, userPrompt)
 	if err != nil {

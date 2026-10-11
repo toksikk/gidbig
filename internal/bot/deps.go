@@ -4,8 +4,8 @@ import (
 	"log/slog"
 
 	"github.com/bwmarrin/discordgo"
-	openai "github.com/openai/openai-go/v3"
 	"github.com/toksikk/gidbig/internal/cfg"
+	"github.com/toksikk/gidbig/internal/llm"
 	"gorm.io/gorm"
 )
 
@@ -13,7 +13,7 @@ import (
 type Deps struct {
 	Session *discordgo.Session
 	Config  *cfg.Config
-	LLM     *openai.Client
+	LLM     *llm.Client
 	Logger  *slog.Logger
 	OwnerID string
 
