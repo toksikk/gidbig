@@ -82,14 +82,23 @@ func Open(path string) (*Store, error) {
 		return nil, err
 	}
 
-	if err := db.AutoMigrate(&Player{}, &Season{}, &Game{}, &Score{}, &Highscore{}); err != nil {
+	store, err := Use(db)
+	if err != nil {
 		sqlDB, dbErr := db.DB()
 		if dbErr == nil {
 			_ = sqlDB.Close()
 		}
 		return nil, err
 	}
+	return store, nil
+}
 
+// Use adopts a shared database opened by the composition root and migrates the
+// leetoclock schema into it.
+func Use(db *gorm.DB) (*Store, error) {
+	if err := db.AutoMigrate(&Player{}, &Season{}, &Game{}, &Score{}, &Highscore{}); err != nil {
+		return nil, err
+	}
 	return NewStore(db), nil
 }
 

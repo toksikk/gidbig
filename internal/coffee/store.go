@@ -164,18 +164,33 @@ func (m *Module) getDB() *gorm.DB {
 func (m *Module) openStore(path string) error {
 	m.dbMu.Lock()
 	defer m.dbMu.Unlock()
-	var err error
-	m.db, err = gorm.Open(sqlite.Open(path), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(path), &gorm.Config{})
 	if err != nil {
 		return err
 	}
-	if err = m.db.AutoMigrate(&UserBeveragePreference{}, &UserGreeting{},
+	m.db = db
+	m.ownsDB = true
+	return m.migrateStore()
+}
+
+// useStore adopts a shared database opened by the composition root.
+func (m *Module) useStore(db *gorm.DB) error {
+	m.dbMu.Lock()
+	defer m.dbMu.Unlock()
+	m.db = db
+	m.ownsDB = false
+	return m.migrateStore()
+}
+
+// migrateStore creates or updates the coffee tables and clears interrupted brews.
+func (m *Module) migrateStore() error {
+	if err := m.db.AutoMigrate(&UserBeveragePreference{}, &UserGreeting{},
 		&MachineInventory{}, &RefillEvent{}, &DrinkEvent{},
 		&DrinkOrder{}, &PickupViolation{}, &BrewRestriction{},
 		&PendingService{}, &SlackerEvent{}, &TeaBagInventory{}); err != nil {
 		return err
 	}
-	if err = m.db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_coffee_open_order ON coffee_drink_orders(guild_id, user_id) WHERE deleted_at IS NULL AND status IN ('brewing', 'ready')").Error; err != nil {
+	if err := m.db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_coffee_open_order ON coffee_drink_orders(guild_id, user_id) WHERE deleted_at IS NULL AND status IN ('brewing', 'ready')").Error; err != nil {
 		return err
 	}
 	// Before handlers start, every brewing order belongs to an interrupted run.
@@ -189,7 +204,8 @@ func (m *Module) openStore(path string) error {
 func (m *Module) closeStore() error {
 	m.dbMu.Lock()
 	defer m.dbMu.Unlock()
-	if m.db == nil {
+	// A shared database is owned by the composition root, not by this module.
+	if m.db == nil || !m.ownsDB {
 		return nil
 	}
 	sqlDB, err := m.db.DB()

@@ -5,7 +5,7 @@ Directory `internal/gippity`. Implements `bot.Module`, `bot.AdminProvider` and `
 LLM chat for Discord: answers when the bot is mentioned, keeps per-channel history, describes image attachments, honors per-user privacy, rate-limits mentions.
 
 - Command: `/gippity privacy on|off`.
-- Storage: SQLite `gippity.db` (`chat_history`, `chat_history_edits`, `chat_attachments`, privacy).
+- Storage: shared SQLite `gidbig.db`, prefixed tables (`gippity_chat_history`, `gippity_chat_history_edits`, `gippity_chat_attachments`, `gippity_user_privacy`).
 - Rate limit: `rate_limit_messages_per_hour` per user.
 
 ## Message answer flow

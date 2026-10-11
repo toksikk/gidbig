@@ -13,21 +13,31 @@ func (m *Module) Stats(ctx context.Context) (bot.ModuleStats, error) {
 	if m.db == nil {
 		return bot.ModuleStats{}, errors.New("database not open")
 	}
+	db := m.db.WithContext(ctx)
+
 	var messages, mentions, users, channels, edits, images, privacyOff int64
 	queries := []struct {
-		dst   *int64
-		query string
+		dst *int64
+		run func() error
 	}{
-		{&messages, "SELECT COUNT(*) FROM chat_history"},
-		{&mentions, "SELECT COUNT(*) FROM chat_history WHERE is_bot_mention = 1"},
-		{&users, "SELECT COUNT(DISTINCT user_id) FROM chat_history"},
-		{&channels, "SELECT COUNT(DISTINCT channel_id) FROM chat_history"},
-		{&edits, "SELECT COUNT(*) FROM chat_history_edits"},
-		{&images, "SELECT COUNT(*) FROM chat_attachments"},
-		{&privacyOff, "SELECT COUNT(*) FROM user_privacy WHERE privacy_enabled = 0"},
+		{&messages, func() error { return db.Model(&ChatMessage{}).Count(&messages).Error }},
+		{&mentions, func() error {
+			return db.Model(&ChatMessage{}).Where("is_bot_mention = ?", true).Count(&mentions).Error
+		}},
+		{&users, func() error {
+			return db.Model(&ChatMessage{}).Distinct("user_id").Count(&users).Error
+		}},
+		{&channels, func() error {
+			return db.Model(&ChatMessage{}).Distinct("channel_id").Count(&channels).Error
+		}},
+		{&edits, func() error { return db.Model(&ChatHistoryEdit{}).Count(&edits).Error }},
+		{&images, func() error { return db.Model(&ChatAttachment{}).Count(&images).Error }},
+		{&privacyOff, func() error {
+			return db.Model(&UserPrivacy{}).Where("privacy_enabled = ?", false).Count(&privacyOff).Error
+		}},
 	}
 	for _, q := range queries {
-		if err := m.db.QueryRowContext(ctx, q.query).Scan(q.dst); err != nil {
+		if err := q.run(); err != nil {
 			return bot.ModuleStats{}, err
 		}
 	}

@@ -72,8 +72,8 @@ func TestAdminHasConversationHistory_NoHistory(t *testing.T) {
 func TestAdminHasConversationHistory_WithHistory(t *testing.T) {
 	m, _ := setupGippityTest(t)
 
-	if _, err := m.db.Exec(
-		`INSERT INTO chat_history (user_id, channel_id, timestamp, message, message_id, guild_id, is_bot_mention) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+	if _, err := execSQL(t, m.db,
+		`INSERT INTO gippity_chat_history (user_id, channel_id, timestamp, message, message_id, guild_id, is_bot_mention) VALUES (?, ?, ?, ?, ?, ?, ?)`,
 		"user1", "chan1", 1000, "hello", "msg1", "guild1", 0,
 	); err != nil {
 		t.Fatalf("insert: %v", err)
@@ -100,8 +100,8 @@ func TestAdminGetUsersWithHistory_Multiple(t *testing.T) {
 	m, _ := setupGippityTest(t)
 
 	for i, uid := range []string{"user-a", "user-b", "user-a"} {
-		if _, err := m.db.Exec(
-			`INSERT INTO chat_history (user_id, channel_id, timestamp, message, message_id, guild_id, is_bot_mention) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		if _, err := execSQL(t, m.db,
+			`INSERT INTO gippity_chat_history (user_id, channel_id, timestamp, message, message_id, guild_id, is_bot_mention) VALUES (?, ?, ?, ?, ?, ?, ?)`,
 			uid, "chan1", int64(1000+i), "msg", "msg"+string(rune('0'+i)), "guild1", 0,
 		); err != nil {
 			t.Fatalf("insert: %v", err)

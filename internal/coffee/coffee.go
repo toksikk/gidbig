@@ -41,8 +41,9 @@ var messages = []string{
 // Module implements bot.Module and bot.AdminProvider for the coffee plugin.
 type Module struct {
 	// DB state
-	dbMu sync.RWMutex
-	db   *gorm.DB
+	dbMu   sync.RWMutex
+	db     *gorm.DB
+	ownsDB bool
 
 	// machineMu serializes mutations to the per-guild machine inventory.
 	machineMu sync.Mutex
@@ -101,14 +102,21 @@ func New() *Module {
 // Name returns the module's identifier.
 func (m *Module) Name() string { return "coffee" }
 
-// Init opens the beverage-preference store using the DB path from Deps.Config.
+// Init opens the beverage-preference store using the shared database injected
+// through Deps, or the configured path when running without a composition root.
 func (m *Module) Init(d bot.Deps) error {
-	dbPath := "gidbig.db"
-	if d.Config != nil && d.Config.Database.Path != "" {
-		dbPath = d.Config.Database.Path
-	}
-	if err := m.openStore(dbPath); err != nil {
-		return fmt.Errorf("coffee: open store: %w", err)
+	if d.DB != nil {
+		if err := m.useStore(d.DB); err != nil {
+			return fmt.Errorf("coffee: migrate store: %w", err)
+		}
+	} else {
+		dbPath := "gidbig.db"
+		if d.Config != nil && d.Config.Database.Path != "" {
+			dbPath = d.Config.Database.Path
+		}
+		if err := m.openStore(dbPath); err != nil {
+			return fmt.Errorf("coffee: open store: %w", err)
+		}
 	}
 	slog.Info("coffee: initialized")
 	return nil

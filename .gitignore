@@ -6,5 +6,10 @@ static/img/*.jpg
 ./gidbig
 config.yaml
 bin
-gippity.db
+# SQLite databases and their WAL sidecar files; keep production data out of git.
+*.db
+*.db-wal
+*.db-shm
+*.db.bak
+*.db.pre-*.bak
 .claude/

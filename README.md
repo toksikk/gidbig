@@ -134,7 +134,7 @@ make docker
 
 # Prepare writable persistent storage
 mkdir -p data/plugins
-touch data/gippity.db data/gidbig.db
+touch data/gidbig.db
 
 # Run with Web UI on port 8080
 docker run -it \
@@ -142,12 +142,11 @@ docker run -it \
   --mount type=bind,source=$(pwd)/config.yaml,target=/gidbig/config.yaml \
   --mount type=bind,source=$(pwd)/audio,target=/gidbig/audio \
   --mount type=bind,source=$(pwd)/data/plugins,target=/gidbig/plugins \
-  --mount type=bind,source=$(pwd)/data/gippity.db,target=/gidbig/gippity.db \
   --mount type=bind,source=$(pwd)/data/gidbig.db,target=/gidbig/gidbig.db \
   gidbig:$(git describe --tags)
 ```
 
-The database mount must match `database.path`. `docker-compose.yml` is also available, but add equivalent writable persistence mounts before using it in production.
+The database mount must match `database.path`. All modules share this single SQLite file; upgrading from an older release that used per-module files (`coffee.db`, `leetoclock.sqlite`, `gippity.db`) requires a one-time data migration, see [docs/database-migration.md](docs/database-migration.md). `docker-compose.yml` is also available, but add equivalent writable persistence mounts before using it in production.
 
 ## 🗺️ Roadmap
 

@@ -8,11 +8,11 @@ import (
 func TestStats(t *testing.T) {
 	m, _ := setupGippityTest(t)
 	for _, q := range []string{
-		`INSERT INTO chat_history (user_id, channel_id, message_id, is_bot_mention) VALUES ('u1','c1','m1',1), ('u1','c1','m2',0), ('u2','c2','m3',0)`,
-		`INSERT INTO chat_history_edits (original_message_id, edited_content, version, edited_at) VALUES ('m1','x',1,0)`,
-		`INSERT INTO user_privacy (user_id, privacy_enabled) VALUES ('u1',0), ('u2',1)`,
+		`INSERT INTO gippity_chat_history (user_id, channel_id, message_id, is_bot_mention) VALUES ('u1','c1','m1',1), ('u1','c1','m2',0), ('u2','c2','m3',0)`,
+		`INSERT INTO gippity_chat_history_edits (original_message_id, edited_content, version, edited_at) VALUES ('m1','x',1,0)`,
+		`INSERT INTO gippity_user_privacy (user_id, privacy_enabled) VALUES ('u1',0), ('u2',1)`,
 	} {
-		if _, err := m.db.Exec(q); err != nil {
+		if _, err := execSQL(t, m.db, q); err != nil {
 			t.Fatal(err)
 		}
 	}
