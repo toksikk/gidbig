@@ -91,6 +91,9 @@ func (m *Module) completeWithTools(ctx context.Context, env tool.Env, messages [
 	params.ToolChoice = openai.ChatCompletionToolChoiceOptionUnionParam{
 		OfAuto: param.NewOpt(string(openai.ChatCompletionToolChoiceOptionAutoAuto)),
 	}
+	// Some providers forbid tools together with reasoning. Apply the configured
+	// effort (if any) only on requests that carry tools.
+	params.ReasoningEffort = shared.ReasoningEffort(m.toolReasoningEffort)
 
 	ctx, cancel := context.WithTimeout(ctx, toolLoopTimeout)
 	defer cancel()
@@ -115,10 +118,12 @@ func (m *Module) completeWithTools(ctx context.Context, env tool.Env, messages [
 		}
 	}
 
-	// Iteration cap reached: ask for a final answer without offering tools.
+	// Iteration cap reached: ask for a final answer without offering tools. The
+	// reasoning effort is cleared so this tool-free call may reason normally.
 	slog.Info("gippity: tool iteration cap reached, forcing final answer", "iterations", m.toolMaxIterations)
 	params.Tools = nil
 	params.ToolChoice = openai.ChatCompletionToolChoiceOptionUnionParam{}
+	params.ReasoningEffort = ""
 	completion, err := m.chatCompletionFunc(ctx, params)
 	if err != nil {
 		logCompletionError(err)

@@ -74,10 +74,11 @@ type Module struct {
 	// path offers the registered tools to the model and runs a bounded tool
 	// loop; toolMaxIterations caps tool-call rounds and toolAllowed optionally
 	// restricts which tools are offered.
-	tools             *tool.Registry
-	toolsEnabled      bool
-	toolMaxIterations int
-	toolAllowed       map[string]bool
+	tools               *tool.Registry
+	toolsEnabled        bool
+	toolMaxIterations   int
+	toolAllowed         map[string]bool
+	toolReasoningEffort string
 
 	llmClient *llm.Client
 }
@@ -153,6 +154,7 @@ func (m *Module) Init(d bot.Deps) error {
 		if d.Config.Gippity.Tools.MaxIterations > 0 {
 			m.toolMaxIterations = d.Config.Gippity.Tools.MaxIterations
 		}
+		m.toolReasoningEffort = d.Config.Gippity.Tools.ReasoningEffort
 		if len(d.Config.Gippity.Tools.Allowed) > 0 {
 			m.toolAllowed = make(map[string]bool, len(d.Config.Gippity.Tools.Allowed))
 			for _, name := range d.Config.Gippity.Tools.Allowed {

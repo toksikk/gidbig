@@ -59,7 +59,14 @@ gippity:
     enabled: false        # master switch, default off
     max_iterations: 3     # tool-call rounds before a final tool-free answer
     allowed: []           # optional allowlist of tool names; empty = all
+    reasoning_effort: ""  # only sent when tools are attached; "" omits it
 ```
+
+`reasoning_effort` is applied to requests that carry tools and cleared for the
+final tool-free call, so that call can reason again. Some providers forbid tools
+together with reasoning and require `reasoning_effort: "none"` (for example
+OpenAI `gpt-5.6-luna` on `/v1/chat/completions`). Accepted values: `none`,
+`minimal`, `low`, `medium`, `high`, `xhigh`, `max`, or empty to omit.
 
 ## Invariants
 

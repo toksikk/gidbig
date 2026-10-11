@@ -39,6 +39,10 @@ gippity:
         max_iterations: 3
         # Optional allowlist of tool names; empty means all registered tools.
         allowed: []
+        # Sent only on requests that carry tools; cleared for the final
+        # tool-free answer. Empty omits the field. Some providers forbid tools
+        # together with reasoning and require "none" here.
+        reasoning_effort: ""
 soundboard:
     # Optional. Max sounds queued per guild before new requests are dropped;
     # defaults to 6 when omitted.
