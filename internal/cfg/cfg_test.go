@@ -109,6 +109,68 @@ gippity:
 	}
 }
 
+func TestDecodeConfig_gippityTools(t *testing.T) {
+	yaml := `
+discord:
+  token: "tok"
+gippity:
+  allowed_guilds: ["456"]
+  tools:
+    enabled: true
+    max_iterations: 5
+    allowed: ["search_chat_history", "bot_status"]
+`
+	cfg, err := decodeConfig(strings.NewReader(yaml))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !cfg.Gippity.Tools.Enabled {
+		t.Error("gippity.tools.enabled should be true")
+	}
+	if cfg.Gippity.Tools.MaxIterations != 5 {
+		t.Errorf("gippity.tools.max_iterations = %d, want 5", cfg.Gippity.Tools.MaxIterations)
+	}
+	if len(cfg.Gippity.Tools.Allowed) != 2 || cfg.Gippity.Tools.Allowed[0] != "search_chat_history" {
+		t.Errorf("gippity.tools.allowed = %v", cfg.Gippity.Tools.Allowed)
+	}
+
+	omitted := `
+discord:
+  token: "tok"
+gippity:
+  allowed_guilds: ["456"]
+`
+	cfg, err = decodeConfig(strings.NewReader(omitted))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Gippity.Tools.Enabled {
+		t.Error("gippity.tools.enabled should default to false")
+	}
+	if cfg.Gippity.Tools.MaxIterations != defaultGippityToolMaxIterations {
+		t.Errorf("gippity.tools.max_iterations = %d, want default %d", cfg.Gippity.Tools.MaxIterations, defaultGippityToolMaxIterations)
+	}
+	if len(cfg.Gippity.Tools.Allowed) != 0 {
+		t.Errorf("gippity.tools.allowed = %v, want empty", cfg.Gippity.Tools.Allowed)
+	}
+}
+
+func TestDecodeConfig_gippityToolsRejectsInvalidMaxIterations(t *testing.T) {
+	yaml := `
+discord:
+  token: "tok"
+gippity:
+  allowed_guilds: ["456"]
+  tools:
+    enabled: true
+    max_iterations: 0
+`
+	_, err := decodeConfig(strings.NewReader(yaml))
+	if err == nil || !strings.Contains(err.Error(), "gippity.tools.max_iterations") {
+		t.Fatalf("decodeConfig() error = %v, want error mentioning gippity.tools.max_iterations", err)
+	}
+}
+
 func TestDecodeConfig_llmFields(t *testing.T) {
 	yaml := `
 discord:

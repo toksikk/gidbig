@@ -29,6 +29,16 @@ gippity:
     classifier_model: ""
     # Optional. Max classifier calls per user per hour; defaults to 30.
     classifier_rate_limit_per_hour: 30
+    # Optional. LLM tool-calling. When enabled, the answer path may consult
+    # internal data (for example stored chat history) while composing an
+    # answer. Off by default: the answer path stays a single completion call.
+    tools:
+        enabled: false
+        # Max tool-call rounds before a final tool-free answer is forced.
+        # Defaults to 3 when omitted.
+        max_iterations: 3
+        # Optional allowlist of tool names; empty means all registered tools.
+        allowed: []
 soundboard:
     # Optional. Max sounds queued per guild before new requests are dropped;
     # defaults to 6 when omitted.

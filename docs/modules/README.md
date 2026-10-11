@@ -27,4 +27,5 @@ One file per internal package. Each doc: what it does + sequence diagram of the 
 | [cfg](cfg.md) | YAML config load + validation |
 | [shareddb](shareddb.md) | Shared `gidbig.db` open helper (WAL + busy timeout) |
 | [llm](llm.md) | OpenAI/OpenRouter client, personalities, language detect |
+| [tool](tool.md) | Provider-agnostic LLM tool registry (`Deps.Tools`) |
 | [util](util.md) | Discord helpers, AI responder, reactions, season logic |

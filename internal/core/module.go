@@ -8,6 +8,7 @@ import (
 	"github.com/toksikk/gidbig/internal/bot"
 	"github.com/toksikk/gidbig/internal/cfg"
 	"github.com/toksikk/gidbig/internal/shareddb"
+	"github.com/toksikk/gidbig/internal/tool"
 )
 
 // Module is the composition-root module. It owns the core Discord handlers
@@ -18,6 +19,7 @@ type Module struct {
 	session *discordgo.Session
 	conf    *cfg.Config
 	stats   *bot.StatsRegistry
+	tools   *tool.Registry
 	dbPaths []string
 }
 
@@ -32,7 +34,9 @@ func (m *Module) Init(d bot.Deps) error {
 	m.session = d.Session
 	m.conf = d.Config
 	m.stats = d.Stats
+	m.tools = d.Tools
 	m.dbPaths = []string{shareddb.Filename}
+	m.registerTools()
 	return nil
 }
 

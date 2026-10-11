@@ -22,6 +22,7 @@ import (
 	"github.com/toksikk/gidbig/internal/shareddb"
 	"github.com/toksikk/gidbig/internal/soundboard"
 	"github.com/toksikk/gidbig/internal/stoll"
+	"github.com/toksikk/gidbig/internal/tool"
 	"github.com/toksikk/gidbig/internal/wardogs"
 	"github.com/toksikk/gidbig/internal/wttrin"
 )
@@ -178,6 +179,7 @@ func StartGidbig() {
 		OwnerID: conf.Discord.OwnerID,
 		DB:      sharedDB,
 		Stats:   bot.NewStatsRegistry(),
+		Tools:   tool.NewRegistry(),
 	}
 
 	b := bot.New(deps)
