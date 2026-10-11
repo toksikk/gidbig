@@ -7,6 +7,7 @@ Daily game: players race to post exactly when the clock hits `13:37` (configurab
 - Store: SQLite via `leetoclock/util/datastore`.
 - Emojis: configurable guild IDs, else Unicode fallback.
 - Debug mode: one minute after start, fast tick.
+- LLM tool: `leetoclock_records` mirrors `/leetoclock top|player`, scoped to the caller's guild.
 
 ## Record commands
 

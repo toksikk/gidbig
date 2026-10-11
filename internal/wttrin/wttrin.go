@@ -17,6 +17,7 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/toksikk/gidbig/internal/bot"
 	"github.com/toksikk/gidbig/internal/llm"
+	"github.com/toksikk/gidbig/internal/tool"
 )
 
 const (
@@ -258,6 +259,7 @@ type Module struct {
 	lookups      int64
 	cacheHits    int64
 	fetchErrors  int64
+	tools        *tool.Registry
 }
 
 type weatherCacheEntry struct {
@@ -294,6 +296,8 @@ func (m *Module) Init(d bot.Deps) error {
 		m.detectLang = d.LLM.DetectChannelLanguage
 		m.generateFn = d.LLM.GenerateMessage
 	}
+	m.tools = d.Tools
+	m.registerTools()
 	slog.Info("wttrin: initialized")
 	return nil
 }

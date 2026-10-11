@@ -8,6 +8,7 @@ Scans `audio/*.dca` into per-prefix collections and plays them in voice channels
 - Lifecycle: `Init` loads the `.dca` files and applies `soundboard.queue_max_depth`; `Shutdown` has nothing to release (voice connections close when a queue drains).
 - Exported API for the web server: `Collections()`, `Enqueue(user, guild, command, soundname)`, `QueueStatus()`.
 - Stats: sound/collection/queue counters in `/status`.
+- LLM tool: `list_sounds` lists the collections and their sound names.
 
 ## Playback flow
 

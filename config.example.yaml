@@ -38,6 +38,9 @@ gippity:
         # Defaults to 3 when omitted.
         max_iterations: 3
         # Optional allowlist of tool names; empty means all registered tools.
+        # Registered tools: bot_status, search_chat_history, list_sounds,
+        # coffee_status, coffee_stats, leetoclock_records, anticheat_lookup,
+        # wardogs_status, weather, stoll_quote.
         allowed: []
         # Sent only on requests that carry tools; cleared for the final
         # tool-free answer. Empty omits the field. Some providers forbid tools

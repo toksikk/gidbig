@@ -30,6 +30,7 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/toksikk/gidbig/internal/bot"
+	"github.com/toksikk/gidbig/internal/tool"
 )
 
 const (
@@ -93,6 +94,8 @@ type Module struct {
 	entries   []entry
 	expiresAt time.Time
 	inflight  *datasetCall
+
+	tools *tool.Registry
 }
 
 // datasetCall is the shared result of one in-flight dataset fetch.
@@ -122,7 +125,9 @@ func (m *Module) Name() string { return "anticheat" }
 
 // Init satisfies bot.Module. The module stores no session: every handler
 // receives it per event.
-func (m *Module) Init(_ bot.Deps) error {
+func (m *Module) Init(d bot.Deps) error {
+	m.tools = d.Tools
+	m.registerTools()
 	slog.Info("anticheat: initialized")
 	return nil
 }

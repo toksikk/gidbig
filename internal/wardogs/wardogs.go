@@ -18,6 +18,7 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/toksikk/gidbig/internal/bot"
+	"github.com/toksikk/gidbig/internal/tool"
 )
 
 const (
@@ -48,6 +49,8 @@ type Module struct {
 	status    string
 	expiresAt time.Time
 	inflight  *statusCall
+
+	tools *tool.Registry
 }
 
 // statusCall groups the callers waiting on one upstream fetch, so a burst on a
@@ -69,6 +72,8 @@ func New() *Module {
 func (m *Module) Name() string { return "wardogs" }
 
 func (m *Module) Init(d bot.Deps) error {
+	m.tools = d.Tools
+	m.registerTools()
 	slog.Info("wardogs: initialized", "has_session", d.Session != nil)
 	return nil
 }

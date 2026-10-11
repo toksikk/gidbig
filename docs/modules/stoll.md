@@ -5,6 +5,7 @@ Directory `internal/stoll`. Implements `bot.Module`.
 Returns a random Dr. Axel Stoll quote. Pure static data (`quotes`), no external calls.
 
 - Command: `/stoll`.
+- LLM tool: `stoll_quote` returns one random quote.
 
 ## Command flow
 

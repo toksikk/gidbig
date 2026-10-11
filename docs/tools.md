@@ -9,9 +9,11 @@ the standard library, so any module can register tools without an import cycle.
 
 - `internal/core/cmd.go` creates one `tool.NewRegistry()` and puts it in
   `bot.Deps.Tools`. Every module receives it in `Init`.
-- Modules register their own tools in `Init` (see `gippity.registerSearchHistoryTool`
-  and `core.registerTools`). Registration order does not matter: the registry is
-  mutable and the answer loop reads `All()` at request time.
+- Modules register their own tools in `Init` (for example
+  `gippity.registerSearchHistoryTool`, `core.registerTools`,
+  `soundboard.registerTools` and `coffee.registerTools`). Registration order does
+  not matter: the registry is mutable and the answer loop reads `All()` at
+  request time.
 - `gippity` runs a bounded tool loop in `completeWithTools`
   (`internal/gippity/gippity_tools.go`) when `gippity.tools.enabled` is true.
   Otherwise the answer path is the unchanged single completion call.
@@ -51,6 +53,21 @@ the standard library, so any module can register tools without an import cycle.
 
 No change to `internal/gippity` or `internal/core` is needed to add a tool.
 
+## Registered tools
+
+| Tool | Module | What it returns |
+| --- | --- | --- |
+| `bot_status` | core | per-module runtime counters (same as `/status`) |
+| `search_chat_history` | gippity | keyword matches in stored Discord history, scoped to the caller's channel or guild |
+| `list_sounds` | soundboard | sound collections and the sound names in each |
+| `coffee_status` | coffee | the current guild's coffee machine levels and leaderboards |
+| `coffee_stats` | coffee | one user's drinks, refills and grounds stats in the current guild |
+| `leetoclock_records` | leetoclock | a top-players board or one player's records for the current guild, or globally |
+| `anticheat_lookup` | anticheat | a game/vendor match from the cached GamingOnLinux anti-cheat list |
+| `wardogs_status` | wardogs | the cached WARDOGS Linux/Proton support verdict |
+| `weather` | wttrin | current weather or forecast for a location, from the cached wttr.in lookup |
+| `stoll_quote` | stoll | a random Dr. Axel Stoll quote |
+
 ## Configuration
 
 ```yaml
@@ -77,5 +94,7 @@ OpenAI `gpt-5.6-luna` on `/v1/chat/completions`). Accepted values: `none`,
   `gippity_user_privacy` exactly like the prompt path.
 - **Untrusted data.** Stored text is data, not instructions. Frame it as data
   and keep results short.
-- **No external tools.** This framework is for internal data only; no web
-  fetches or SSRF-prone calls.
+- **No arbitrary fetches.** A tool may read the owning module's own fixed,
+  sanitized source through its existing cache and rate limiter (the anticheat
+  CSV, wttr.in weather, the wardogs tracker). Never fetch a model-supplied URL
+  or host (SSRF); the destination is always a module constant.

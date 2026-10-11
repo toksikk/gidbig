@@ -14,6 +14,7 @@ import (
 	"github.com/toksikk/gidbig/internal/cfg"
 	"github.com/toksikk/gidbig/internal/leetoclock/util/datastore"
 	"github.com/toksikk/gidbig/internal/shareddb"
+	"github.com/toksikk/gidbig/internal/tool"
 	"github.com/toksikk/gidbig/internal/util"
 )
 
@@ -35,6 +36,7 @@ type Module struct {
 	session *discordgo.Session
 	store   *datastore.Store
 	ownsDB  bool
+	tools   *tool.Registry
 
 	stateMu                   sync.RWMutex
 	target                    time.Time
@@ -138,6 +140,8 @@ func (m *Module) Init(d bot.Deps) error {
 	m.emojiNotAmused = resolveEmoji("notamused", lec.Emojis.NotAmused, fallbackNotAmused)
 	m.emojiWat = resolveEmoji("wat", lec.Emojis.Wat, fallbackWat)
 	m.updateTarget()
+	m.tools = d.Tools
+	m.registerTools()
 	slog.Info("leetoclock: initialized", "debug", lec.Debug, "announcement_channels", m.announcementChannels, "target", m.currentTarget().String())
 	return nil
 }
