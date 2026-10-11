@@ -47,6 +47,7 @@ type Module struct {
 	generateAnswerFunc         func(*discordgo.MessageCreate, []string) (string, error)
 	chatCompletionFunc         func(context.Context, openai.ChatCompletionNewParams) (*openai.ChatCompletion, error)
 	channelTypingFunc          func(*discordgo.Session, string)
+	channelMembersFunc         func(*discordgo.Session, string) string
 	describeImagesFunc         func([]string) (string, error)
 	visionCompletionFunc       func(context.Context, openai.ChatCompletionNewParams) (*openai.ChatCompletion, error)
 	fetchReferencedMessageFunc func(*discordgo.Session, *discordgo.MessageReference) (*discordgo.Message, error)
@@ -100,6 +101,7 @@ func New() *Module {
 	m.channelTypingFunc = func(s *discordgo.Session, channelID string) {
 		s.ChannelTyping(channelID) //nolint:errcheck
 	}
+	m.channelMembersFunc = util.GetAllMembersOfChannelAsString
 	m.describeImagesFunc = m.describeImages
 	m.visionCompletionFunc = func(ctx context.Context, params openai.ChatCompletionNewParams) (*openai.ChatCompletion, error) {
 		return m.llmClient.GetClient().Chat.Completions.New(ctx, params)
@@ -165,6 +167,7 @@ func (m *Module) Init(d bot.Deps) error {
 
 	m.tools = d.Tools
 	m.registerSearchHistoryTool()
+	m.registerChannelMembersTool()
 
 	m.userMessageCount = make(map[string]int)
 	m.userMessageCountLastReset = make(map[string]time.Time)

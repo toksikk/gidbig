@@ -387,10 +387,19 @@ func (m *Module) generateAnswer(mc *discordgo.MessageCreate, imageURLs []string)
 
 	reactionSummaries := reactionSummaryCache{}
 
+	// The member list is offered as the get_channel_members tool when tools are
+	// available; otherwise fall back to putting it in the prompt so the model
+	// never loses it.
+	membersNote := ""
+	if !m.channelMembersToolOffered() {
+		if members := m.channelMembersFunc(m.session, mc.ChannelID); members != "" {
+			membersNote = "Im Channel: " + members + ".\n"
+		}
+	}
+
 	systemMessageBase := `Discord-Chatbot, Name ` + util.GetBotDisplayName(mc, m.session) + `.
 Channel ` + util.GetChannelName(m.session, mc.ChannelID) + `, Server ` + util.GetGuildName(m.session, mc.GuildID) + `. Mehrere Benutzer gleichzeitig.
-Im Channel: ` + util.GetAllMembersOfChannelAsString(m.session, mc.ChannelID) + `.
----
+` + membersNote + `---
 Nachrichten kommen so: [Zeitstempel] [Benutzername]: [Nachricht]
 Reaktionen stehen als [reactions: Emoji×Anzahl] am Ende einer Nachricht; nur Anzahl, keine Namen.
 ---
