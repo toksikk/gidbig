@@ -64,6 +64,51 @@ gippity:
 	}
 }
 
+func TestDecodeConfig_gippityNonMentionFields(t *testing.T) {
+	yaml := `
+discord:
+  token: "tok"
+gippity:
+  allowed_guilds: ["456"]
+  respond_to_all_messages: true
+  classifier_model: "gpt-4o-mini"
+  classifier_rate_limit_per_hour: 5
+`
+	cfg, err := decodeConfig(strings.NewReader(yaml))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !cfg.Gippity.RespondToAllMessages {
+		t.Error("gippity.respond_to_all_messages should be true")
+	}
+	if cfg.Gippity.ClassifierModel != "gpt-4o-mini" {
+		t.Errorf("gippity.classifier_model = %q, want gpt-4o-mini", cfg.Gippity.ClassifierModel)
+	}
+	if cfg.Gippity.ClassifierRateLimitPerHour != 5 {
+		t.Errorf("gippity.classifier_rate_limit_per_hour = %d, want 5", cfg.Gippity.ClassifierRateLimitPerHour)
+	}
+
+	omitted := `
+discord:
+  token: "tok"
+gippity:
+  allowed_guilds: ["456"]
+`
+	cfg, err = decodeConfig(strings.NewReader(omitted))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Gippity.RespondToAllMessages {
+		t.Error("gippity.respond_to_all_messages should default to false")
+	}
+	if cfg.Gippity.ClassifierModel != "" {
+		t.Errorf("gippity.classifier_model = %q, want empty", cfg.Gippity.ClassifierModel)
+	}
+	if cfg.Gippity.ClassifierRateLimitPerHour != 0 {
+		t.Errorf("gippity.classifier_rate_limit_per_hour = %d, want 0 (unset)", cfg.Gippity.ClassifierRateLimitPerHour)
+	}
+}
+
 func TestDecodeConfig_llmFields(t *testing.T) {
 	yaml := `
 discord:

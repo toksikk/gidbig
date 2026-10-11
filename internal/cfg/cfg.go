@@ -69,6 +69,16 @@ type Config struct {
 		// ReplyInThread answers mentions inside a public thread started on the
 		// mentioning message instead of writing into the channel itself.
 		ReplyInThread bool `yaml:"reply_in_thread,omitempty"`
+		// RespondToAllMessages lets the classifier decide whether to answer
+		// messages that do not mention the bot. Default false keeps the
+		// mention-only behaviour.
+		RespondToAllMessages bool `yaml:"respond_to_all_messages,omitempty"`
+		// ClassifierModel selects the model for that decision. Empty falls back
+		// to llm.model.
+		ClassifierModel string `yaml:"classifier_model,omitempty"`
+		// ClassifierRateLimitPerHour caps classifier calls per user per hour.
+		// Defaults to 30 when omitted.
+		ClassifierRateLimitPerHour int `yaml:"classifier_rate_limit_per_hour,omitempty"`
 	} `yaml:"gippity"`
 	Soundboard struct {
 		QueueMaxDepth int `yaml:"queue_max_depth,omitempty"`

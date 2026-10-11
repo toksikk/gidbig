@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
@@ -39,34 +40,118 @@ func (m *Module) isLimitedUser(mc *discordgo.MessageCreate) bool {
 	return m.userMessageCount[mc.Author.ID] >= m.userMessageLimit
 }
 
-func (m *Module) limited(mc *discordgo.MessageCreate) bool {
-	if mc.Author.ID == m.session.State.User.ID {
-		return true
+// eligible reports whether a message may be considered for an AI answer at all.
+// It runs before the classifier and before any vision call so that ineligible
+// messages never incur an API request.
+func (m *Module) eligible(mc *discordgo.MessageCreate) bool {
+	if mc == nil || mc.Message == nil || mc.Author == nil || mc.Author.ID == "" {
+		return false
 	}
-
+	if mc.Author.Bot {
+		return false
+	}
 	if m.ignoredUserIDs[mc.Author.ID] {
 		slog.Info("ignoring message from ignored user", "user", mc.Author.ID)
-		return true
+		return false
 	}
-
 	if !m.allowedGuildIDs[mc.GuildID] {
 		slog.Info("not using ai generated message in this guild", "guild", mc.GuildID)
-		return true
+		return false
 	}
+	if !supportedMessageType(mc.Type) {
+		slog.Debug("gippity: unsupported message type", "type", mc.Type)
+		return false
+	}
+	return true
+}
 
-	if m.isMentioned(mc) {
-		if m.isLimitedUser(mc) {
-			count, reset := m.mentionState(mc.Author.ID)
-			slog.Info("not answering because of user limitation", "userMessageCount", count, "userMessageLimit", m.userMessageLimit, "userMessageCountLastReset", reset)
-			if err := m.sendReply(mc, "Du hast heute schon genug Nachrichten geschrieben. Komm wann anders wieder."); err != nil {
-				slog.Info("Error while sending message", "error", err)
-			}
-			return true
-		}
+// supportedMessageType reports whether the message type is one the bot may
+// answer: ordinary messages, replies and thread starter messages. System
+// messages (joins, boosts, pins, …) are ignored.
+func supportedMessageType(t discordgo.MessageType) bool {
+	switch t {
+	case discordgo.MessageTypeDefault, discordgo.MessageTypeReply, discordgo.MessageTypeThreadStarterMessage:
+		return true
+	default:
+		return false
+	}
+}
+
+// isClassifierLimited reports whether the user has exhausted their hourly
+// budget of non-mention classifier calls.
+func (m *Module) isClassifierLimited(mc *discordgo.MessageCreate) bool {
+	m.stateMu.Lock()
+	defer m.stateMu.Unlock()
+
+	userID := mc.Author.ID
+	if _, exists := m.classifierCount[userID]; !exists {
+		m.classifierCountLastReset[userID] = time.Now()
+		m.classifierCount[userID] = 0
 		return false
 	}
 
-	return true
+	if int(time.Since(m.classifierCountLastReset[userID]).Hours()) >= 1 {
+		m.classifierCountLastReset[userID] = time.Now()
+		m.classifierCount[userID] = 0
+		return false
+	}
+
+	m.classifierCount[userID]++
+	return m.classifierCount[userID] >= m.classifierRateLimit
+}
+
+const (
+	// classifierSystemPrompt keeps the decision deterministic and cheap.
+	classifierSystemPrompt = `You decide whether a chat bot should reply to a Discord message that did not mention it. Reply with exactly YES to answer or NO to stay silent. YES only when the message clearly invites a bot reply: a direct question the bot can answer, or a request for help. NO for chatter between humans, reactions, or anything that does not need the bot. Reply with one word only.`
+	// classifierMaxTokens bounds the classifier answer to a single short word.
+	classifierMaxTokens = 5
+)
+
+// classifyShouldRespond asks the LLM whether a non-mention message deserves an
+// answer. It fails closed: any provider or parsing error means no answer.
+func (m *Module) classifyShouldRespond(ctx context.Context, mc *discordgo.MessageCreate) (bool, error) {
+	content := strings.TrimSpace(mc.Content)
+	if content == "" {
+		return false, nil
+	}
+
+	model := m.classifierModel
+	if model == "" {
+		model = llm.Model()
+	}
+
+	completion, err := m.chatCompletionFunc(ctx, openai.ChatCompletionNewParams{
+		Messages: []openai.ChatCompletionMessageParamUnion{
+			openai.SystemMessage(classifierSystemPrompt),
+			openai.UserMessage(content),
+		},
+		Model:               model,
+		N:                   openai.Int(1),
+		Temperature:         openai.Float(0),
+		MaxCompletionTokens: openai.Int(classifierMaxTokens),
+	})
+	if err != nil {
+		return false, err
+	}
+
+	answer, err := llm.CompletionContent(completion)
+	if err != nil {
+		return false, err
+	}
+	return parseClassifierAnswer(answer)
+}
+
+// parseClassifierAnswer maps the classifier output to a decision. Anything but
+// an explicit YES/NO is an error so the caller can fail closed.
+func parseClassifierAnswer(answer string) (bool, error) {
+	switch strings.ToUpper(strings.TrimSpace(answer)) {
+	case "YES":
+		return true, nil
+	case "NO":
+		return false, nil
+	default:
+		return false, fmt.Errorf("gippity: unexpected classifier answer %q", answer)
+	}
 }
 
 // sendReply delivers a bot reply for the message that triggered it. With
@@ -105,7 +190,52 @@ func (m *Module) onMessageCreate(s *discordgo.Session, mc *discordgo.MessageCrea
 			return
 		}
 	}
-	m.addMessageToDatabase(mc, m.isMentioned(mc))
+
+	mentioned := m.isMentioned(mc)
+	m.addMessageToDatabase(mc, mentioned)
+
+	if !m.eligible(mc) {
+		return
+	}
+
+	if mentioned {
+		if m.isLimitedUser(mc) {
+			count, reset := m.mentionState(mc.Author.ID)
+			slog.Info("not answering because of user limitation", "userMessageCount", count, "userMessageLimit", m.userMessageLimit, "userMessageCountLastReset", reset)
+			if err := m.sendReply(mc, "Du hast heute schon genug Nachrichten geschrieben. Komm wann anders wieder."); err != nil {
+				slog.Info("Error while sending message", "error", err)
+			}
+			return
+		}
+	} else {
+		// Non-mention responses are opt-in per user and per deployment.
+		if !m.respondToAllMessages {
+			return
+		}
+		if !m.getUserConsent(mc.Author.ID) {
+			return
+		}
+		if strings.TrimSpace(mc.Content) == "" {
+			return
+		}
+		if m.isClassifierLimited(mc) {
+			slog.Debug("gippity: classifier budget reached, skipping", "user", mc.Author.ID)
+			return
+		}
+		shouldRespond, err := m.classifyFunc(context.Background(), mc)
+		if err != nil {
+			slog.Warn("gippity: classifier failed, not responding", "error", err)
+			return
+		}
+		if !shouldRespond {
+			return
+		}
+		// A positive decision still consumes the reply budget; skip silently.
+		if m.isLimitedUser(mc) {
+			slog.Debug("gippity: reply budget reached, skipping", "user", mc.Author.ID)
+			return
+		}
+	}
 
 	imageURLs := extractImageURLs(mc.Attachments)
 	if len(imageURLs) > 0 {
@@ -116,10 +246,6 @@ func (m *Module) onMessageCreate(s *discordgo.Session, mc *discordgo.MessageCrea
 		} else {
 			m.addAttachmentsToDatabase(mc.ID, imageURLs, description)
 		}
-	}
-
-	if m.limited(mc) {
-		return
 	}
 
 	var generatedAnswer string
@@ -179,16 +305,14 @@ func (m *Module) onGippityInteractionCreate(s *discordgo.Session, i *discordgo.I
 	if data.Name != "gippity" {
 		return
 	}
-	if len(data.Options) == 0 || data.Options[0].Name != "privacy" {
+	if len(data.Options) == 0 || len(data.Options[0].Options) == 0 {
 		return
 	}
-
-	privacyOpts := data.Options[0].Options
-	if len(privacyOpts) == 0 {
+	subcommand := data.Options[0].Name
+	if subcommand != "privacy" && subcommand != "nonmention" {
 		return
 	}
-	value := privacyOpts[0].StringValue()
-	enabled := value == "on"
+	enabled := data.Options[0].Options[0].StringValue() == "on"
 
 	var userID string
 	if i.Member != nil {
@@ -203,21 +327,38 @@ func (m *Module) onGippityInteractionCreate(s *discordgo.Session, i *discordgo.I
 		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
 		Data: &discordgo.InteractionResponseData{Flags: discordgo.MessageFlagsEphemeral},
 	}); err != nil {
-		slog.Error("gippity: failed to defer privacy interaction", "error", err)
-		return
-	}
-	if err := m.setUserPrivacy(userID, enabled); err != nil {
-		slog.Error("gippity: failed to set user privacy", "error", err, "userID", userID)
-		msg := "Fehler beim Speichern deiner Datenschutzeinstellung."
-		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: &msg})
+		slog.Error("gippity: failed to defer interaction", "error", err)
 		return
 	}
 
+	var err error
 	var msg string
-	if enabled {
-		msg = "Datenschutz aktiviert: Deine vergangenen Nachrichten werden im KI-Kontext anonymisiert."
-	} else {
-		msg = "Datenschutz deaktiviert: Deine vergangenen Nachrichten werden im KI-Kontext im Klartext verwendet."
+	switch subcommand {
+	case "privacy":
+		err = m.setUserPrivacy(userID, enabled)
+		if err != nil {
+			msg = "Fehler beim Speichern deiner Datenschutzeinstellung."
+			break
+		}
+		if enabled {
+			msg = "Datenschutz aktiviert: Deine vergangenen Nachrichten werden im KI-Kontext anonymisiert."
+		} else {
+			msg = "Datenschutz deaktiviert: Deine vergangenen Nachrichten werden im KI-Kontext im Klartext verwendet."
+		}
+	case "nonmention":
+		err = m.setUserConsent(userID, enabled)
+		if err != nil {
+			msg = "Fehler beim Speichern deiner Einstellung."
+			break
+		}
+		if enabled {
+			msg = "Non-Mention aktiviert: Der Bot darf entscheiden, ob er auf deine Nachrichten ohne Erwähnung antwortet."
+		} else {
+			msg = "Non-Mention deaktiviert: Der Bot antwortet nur, wenn du ihn erwähnst."
+		}
+	}
+	if err != nil {
+		slog.Error("gippity: failed to save setting", "error", err, "userID", userID, "subcommand", subcommand)
 	}
 	_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: &msg})
 }

@@ -21,6 +21,14 @@ gippity:
     # Requires the Create Public Threads permission in the channel; if the
     # thread cannot be created the answer falls back to the channel.
     reply_in_thread: false
+    # Optional. When true, the bot may also answer messages that do not mention
+    # it: a classifier decides per message. Off by default (mention-only).
+    # Each user must additionally opt in with /gippity nonmention set:on.
+    respond_to_all_messages: false
+    # Optional. Model for that classifier; empty falls back to llm.model.
+    classifier_model: ""
+    # Optional. Max classifier calls per user per hour; defaults to 30.
+    classifier_rate_limit_per_hour: 30
 soundboard:
     # Optional. Max sounds queued per guild before new requests are dropped;
     # defaults to 6 when omitted.
