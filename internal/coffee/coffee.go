@@ -10,8 +10,8 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/toksikk/gidbig/internal/bot"
-	"github.com/toksikk/gidbig/internal/cfg"
 	"github.com/toksikk/gidbig/internal/llm"
+	"github.com/toksikk/gidbig/internal/shareddb"
 	"github.com/toksikk/gidbig/internal/util"
 	"gorm.io/gorm"
 )
@@ -111,7 +111,7 @@ func (m *Module) Init(d bot.Deps) error {
 			return fmt.Errorf("coffee: migrate store: %w", err)
 		}
 	} else {
-		if err := m.openStore(cfg.DefaultDatabaseFilename); err != nil {
+		if err := m.openStore(shareddb.Filename); err != nil {
 			return fmt.Errorf("coffee: open store: %w", err)
 		}
 	}

@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"time"
 
-	"gorm.io/driver/sqlite"
+	"github.com/toksikk/gidbig/internal/shareddb"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -164,7 +164,7 @@ func (m *Module) getDB() *gorm.DB {
 func (m *Module) openStore(path string) error {
 	m.dbMu.Lock()
 	defer m.dbMu.Unlock()
-	db, err := gorm.Open(sqlite.Open(path), &gorm.Config{})
+	db, err := shareddb.Open(path)
 	if err != nil {
 		return err
 	}

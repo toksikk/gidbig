@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"gorm.io/driver/sqlite"
+	"github.com/toksikk/gidbig/internal/shareddb"
 	"gorm.io/gorm"
 )
 
@@ -77,7 +77,7 @@ type Store struct {
 
 // Open initializes a store at path and performs schema migrations.
 func Open(path string) (*Store, error) {
-	db, err := gorm.Open(sqlite.Open(path), &gorm.Config{})
+	db, err := shareddb.Open(path)
 	if err != nil {
 		return nil, err
 	}

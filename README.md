@@ -56,8 +56,6 @@ web:
         redirect_uri: "YOUR_REDIRECT_URI"
     session_secret: "A_STRONG_RANDOM_SESSION_SECRET"
     port: 8080
-database:
-    path: "gidbig.db"
 gippity:
     allowed_guilds:
         - "YOUR_DISCORD_GUILD_ID"

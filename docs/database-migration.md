@@ -29,7 +29,7 @@ sqlite3 gidbig.db ".tables"
 - **The bot must be stopped** while you copy. If it starts before the copy, the new schema is created empty and the data appears lost. The data is still in the legacy file and you can recover it (see [Recovering](#recovering-from-a-started-bot)).
 - **Run the copy exactly once.** `INSERT OR IGNORE` only skips rows that violate a constraint. Most history tables have no unique constraint, so a second run duplicates every row.
 - **Never use `SELECT *`** for the copy. The new tables may add an `id` column or reorder columns, so positional mapping silently corrupts fields. Always name the columns.
-- **Keep database files and backups out of version control.** Add `*.db`, `*.db-wal`, `*.db-shm`, and `*.bak` to `.gitignore`.
+- **Keep database files and backups out of version control.** The repository `.gitignore` already covers `*.db`, `*.db-wal`, `*.db-shm`, `*.db.bak`, and `*.db.pre-*.bak`.
 - **SQLite WAL files matter.** If the source database is in WAL mode, a plain `cp` can miss recent data. Use `sqlite3 ... ".backup"` (shown below) or stop the bot first so the WAL is checkpointed.
 
 ## Step 1 — Locate the databases
