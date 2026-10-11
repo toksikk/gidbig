@@ -103,11 +103,44 @@ func (m *Module) isClassifierLimited(mc *discordgo.MessageCreate) bool {
 }
 
 const (
-	// classifierSystemPrompt keeps the decision deterministic and cheap.
-	classifierSystemPrompt = `You decide whether a chat bot should reply to a Discord message that did not mention it. Reply with exactly YES to answer or NO to stay silent. YES only when the message clearly invites a bot reply: a direct question the bot can answer, or a request for help. NO for chatter between humans, reactions, or anything that does not need the bot. Reply with one word only.`
+	// classifierSystemPromptBase keeps the decision deterministic and cheap. A
+	// prefix naming the bot is added by classifierSystemPrompt.
+	classifierSystemPromptBase = `You decide whether a chat bot should reply to a Discord message that did not mention it. Reply with exactly YES to answer or NO to stay silent. YES only when the message clearly invites a bot reply: a direct question the bot can answer, a request for help, or a message that addresses the bot by name. NO for chatter between humans, reactions, or anything that does not need the bot. Reply with one word only.`
 	// classifierMaxTokens bounds the classifier answer to a single short word.
 	classifierMaxTokens = 5
 )
+
+// classifierBotNames returns the names a message may use to address the bot:
+// the bot's own Discord username and display name plus any configured aliases.
+// Empty and duplicate names are dropped.
+func (m *Module) classifierBotNames() []string {
+	var raw []string
+	if m.session != nil && m.session.State != nil && m.session.State.User != nil {
+		raw = append(raw, m.session.State.User.Username, m.session.State.User.GlobalName, m.session.State.User.DisplayName())
+	}
+	raw = append(raw, m.classifierNames...)
+	seen := make(map[string]bool, len(raw))
+	names := make([]string, 0, len(raw))
+	for _, name := range raw {
+		name = strings.TrimSpace(name)
+		key := strings.ToLower(name)
+		if name == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		names = append(names, name)
+	}
+	return names
+}
+
+// classifierSystemPrompt names the bot so the classifier can recognise a
+// message that addresses it by name without a Discord mention.
+func classifierSystemPrompt(names []string) string {
+	if len(names) == 0 {
+		return classifierSystemPromptBase
+	}
+	return "The bot is called " + strings.Join(names, " or ") + ". Messages may address it by one of these names without a Discord mention. " + classifierSystemPromptBase
+}
 
 // classifyShouldRespond asks the LLM whether a non-mention message deserves an
 // answer. It fails closed: any provider or parsing error means no answer.
@@ -124,7 +157,7 @@ func (m *Module) classifyShouldRespond(ctx context.Context, mc *discordgo.Messag
 
 	completion, err := m.chatCompletionFunc(ctx, openai.ChatCompletionNewParams{
 		Messages: []openai.ChatCompletionMessageParamUnion{
-			openai.SystemMessage(classifierSystemPrompt),
+			openai.SystemMessage(classifierSystemPrompt(m.classifierBotNames())),
 			openai.UserMessage(content),
 		},
 		Model:               model,

@@ -66,10 +66,12 @@ type Module struct {
 	// respondToAllMessages mirrors gippity.respond_to_all_messages: when true,
 	// non-mention messages from opted-in users are classified and may be
 	// answered. classifierModel overrides the model for that decision;
-	// classifierRateLimit caps classifier calls per user per hour.
+	// classifierRateLimit caps classifier calls per user per hour;
+	// classifierNames adds aliases the classifier treats as addressing the bot.
 	respondToAllMessages bool
 	classifierModel      string
 	classifierRateLimit  int
+	classifierNames      []string
 
 	// tools is the shared tool registry. When toolsEnabled is true the answer
 	// path offers the registered tools to the model and runs a bounded tool
@@ -149,6 +151,7 @@ func (m *Module) Init(d bot.Deps) error {
 		m.replyInThread = d.Config.Gippity.ReplyInThread
 		m.respondToAllMessages = d.Config.Gippity.RespondToAllMessages
 		m.classifierModel = d.Config.Gippity.ClassifierModel
+		m.classifierNames = d.Config.Gippity.ClassifierNames
 		if d.Config.Gippity.ClassifierRateLimitPerHour > 0 {
 			m.classifierRateLimit = d.Config.Gippity.ClassifierRateLimitPerHour
 		}

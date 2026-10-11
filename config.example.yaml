@@ -29,6 +29,11 @@ gippity:
     classifier_model: ""
     # Optional. Max classifier calls per user per hour; defaults to 30.
     classifier_rate_limit_per_hour: 30
+    # Optional. Extra names the classifier treats as addressing the bot, on top
+    # of the bot's own Discord username and display name. Use it for nicknames
+    # or aliases so a message like "gustaff, ..." is recognised without a
+    # mention.
+    classifier_names: []
     # Optional. LLM tool-calling. When enabled, the answer path may consult
     # internal data (for example stored chat history) while composing an
     # answer. Off by default: the answer path stays a single completion call.
