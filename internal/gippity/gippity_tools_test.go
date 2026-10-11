@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	openai "github.com/openai/openai-go/v3"
 	"github.com/toksikk/gidbig/internal/tool"
@@ -388,6 +389,66 @@ func TestEscapeLikePattern(t *testing.T) {
 	}
 }
 
+func TestSearchChatHistoryHandler_DateRange(t *testing.T) {
+	m, _ := setupGippityTest(t)
+	if err := m.setUserPrivacy("u1", false); err != nil {
+		t.Fatalf("setUserPrivacy: %v", err)
+	}
+	insertHistoryAt(t, m, "channel-1", "allowed-guild", "u1", "1000000000000000101", "day one", time.Date(2026, time.July, 8, 9, 0, 0, 0, time.Local))
+	insertHistoryAt(t, m, "channel-1", "allowed-guild", "u1", "1000000000000000102", "day one late", time.Date(2026, time.July, 8, 23, 59, 59, 0, time.Local))
+	insertHistoryAt(t, m, "channel-1", "allowed-guild", "u1", "1000000000000000103", "day two", time.Date(2026, time.July, 9, 0, 0, 1, 0, time.Local))
+
+	// A single day returns only that day's stored messages, newest first.
+	out, err := m.searchChatHistoryHandler(context.Background(), tool.Env{ChannelID: "channel-1"}, json.RawMessage(`{"from":"2026-07-08","to":"2026-07-08"}`))
+	if err != nil {
+		t.Fatalf("searchChatHistoryHandler: %v", err)
+	}
+	if !strings.Contains(out, "day one late") || !strings.Contains(out, "day one") {
+		t.Errorf("date range missing day one messages: %q", out)
+	}
+	if strings.Contains(out, "day two") {
+		t.Errorf("date range leaked the next day: %q", out)
+	}
+	if strings.Index(out, "day one late") > strings.Index(out, "day one") {
+		t.Errorf("results are not newest first: %q", out)
+	}
+
+	// A query and a date range combine.
+	out, err = m.searchChatHistoryHandler(context.Background(), tool.Env{ChannelID: "channel-1"}, json.RawMessage(`{"query":"day two","from":"2026-07-08","to":"2026-07-08"}`))
+	if err != nil {
+		t.Fatalf("searchChatHistoryHandler: %v", err)
+	}
+	if out != "no matching messages" {
+		t.Errorf("query+range outside the day = %q, want %q", out, "no matching messages")
+	}
+
+	// Dates are inclusive on both ends, so a range reaching July 9 finds it.
+	out, err = m.searchChatHistoryHandler(context.Background(), tool.Env{ChannelID: "channel-1"}, json.RawMessage(`{"from":"2026-07-08","to":"2026-07-09"}`))
+	if err != nil {
+		t.Fatalf("searchChatHistoryHandler: %v", err)
+	}
+	if !strings.Contains(out, "day two") {
+		t.Errorf("range to July 9 missing day two: %q", out)
+	}
+}
+
+func TestSearchChatHistoryHandler_RejectsBadDate(t *testing.T) {
+	m, _ := setupGippityTest(t)
+
+	_, err := m.searchChatHistoryHandler(context.Background(), tool.Env{ChannelID: "channel-1"}, json.RawMessage(`{"from":"08.07.2026"}`))
+	if err == nil {
+		t.Fatal("expected error for a non-ISO date")
+	}
+	if !strings.Contains(err.Error(), "YYYY-MM-DD") {
+		t.Errorf("error = %v", err)
+	}
+
+	_, err = m.searchChatHistoryHandler(context.Background(), tool.Env{ChannelID: "channel-1"}, json.RawMessage(`{"from":"2026-07-09","to":"2026-07-08"}`))
+	if err == nil {
+		t.Fatal("expected error when from is after to")
+	}
+}
+
 // insertHistory stores one message row for search tests.
 func insertHistory(t *testing.T, m *Module, channelID, guildID, userID, messageID, content string, mention bool) {
 	t.Helper()
@@ -399,6 +460,23 @@ func insertHistory(t *testing.T, m *Module, channelID, guildID, userID, messageI
 		Message:      content,
 		Timestamp:    int64(len(messageID)),
 		IsBotMention: mention,
+	}
+	if err := m.db.Create(&msg).Error; err != nil {
+		t.Fatalf("insert history: %v", err)
+	}
+}
+
+// insertHistoryAt stores one message row at a fixed timestamp, for date-filter
+// tests that need real dates.
+func insertHistoryAt(t *testing.T, m *Module, channelID, guildID, userID, messageID, content string, at time.Time) {
+	t.Helper()
+	msg := ChatMessage{
+		UserID:    userID,
+		ChannelID: channelID,
+		GuildID:   guildID,
+		MessageID: messageID,
+		Message:   content,
+		Timestamp: at.Unix(),
 	}
 	if err := m.db.Create(&msg).Error; err != nil {
 		t.Fatalf("insert history: %v", err)
