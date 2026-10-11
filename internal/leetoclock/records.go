@@ -32,12 +32,18 @@ func recordCommands() []*discordgo.ApplicationCommand {
 	visibility := func() *discordgo.ApplicationCommandOption {
 		return &discordgo.ApplicationCommandOption{Type: discordgo.ApplicationCommandOptionBoolean, Name: "public", Description: "Share in this channel (default: private)"}
 	}
+	date := func() *discordgo.ApplicationCommandOption {
+		return &discordgo.ApplicationCommandOption{
+			Type: discordgo.ApplicationCommandOptionString, Name: "date",
+			Description: "One game date, YYYY-MM-DD (overrides period)",
+		}
+	}
 	return []*discordgo.ApplicationCommand{{
 		Name: "leetoclock", Description: "View Leet o'Clock records", DMPermission: new(false),
 		Options: []*discordgo.ApplicationCommandOption{
-			{Type: discordgo.ApplicationCommandOptionSubCommand, Name: "top", Description: "Best players in this server or globally", Options: []*discordgo.ApplicationCommandOption{period(), scopeOption(), visibility()}},
+			{Type: discordgo.ApplicationCommandOptionSubCommand, Name: "top", Description: "Best players in this server or globally", Options: []*discordgo.ApplicationCommandOption{period(), date(), scopeOption(), visibility()}},
 			{Type: discordgo.ApplicationCommandOptionSubCommand, Name: "player", Description: "One player's best records", Options: []*discordgo.ApplicationCommandOption{
-				{Type: discordgo.ApplicationCommandOptionUser, Name: "user", Description: "Player (default: you)"}, period(),
+				{Type: discordgo.ApplicationCommandOptionUser, Name: "user", Description: "Player (default: you)"}, period(), date(),
 				scopeOption(), visibility(),
 			}},
 		},
@@ -57,6 +63,23 @@ type recordRequest struct {
 	scope      string
 	userID     string
 	public     bool
+	// day is an explicit game date. When non-zero it overrides period and
+	// bounds the query to that one local day.
+	day time.Time
+}
+
+// parseRecordDay parses a YYYY-MM-DD game date in the bot's local timezone. An
+// empty value yields the zero time, meaning "no explicit date".
+func parseRecordDay(value string) (time.Time, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return time.Time{}, nil
+	}
+	day, err := time.ParseInLocation("2006-01-02", value, time.Local)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("date %q must use YYYY-MM-DD", value)
+	}
+	return day, nil
 }
 
 func parseRecordRequest(i *discordgo.InteractionCreate) (recordRequest, error) {
@@ -92,6 +115,19 @@ func parseRecordRequest(i *discordgo.InteractionCreate) (recordRequest, error) {
 				r.period = datastore.PeriodAllTime
 			default:
 				return r, fmt.Errorf("invalid period")
+			}
+		case "date":
+			value, ok := opt.Value.(string)
+			if !ok {
+				return r, fmt.Errorf("invalid date")
+			}
+			day, err := parseRecordDay(value)
+			if err != nil {
+				return r, fmt.Errorf("invalid date")
+			}
+			r.day = day
+			if !day.IsZero() {
+				r.periodName = day.Format("2006-01-02")
 			}
 		case "public":
 			value, ok := opt.Value.(bool)
@@ -182,22 +218,18 @@ func (m *Module) recordResponse(guildID string, r recordRequest) (string, error)
 	if m.store == nil {
 		return "", fmt.Errorf("store unavailable")
 	}
+	queryGuild := guildID
+	if r.scope == "global" {
+		queryGuild = ""
+	}
 	if r.subcommand == "top" {
-		queryGuild := guildID
-		if r.scope == "global" {
-			queryGuild = ""
-		}
-		records, err := m.store.TopPlayers(queryGuild, r.period, m.now())
+		records, err := m.topRecords(queryGuild, r)
 		if err != nil {
 			return "", err
 		}
 		return renderTop(r, records, m.serverName, m.playerDisplayName), nil
 	}
-	guildScope := guildID
-	if r.scope == "global" {
-		guildScope = ""
-	}
-	records, count, err := m.store.PlayerRecords(r.userID, guildScope, r.period, m.now())
+	records, count, err := m.playerRecords(r.userID, queryGuild, r)
 	if err != nil {
 		return "", err
 	}
@@ -209,6 +241,26 @@ func (m *Module) recordResponse(guildID string, r recordRequest) (string, error)
 		return renderPlayer(r, records, count, errors.Is(err, gorm.ErrRecordNotFound), m.serverName), nil
 	}
 	return renderPlayer(r, records, count, false, m.serverName), nil
+}
+
+// topRecords resolves the requested window for a leaderboard query. An explicit
+// date wins over the period, so a date-specific question is not answered with a
+// neighbouring period's numbers.
+func (m *Module) topRecords(guildID string, r recordRequest) ([]datastore.ScoreRecord, error) {
+	if !r.day.IsZero() {
+		start, end := datastore.DayRange(r.day, r.day)
+		return m.store.TopPlayersBetween(guildID, start, end)
+	}
+	return m.store.TopPlayers(guildID, r.period, m.now())
+}
+
+// playerRecords is topRecords for one player's records plus their attempt count.
+func (m *Module) playerRecords(userID, guildID string, r recordRequest) ([]datastore.ScoreRecord, int64, error) {
+	if !r.day.IsZero() {
+		start, end := datastore.DayRange(r.day, r.day)
+		return m.store.PlayerRecordsBetween(userID, guildID, start, end)
+	}
+	return m.store.PlayerRecords(userID, guildID, r.period, m.now())
 }
 
 // Only use guild names already available in the session state; global lookups

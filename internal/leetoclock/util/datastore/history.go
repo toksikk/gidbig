@@ -68,6 +68,20 @@ func historyQuery(start, end time.Time, guildID, userID string) (string, []any) 
 	return query, args
 }
 
+// DayRange returns the half-open [start, end) window covering the inclusive
+// local-day range from..to. Either side may be the zero time to leave that bound
+// open. The end is exclusive, so a single day selects exactly that game date.
+func DayRange(from, to time.Time) (time.Time, time.Time) {
+	var start, end time.Time
+	if !from.IsZero() {
+		start = time.Date(from.Year(), from.Month(), from.Day(), 0, 0, 0, 0, time.Local)
+	}
+	if !to.IsZero() {
+		end = time.Date(to.Year(), to.Month(), to.Day(), 0, 0, 0, 0, time.Local).AddDate(0, 0, 1)
+	}
+	return start, end
+}
+
 const recordColumns = `s.score, p.user_id, g.game_date, g.guild_id, g.channel_id, s.message_id`
 
 // TopPlayers returns up to ten distinct players' best valid attempts.
@@ -78,6 +92,12 @@ func (s *Store) TopPlayers(guildID string, period Period, now time.Time) ([]Scor
 	if err != nil {
 		return nil, err
 	}
+	return s.TopPlayersBetween(guildID, start, end)
+}
+
+// TopPlayersBetween is TopPlayers for an explicit half-open [start, end) window.
+// It backs date-specific record lookups, which no Period can express.
+func (s *Store) TopPlayersBetween(guildID string, start, end time.Time) ([]ScoreRecord, error) {
 	from, args := historyQuery(start, end, guildID, "")
 	query := `WITH ranked AS (
 		SELECT ` + recordColumns + `,
@@ -90,7 +110,7 @@ func (s *Store) TopPlayers(guildID string, period Period, now time.Time) ([]Scor
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	records := make([]ScoreRecord, 0)
-	err = s.db.Raw(query, append(args, maxHistoryRows)...).Scan(&records).Error
+	err := s.db.Raw(query, append(args, maxHistoryRows)...).Scan(&records).Error
 	return records, err
 }
 
@@ -101,6 +121,12 @@ func (s *Store) PlayerRecords(userID, guildID string, period Period, now time.Ti
 	if err != nil {
 		return nil, 0, err
 	}
+	return s.PlayerRecordsBetween(userID, guildID, start, end)
+}
+
+// PlayerRecordsBetween is PlayerRecords for an explicit half-open [start, end)
+// window.
+func (s *Store) PlayerRecordsBetween(userID, guildID string, start, end time.Time) ([]ScoreRecord, int64, error) {
 	if userID == "" {
 		return nil, 0, fmt.Errorf("user ID required for player records")
 	}
@@ -114,7 +140,7 @@ func (s *Store) PlayerRecords(userID, guildID string, period Period, now time.Ti
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	err = s.db.Raw(query, append(args, maxHistoryRows)...).Scan(&rows).Error
+	err := s.db.Raw(query, append(args, maxHistoryRows)...).Scan(&rows).Error
 	if err != nil {
 		return nil, 0, err
 	}
