@@ -38,6 +38,16 @@ type UserPrivacy struct {
 // TableName returns the database table name.
 func (UserPrivacy) TableName() string { return "gippity_user_privacy" }
 
+// UserConsent stores a user's opt-in for non-mention responses. A missing row
+// means off: the classifier never runs for that user's non-mention messages.
+type UserConsent struct {
+	UserID            string `gorm:"primaryKey"`
+	NonMentionEnabled bool   `gorm:"not null"`
+}
+
+// TableName returns the database table name.
+func (UserConsent) TableName() string { return "gippity_user_consent" }
+
 // ChatAttachment stores the LLM-generated description of a message's images.
 type ChatAttachment struct {
 	ID               uint   `gorm:"primaryKey"`
@@ -98,7 +108,7 @@ func (m *Module) openDB(d bot.Deps) error {
 
 // migrateDB creates or updates the gippity tables in the shared database.
 func (m *Module) migrateDB() error {
-	return m.db.AutoMigrate(&ChatMessage{}, &UserPrivacy{}, &ChatAttachment{}, &ChatHistoryEdit{})
+	return m.db.AutoMigrate(&ChatMessage{}, &UserPrivacy{}, &UserConsent{}, &ChatAttachment{}, &ChatHistoryEdit{})
 }
 
 func (m *Module) addMessageToDatabase(mc *discordgo.MessageCreate, isBotMention bool) {
@@ -293,4 +303,28 @@ func (m *Module) setUserPrivacy(userID string, enabled bool) error {
 		Columns:   []clause.Column{{Name: "user_id"}},
 		DoUpdates: clause.AssignmentColumns([]string{"privacy_enabled"}),
 	}).Create(&privacy).Error
+}
+
+// getUserConsent returns false (no non-mention responses) by default; only an
+// explicit opt-in returns true.
+func (m *Module) getUserConsent(userID string) bool {
+	var consent UserConsent
+	err := m.db.Where("user_id = ?", userID).First(&consent).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return false
+	}
+	if err != nil {
+		slog.Error("Error while querying user_consent", "error", err)
+		return false
+	}
+	return consent.NonMentionEnabled
+}
+
+// setUserConsent stores or updates the non-mention opt-in for a user.
+func (m *Module) setUserConsent(userID string, enabled bool) error {
+	consent := UserConsent{UserID: userID, NonMentionEnabled: enabled}
+	return m.db.Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "user_id"}},
+		DoUpdates: clause.AssignmentColumns([]string{"non_mention_enabled"}),
+	}).Create(&consent).Error
 }

@@ -38,6 +38,10 @@ type Module struct {
 	userMessageLimit          int
 	userMessageCountLastReset map[string]time.Time
 
+	// classifierCount tracks per-user non-mention classifier calls per hour.
+	classifierCount          map[string]int
+	classifierCountLastReset map[string]time.Time
+
 	// Test hooks. Production defaults are wired in New.
 	generateAnswerFunc         func(*discordgo.MessageCreate, []string) (string, error)
 	chatCompletionFunc         func(context.Context, openai.ChatCompletionNewParams) (*openai.ChatCompletion, error)
@@ -50,18 +54,30 @@ type Module struct {
 	messageSendFunc            func(*discordgo.Session, string, string) (*discordgo.Message, error)
 	messageThreadStartFunc     func(*discordgo.Session, string, string, *discordgo.ThreadStart) (*discordgo.Channel, error)
 	channelIsThreadFunc        func(*discordgo.Session, string) bool
+	classifyFunc               func(context.Context, *discordgo.MessageCreate) (bool, error)
 	seasonFunc                 func() util.Season
 
 	// replyInThread mirrors gippity.reply_in_thread: when true, answers go into
 	// a thread started on the mentioning message instead of the channel.
 	replyInThread bool
+
+	// respondToAllMessages mirrors gippity.respond_to_all_messages: when true,
+	// non-mention messages from opted-in users are classified and may be
+	// answered. classifierModel overrides the model for that decision;
+	// classifierRateLimit caps classifier calls per user per hour.
+	respondToAllMessages bool
+	classifierModel      string
+	classifierRateLimit  int
 }
 
 // New returns a Module with production-default hook implementations.
 func New() *Module {
 	m := &Module{
-		idToNameCache:    make(map[string]string),
-		userMessageLimit: 30,
+		idToNameCache:            make(map[string]string),
+		userMessageLimit:         30,
+		classifierRateLimit:      30,
+		classifierCount:          make(map[string]int),
+		classifierCountLastReset: make(map[string]time.Time),
 	}
 	m.generateAnswerFunc = m.generateAnswer
 	m.chatCompletionFunc = func(ctx context.Context, params openai.ChatCompletionNewParams) (*openai.ChatCompletion, error) {
@@ -97,6 +113,7 @@ func New() *Module {
 		return channel.IsThread()
 	}
 	m.fetchReferencedMessageFunc = m.fetchReferencedMessage
+	m.classifyFunc = m.classifyShouldRespond
 	m.seasonFunc = util.CurrentSeason
 	return m
 }
@@ -113,10 +130,17 @@ func (m *Module) Init(d bot.Deps) error {
 	}
 	if d.Config != nil {
 		m.replyInThread = d.Config.Gippity.ReplyInThread
+		m.respondToAllMessages = d.Config.Gippity.RespondToAllMessages
+		m.classifierModel = d.Config.Gippity.ClassifierModel
+		if d.Config.Gippity.ClassifierRateLimitPerHour > 0 {
+			m.classifierRateLimit = d.Config.Gippity.ClassifierRateLimitPerHour
+		}
 	}
 
 	m.userMessageCount = make(map[string]int)
 	m.userMessageCountLastReset = make(map[string]time.Time)
+	m.classifierCount = make(map[string]int)
+	m.classifierCountLastReset = make(map[string]time.Time)
 
 	m.allowedGuildIDs = make(map[string]bool)
 	m.ignoredUserIDs = make(map[string]bool)
@@ -153,6 +177,23 @@ func (m *Module) Commands() []*discordgo.ApplicationCommand {
 							Type:        discordgo.ApplicationCommandOptionString,
 							Name:        "set",
 							Description: "on = anonymize (default), off = include as-is",
+							Required:    true,
+							Choices: []*discordgo.ApplicationCommandOptionChoice{
+								{Name: "on", Value: "on"},
+								{Name: "off", Value: "off"},
+							},
+						},
+					},
+				},
+				{
+					Type:        discordgo.ApplicationCommandOptionSubCommand,
+					Name:        "nonmention",
+					Description: "Let the bot decide whether to reply to your messages that do not mention it",
+					Options: []*discordgo.ApplicationCommandOption{
+						{
+							Type:        discordgo.ApplicationCommandOptionString,
+							Name:        "set",
+							Description: "on = allow non-mention replies, off = disallow (default)",
 							Required:    true,
 							Choices: []*discordgo.ApplicationCommandOptionChoice{
 								{Name: "on", Value: "on"},

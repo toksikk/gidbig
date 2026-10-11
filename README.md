@@ -26,7 +26,7 @@ Gidbig is a Discord bot written in Go — soundboard playback in voice channels,
 | ☕ **coffee** | Greets users with their preferred morning beverage when they say "moin", "morgen", etc. `/setbeverage` configures it, `/brew` serves a selected drink, and `/coffeemachine` manages and reports machine state |
 | 🔮 **eso** | `/eso [thema]` generates esoteric pseudoscience nonsense through the LLM, with a local fallback |
 | 🎮 **gamerstatus** | Rotates the bot's Discord game/activity status every 5–15 minutes after an initial 5-minute delay |
-| 🤖 **gippity** | Responds through an LLM when mentioned in an allowed guild, stores conversation history in SQLite, and provides `/gippity privacy set:on\|off` |
+| 🤖 **gippity** | Responds through an LLM when mentioned in an allowed guild, stores conversation history in SQLite, and provides `/gippity privacy set:on\|off` and `/gippity nonmention set:on\|off` |
 | 🕐 **leetoclock** | Daily 13:37 game — messages around 13:37 score by time offset; the top three at or after 13:37 rank alongside early/late categories. `/leetoclock top` and `/leetoclock player` show records |
 | 🧌 **stoll** | `/stoll` — Stoll-related commands |
 | 🐧 **wardogs** | `/wardogs` — reports whether WARDOGS officially supports Linux/Proton, read from the community tracker doeswardogshavelinux.support (10 min cache) |
@@ -60,6 +60,7 @@ gippity:
         - "YOUR_DISCORD_GUILD_ID"
     ignored_users: []
     reply_in_thread: false # answer mentions in a thread instead of the channel
+    respond_to_all_messages: false # let the classifier decide on non-mention messages
 llm:
     provider: "openai"
     model: "gpt-4o-mini"
@@ -84,7 +85,7 @@ llm:
 
 Set `OPENROUTER_API_KEY` when using OpenRouter. `llm.provider` defaults to `openai`, the OpenAI model defaults to `gpt-4o-mini`, and `llm.vision_model` defaults to `llm.model`. `llm.base_url` can optionally override either provider's API endpoint for an OpenAI-compatible gateway.
 
-The web server starts only when `web.port`, `web.session_secret`, `web.oauth.client_id`, `web.oauth.client_secret`, and `web.oauth.redirect_uri` are set. `gippity.allowed_guilds` restricts guilds where mention-driven AI chat runs. With `gippity.reply_in_thread: true` the bot answers mentions inside a public thread started on the mentioning message instead of the channel itself (requires the Create Public Threads permission; messages already posted in a thread are answered there).
+The web server starts only when `web.port`, `web.session_secret`, `web.oauth.client_id`, `web.oauth.client_secret`, and `web.oauth.redirect_uri` are set. `gippity.allowed_guilds` restricts guilds where mention-driven AI chat runs. With `gippity.reply_in_thread: true` the bot answers mentions inside a public thread started on the mentioning message instead of the channel itself (requires the Create Public Threads permission; messages already posted in a thread are answered there). With `gippity.respond_to_all_messages: true` a classifier (`gippity.classifier_model`, defaults to `llm.model`) decides per non-mention message whether to answer; each user must also opt in with `/gippity nonmention set:on`, and `gippity.classifier_rate_limit_per_hour` caps classifier calls per user per hour.
 
 ### 2. Add audio files 🎵
 

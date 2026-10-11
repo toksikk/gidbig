@@ -2,12 +2,13 @@
 
 Directory `internal/gippity`. Implements `bot.Module`, `bot.AdminProvider` and `bot.StatsProvider`; wired via `gippity.New().Init(...)` in `core/cmd.go`.
 
-LLM chat for Discord: answers when the bot is mentioned, keeps per-channel history, describes image attachments, honors per-user privacy, rate-limits mentions.
+LLM chat for Discord: answers when the bot is mentioned, keeps per-channel history, describes image attachments, honors per-user privacy, rate-limits mentions, and can optionally answer non-mention messages that the classifier accepts.
 
-- Command: `/gippity privacy on|off`.
-- Storage: shared SQLite `gidbig.db`, prefixed tables (`gippity_chat_history`, `gippity_chat_history_edits`, `gippity_chat_attachments`, `gippity_user_privacy`).
-- Rate limit: `rate_limit_messages_per_hour` per user.
+- Commands: `/gippity privacy set:on|off`, `/gippity nonmention set:on|off`.
+- Storage: shared SQLite `gidbig.db`, prefixed tables (`gippity_chat_history`, `gippity_chat_history_edits`, `gippity_chat_attachments`, `gippity_user_privacy`, `gippity_user_consent`).
+- Rate limit: `rate_limit_messages_per_hour` per user (reply budget). Non-mention classifier calls have a separate `classifier_rate_limit_per_hour` per-user budget.
 - Reply target: `reply_in_thread` (default `false`) posts the answer inside a public thread started on the mentioning message instead of the channel. The thread name is derived from that message (mentions, backticks and control/format characters stripped, clamped to 100 characters). Messages that already arrive in a thread are answered in place, since Discord does not nest threads, and a failed thread start falls back to the channel. Rate-limit notices follow the same setting.
+- Non-mention responses: `respond_to_all_messages` (default `false`) enables the classifier decision for messages that do not mention the bot. Each user must additionally opt in with `/gippity nonmention set:on` (`gippity_user_consent`, default off). Direct mentions always bypass the classifier and the consent check. The decision uses `classifier_model` (empty → `llm.model`) with `temperature=0` and a 5-token cap, parses a strict `YES`/`NO`, and fails closed on any provider or parsing error. Vision/attachment descriptions run only after a positive decision, and over-budget non-mentions are skipped silently.
 
 ## Message answer flow
 
@@ -18,18 +19,30 @@ sequenceDiagram
     participant G as gippity
     participant DB as SQLite
     participant V as Vision LLM
+    participant C as Classifier LLM
     participant L as LLM
 
     U->>D: message (+ attachments)
     D->>G: onMessageCreate
     G->>DB: addMessageToDatabase
-    opt image attachments
+    G->>G: eligible()? author/bot/ignored/guild/message type
+    alt mentioned
+        G->>G: isLimitedUser? (reply budget)
+        opt over reply budget
+            G->>D: rate-limit notice
+        end
+    else not mentioned
+        G->>G: respond_to_all_messages and user consent?
+        G->>G: isClassifierLimited? (classifier budget)
+        G->>C: Chat.Completions.New(temperature=0, YES/NO)
+        C-->>G: YES or NO (fail closed)
+    end
+    opt answered and image attachments
         G->>V: describeImages(urls)
         V-->>G: description
         G->>DB: addAttachmentsToDatabase
     end
-    G->>G: limited()? bot / ignored / guild / mention rate limit
-    alt allowed and mentioned
+    alt answered
         G->>L: typing indicator
         G->>DB: getLastNMessagesFromDatabase(10)
         G->>G: build system prompt (personality, season, reactions, pseudonyms)

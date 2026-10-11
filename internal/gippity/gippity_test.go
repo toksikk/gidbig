@@ -37,7 +37,7 @@ func setupGippityTest(t *testing.T) (*Module, *discordgo.Session) {
 	if err != nil {
 		t.Fatalf("open test database: %v", err)
 	}
-	if err := testDB.AutoMigrate(&ChatMessage{}, &UserPrivacy{}, &ChatAttachment{}, &ChatHistoryEdit{}); err != nil {
+	if err := testDB.AutoMigrate(&ChatMessage{}, &UserPrivacy{}, &UserConsent{}, &ChatAttachment{}, &ChatHistoryEdit{}); err != nil {
 		t.Fatalf("migrate test database: %v", err)
 	}
 
@@ -152,21 +152,66 @@ func TestOnMessageCreate_StoresNonMentionedMessageWithoutGeneratingAnswer(t *tes
 	}
 }
 
-func TestLimited_AllowsMentionedMessageInAllowedGuild(t *testing.T) {
+func TestEligible_AllowsOrdinaryMessageInAllowedGuild(t *testing.T) {
 	m, _ := setupGippityTest(t)
 
 	msg := gippityTestMessage("hey <@bot-user>", &discordgo.User{ID: "bot-user"})
 
-	if m.limited(msg) {
-		t.Fatal("mentioned message in allowed guild should not be limited")
+	if !m.eligible(msg) {
+		t.Fatal("ordinary message in allowed guild should be eligible")
 	}
 }
 
-func TestLimited_BlocksNonMentionedMessageInAllowedGuild(t *testing.T) {
+func TestEligible_RejectsBotAuthor(t *testing.T) {
 	m, _ := setupGippityTest(t)
 
-	if !m.limited(gippityTestMessage("ordinary channel message")) {
-		t.Fatal("non-mentioned message in allowed guild should be limited")
+	msg := gippityTestMessage("beep boop")
+	msg.Author.Bot = true
+
+	if m.eligible(msg) {
+		t.Fatal("bot author should not be eligible")
+	}
+}
+
+func TestEligible_RejectsNilAuthor(t *testing.T) {
+	m, _ := setupGippityTest(t)
+
+	msg := gippityTestMessage("no author")
+	msg.Author = nil
+
+	if m.eligible(msg) {
+		t.Fatal("nil author should not be eligible")
+	}
+}
+
+func TestEligible_RejectsIgnoredUser(t *testing.T) {
+	m, _ := setupGippityTest(t)
+	m.ignoredUserIDs["user-1"] = true
+
+	if m.eligible(gippityTestMessage("ignored")) {
+		t.Fatal("ignored user should not be eligible")
+	}
+}
+
+func TestEligible_RejectsDisallowedGuild(t *testing.T) {
+	m, _ := setupGippityTest(t)
+
+	msg := gippityTestMessage("other guild")
+	msg.GuildID = "other-guild"
+
+	if m.eligible(msg) {
+		t.Fatal("disallowed guild should not be eligible")
+	}
+}
+
+func TestEligible_RejectsUnsupportedMessageType(t *testing.T) {
+	m, _ := setupGippityTest(t)
+
+	msg := gippityTestMessage("joined the server")
+	msg.Type = discordgo.MessageTypeGuildMemberJoin
+
+	if m.eligible(msg) {
+		t.Fatal("system message type should not be eligible")
 	}
 }
 
@@ -261,10 +306,27 @@ func gippityTestMessageWithImage(content string, imageURL string) *discordgo.Mes
 	}
 }
 
-func TestOnMessageCreate_DescribesImageForNonMentionMessage(t *testing.T) {
+func TestOnMessageCreate_SkipsVisionWhenNonMentionNotAnswered(t *testing.T) {
 	m, session := setupGippityTest(t)
 	m.generateAnswerFunc = func(_ *discordgo.MessageCreate, _ []string) (string, error) {
 		t.Fatal("generateAnswerFunc should not be called for non-mention message")
+		return "", nil
+	}
+	m.describeImagesFunc = func(_ []string) (string, error) {
+		t.Fatal("describeImagesFunc should not be called before a positive response decision")
+		return "", nil
+	}
+
+	msg := gippityTestMessageWithImage("check this out", "https://cdn.example.com/photo.png")
+
+	m.onMessageCreate(session, msg)
+}
+
+func TestOnMessageCreate_DescribesImageForEligibleNonMentionMessage(t *testing.T) {
+	m, session := setupGippityTest(t)
+	m.respondToAllMessages = true
+	m.classifyFunc = func(context.Context, *discordgo.MessageCreate) (bool, error) { return true, nil }
+	m.generateAnswerFunc = func(_ *discordgo.MessageCreate, _ []string) (string, error) {
 		return "", nil
 	}
 	describeCalled := false
@@ -277,11 +339,14 @@ func TestOnMessageCreate_DescribesImageForNonMentionMessage(t *testing.T) {
 	}
 
 	msg := gippityTestMessageWithImage("check this out", "https://cdn.example.com/photo.png")
+	if err := m.setUserConsent("user-1", true); err != nil {
+		t.Fatalf("setUserConsent: %v", err)
+	}
 
 	m.onMessageCreate(session, msg)
 
 	if !describeCalled {
-		t.Error("describeImagesFunc should have been called for image attachment")
+		t.Error("describeImagesFunc should have been called for an answered image message")
 	}
 
 	var url, desc string
@@ -1082,10 +1147,13 @@ func TestOnMessageCreate_RepliesInThreadWhenConfigured(t *testing.T) {
 	}
 }
 
-func TestLimited_RateLimitNoticeFollowsThreadReplySetting(t *testing.T) {
-	m, _ := setupGippityTest(t)
+func TestOnMessageCreate_RateLimitNoticeFollowsThreadReplySetting(t *testing.T) {
+	m, session := setupGippityTest(t)
 	m.replyInThread = true
 	m.userMessageLimit = 1
+	m.generateAnswerFunc = func(_ *discordgo.MessageCreate, _ []string) (string, error) {
+		return "", nil
+	}
 
 	var sentChannel string
 	m.messageSendFunc = func(_ *discordgo.Session, channelID, _ string) (*discordgo.Message, error) {
@@ -1097,12 +1165,10 @@ func TestLimited_RateLimitNoticeFollowsThreadReplySetting(t *testing.T) {
 	}
 
 	msg := gippityTestMessage("hey <@bot-user>", &discordgo.User{ID: "bot-user"})
-	if m.limited(msg) {
-		t.Fatal("first mention should not be rate limited")
-	}
-	if !m.limited(msg) {
-		t.Fatal("second mention should hit the rate limit of 1")
-	}
+	m.onMessageCreate(session, msg) // first mention: allowed
+	sentChannel = ""
+	m.onMessageCreate(session, msg) // second mention: hits the limit of 1
+
 	if sentChannel != "thread-9" {
 		t.Errorf("rate limit notice sent to %q, want thread %q", sentChannel, "thread-9")
 	}
@@ -1142,5 +1208,315 @@ func TestThreadName_DropsZeroWidthCharacters(t *testing.T) {
 	got := threadName("hal\u200blo\u200dwelt")
 	if got != "hallowelt" {
 		t.Errorf("threadName = %q, want %q", got, "hallowelt")
+	}
+}
+
+func TestParseClassifierAnswer(t *testing.T) {
+	tests := []struct {
+		in      string
+		want    bool
+		wantErr bool
+	}{
+		{"YES", true, false},
+		{"yes", true, false},
+		{" YES \n", true, false},
+		{"NO", false, false},
+		{"no", false, false},
+		{"maybe", false, true},
+		{"", false, true},
+		{"YES NO", false, true},
+	}
+	for _, tc := range tests {
+		got, err := parseClassifierAnswer(tc.in)
+		if tc.wantErr {
+			if err == nil {
+				t.Errorf("parseClassifierAnswer(%q) expected error", tc.in)
+			}
+			continue
+		}
+		if err != nil {
+			t.Errorf("parseClassifierAnswer(%q) unexpected error: %v", tc.in, err)
+			continue
+		}
+		if got != tc.want {
+			t.Errorf("parseClassifierAnswer(%q) = %v, want %v", tc.in, got, tc.want)
+		}
+	}
+}
+
+func TestClassifyShouldRespond_UsesDeterministicClassifierParams(t *testing.T) {
+	m, _ := setupGippityTest(t)
+	m.classifierModel = "classifier-model-x"
+
+	var gotParams openai.ChatCompletionNewParams
+	m.chatCompletionFunc = func(_ context.Context, params openai.ChatCompletionNewParams) (*openai.ChatCompletion, error) {
+		gotParams = params
+		return &openai.ChatCompletion{
+			Choices: []openai.ChatCompletionChoice{{Message: openai.ChatCompletionMessage{Content: "YES"}}},
+		}, nil
+	}
+
+	got, err := m.classifyShouldRespond(context.Background(), gippityTestMessage("should the bot answer this?"))
+	if err != nil {
+		t.Fatalf("classifyShouldRespond: %v", err)
+	}
+	if !got {
+		t.Error("expected YES to map to a positive decision")
+	}
+	if gotParams.Model != "classifier-model-x" {
+		t.Errorf("model = %q, want classifier-model-x", gotParams.Model)
+	}
+	if !gotParams.Temperature.Valid() || gotParams.Temperature.Value != 0 {
+		t.Errorf("temperature = %+v, want 0", gotParams.Temperature)
+	}
+	if gotParams.MaxCompletionTokens.Value != classifierMaxTokens {
+		t.Errorf("max_completion_tokens = %d, want %d", gotParams.MaxCompletionTokens.Value, classifierMaxTokens)
+	}
+}
+
+func TestClassifyShouldRespond_FallsBackToLLMModel(t *testing.T) {
+	m, _ := setupGippityTest(t)
+	m.classifierModel = ""
+
+	var gotModel string
+	m.chatCompletionFunc = func(_ context.Context, params openai.ChatCompletionNewParams) (*openai.ChatCompletion, error) {
+		gotModel = params.Model
+		return &openai.ChatCompletion{
+			Choices: []openai.ChatCompletionChoice{{Message: openai.ChatCompletionMessage{Content: "NO"}}},
+		}, nil
+	}
+
+	if _, err := m.classifyShouldRespond(context.Background(), gippityTestMessage("hello")); err != nil {
+		t.Fatalf("classifyShouldRespond: %v", err)
+	}
+	if gotModel != llm.Model() {
+		t.Errorf("model = %q, want llm.Model() %q", gotModel, llm.Model())
+	}
+}
+
+func TestOnMessageCreate_NonMentionDisabledNeverClassifies(t *testing.T) {
+	m, session := setupGippityTest(t)
+	m.respondToAllMessages = false
+	m.classifyFunc = func(context.Context, *discordgo.MessageCreate) (bool, error) {
+		t.Fatal("classifier must not run when respond_to_all_messages is off")
+		return false, nil
+	}
+	m.generateAnswerFunc = func(_ *discordgo.MessageCreate, _ []string) (string, error) {
+		t.Fatal("generateAnswerFunc must not run for a disabled non-mention message")
+		return "", nil
+	}
+
+	m.onMessageCreate(session, gippityTestMessage("a question without a mention"))
+}
+
+func TestOnMessageCreate_NonMentionWithoutConsentNeverClassifies(t *testing.T) {
+	m, session := setupGippityTest(t)
+	m.respondToAllMessages = true
+	m.classifyFunc = func(context.Context, *discordgo.MessageCreate) (bool, error) {
+		t.Fatal("classifier must not run without the user's consent")
+		return false, nil
+	}
+
+	m.onMessageCreate(session, gippityTestMessage("a question without a mention"))
+}
+
+func TestOnMessageCreate_NonMentionPositiveDecisionAnswers(t *testing.T) {
+	m, session := setupGippityTest(t)
+	m.respondToAllMessages = true
+	m.classifyFunc = func(context.Context, *discordgo.MessageCreate) (bool, error) { return true, nil }
+	m.generateAnswerFunc = func(_ *discordgo.MessageCreate, _ []string) (string, error) {
+		return "the answer", nil
+	}
+	var sent string
+	m.messageSendFunc = func(_ *discordgo.Session, _ string, content string) (*discordgo.Message, error) {
+		sent = content
+		return &discordgo.Message{}, nil
+	}
+	if err := m.setUserConsent("user-1", true); err != nil {
+		t.Fatalf("setUserConsent: %v", err)
+	}
+
+	m.onMessageCreate(session, gippityTestMessage("what is 2+2?"))
+
+	if sent != "the answer" {
+		t.Errorf("sent = %q, want %q", sent, "the answer")
+	}
+}
+
+func TestOnMessageCreate_NonMentionNegativeDecisionStaysSilent(t *testing.T) {
+	m, session := setupGippityTest(t)
+	m.respondToAllMessages = true
+	m.classifyFunc = func(context.Context, *discordgo.MessageCreate) (bool, error) { return false, nil }
+	m.generateAnswerFunc = func(_ *discordgo.MessageCreate, _ []string) (string, error) {
+		t.Fatal("generateAnswerFunc must not run for a negative decision")
+		return "", nil
+	}
+	m.messageSendFunc = func(_ *discordgo.Session, _ string, _ string) (*discordgo.Message, error) {
+		t.Fatal("no reply should be sent for a negative decision")
+		return &discordgo.Message{}, nil
+	}
+	if err := m.setUserConsent("user-1", true); err != nil {
+		t.Fatalf("setUserConsent: %v", err)
+	}
+
+	m.onMessageCreate(session, gippityTestMessage("just chatting"))
+}
+
+func TestOnMessageCreate_NonMentionClassifierErrorFailsClosed(t *testing.T) {
+	m, session := setupGippityTest(t)
+	m.respondToAllMessages = true
+	m.classifyFunc = func(context.Context, *discordgo.MessageCreate) (bool, error) {
+		return false, errors.New("provider unavailable")
+	}
+	m.generateAnswerFunc = func(_ *discordgo.MessageCreate, _ []string) (string, error) {
+		t.Fatal("generateAnswerFunc must not run when the classifier fails")
+		return "", nil
+	}
+	if err := m.setUserConsent("user-1", true); err != nil {
+		t.Fatalf("setUserConsent: %v", err)
+	}
+
+	m.onMessageCreate(session, gippityTestMessage("does the bot answer?"))
+}
+
+func TestOnMessageCreate_MentionBypassesClassifierAndConsent(t *testing.T) {
+	m, session := setupGippityTest(t)
+	m.respondToAllMessages = false
+	m.classifyFunc = func(context.Context, *discordgo.MessageCreate) (bool, error) {
+		t.Fatal("a direct mention must skip the classifier")
+		return false, nil
+	}
+	m.generateAnswerFunc = func(_ *discordgo.MessageCreate, _ []string) (string, error) {
+		return "mentioned answer", nil
+	}
+	var sent string
+	m.messageSendFunc = func(_ *discordgo.Session, _ string, content string) (*discordgo.Message, error) {
+		sent = content
+		return &discordgo.Message{}, nil
+	}
+
+	m.onMessageCreate(session, gippityTestMessage("hey <@bot-user>", &discordgo.User{ID: "bot-user"}))
+
+	if sent != "mentioned answer" {
+		t.Errorf("sent = %q, want %q", sent, "mentioned answer")
+	}
+}
+
+func TestOnMessageCreate_NonMentionRespectsClassifierBudget(t *testing.T) {
+	m, session := setupGippityTest(t)
+	m.respondToAllMessages = true
+	m.classifierRateLimit = 1
+	calls := 0
+	m.classifyFunc = func(context.Context, *discordgo.MessageCreate) (bool, error) {
+		calls++
+		return false, nil
+	}
+	if err := m.setUserConsent("user-1", true); err != nil {
+		t.Fatalf("setUserConsent: %v", err)
+	}
+
+	m.onMessageCreate(session, gippityTestMessage("first non-mention"))
+	m.onMessageCreate(session, gippityTestMessage("second non-mention"))
+
+	if calls != 1 {
+		t.Errorf("classifier calls = %d, want 1 (budget of 1 per hour)", calls)
+	}
+}
+
+func TestOnMessageCreate_NonMentionReplyBudgetSkipsSilently(t *testing.T) {
+	m, session := setupGippityTest(t)
+	m.respondToAllMessages = true
+	m.userMessageLimit = 1
+	m.classifyFunc = func(context.Context, *discordgo.MessageCreate) (bool, error) { return true, nil }
+	m.generateAnswerFunc = func(_ *discordgo.MessageCreate, _ []string) (string, error) {
+		return "answer", nil
+	}
+	sends := 0
+	m.messageSendFunc = func(_ *discordgo.Session, _ string, _ string) (*discordgo.Message, error) {
+		sends++
+		return &discordgo.Message{}, nil
+	}
+	if err := m.setUserConsent("user-1", true); err != nil {
+		t.Fatalf("setUserConsent: %v", err)
+	}
+
+	m.onMessageCreate(session, gippityTestMessage("first"))
+	m.onMessageCreate(session, gippityTestMessage("second"))
+
+	if sends != 1 {
+		t.Errorf("sends = %d, want 1 (second hits the reply budget and skips silently)", sends)
+	}
+}
+
+func TestOnMessageCreate_UnsupportedTypeNeverClassifies(t *testing.T) {
+	m, session := setupGippityTest(t)
+	m.respondToAllMessages = true
+	m.classifyFunc = func(context.Context, *discordgo.MessageCreate) (bool, error) {
+		t.Fatal("system messages must not reach the classifier")
+		return false, nil
+	}
+	if err := m.setUserConsent("user-1", true); err != nil {
+		t.Fatalf("setUserConsent: %v", err)
+	}
+
+	msg := gippityTestMessage("joined")
+	msg.Type = discordgo.MessageTypeGuildMemberJoin
+	m.onMessageCreate(session, msg)
+}
+
+func TestOnMessageCreate_BotAuthorNeverClassifies(t *testing.T) {
+	m, session := setupGippityTest(t)
+	m.respondToAllMessages = true
+	m.classifyFunc = func(context.Context, *discordgo.MessageCreate) (bool, error) {
+		t.Fatal("bot messages must not reach the classifier")
+		return false, nil
+	}
+
+	msg := gippityTestMessage("beep")
+	msg.Author.Bot = true
+	m.onMessageCreate(session, msg)
+}
+
+func TestSetAndGetUserConsent(t *testing.T) {
+	m, _ := setupGippityTest(t)
+
+	if m.getUserConsent("user-a") {
+		t.Error("getUserConsent for unknown user should default to false")
+	}
+	if err := m.setUserConsent("user-a", true); err != nil {
+		t.Fatalf("setUserConsent: %v", err)
+	}
+	if !m.getUserConsent("user-a") {
+		t.Error("getUserConsent should return true after opt-in")
+	}
+	if err := m.setUserConsent("user-a", false); err != nil {
+		t.Fatalf("setUserConsent: %v", err)
+	}
+	if m.getUserConsent("user-a") {
+		t.Error("getUserConsent should return false after opt-out")
+	}
+}
+
+func TestCommands_IncludeNonmentionSubcommand(t *testing.T) {
+	m := New()
+	var names []string
+	for _, cmd := range m.Commands() {
+		if cmd.Name != "gippity" {
+			continue
+		}
+		for _, opt := range cmd.Options {
+			names = append(names, opt.Name)
+		}
+	}
+	for _, want := range []string{"privacy", "nonmention"} {
+		found := false
+		for _, name := range names {
+			if name == want {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("gippity command missing subcommand %q; have %v", want, names)
+		}
 	}
 }
