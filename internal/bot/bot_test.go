@@ -7,19 +7,28 @@ import (
 	"github.com/bwmarrin/discordgo"
 )
 
-// stubModule is a minimal Module implementation for testing.
+// stubModule is a minimal Module implementation for testing. Its Init
+// optionally registers one command through the injected router.
 type stubModule struct {
-	name    string
-	initErr error
+	name       string
+	initErr    error
+	register   bool
+	registered bool
 }
 
-func (s *stubModule) Name() string                              { return s.name }
-func (s *stubModule) Init(_ Deps) error                         { return s.initErr }
-func (s *stubModule) Commands() []*discordgo.ApplicationCommand { return nil }
-func (s *stubModule) Listeners() []EventListener                { return nil }
-func (s *stubModule) Components() []ComponentHandler            { return nil }
-func (s *stubModule) Background() []BackgroundTask              { return nil }
-func (s *stubModule) Shutdown() error                           { return nil }
+func (s *stubModule) Name() string { return s.name }
+func (s *stubModule) Init(d Deps) error {
+	if s.initErr != nil {
+		return s.initErr
+	}
+	if s.register {
+		d.Router.AddCommand(&discordgo.ApplicationCommand{Name: s.name}, func(_ *discordgo.Session, _ *discordgo.InteractionCreate) {})
+		s.registered = true
+	}
+	return nil
+}
+func (s *stubModule) Background() []BackgroundTask { return nil }
+func (s *stubModule) Shutdown() error              { return nil }
 
 func TestBot_RegisterModule_Success(t *testing.T) {
 	b := New(Deps{})
@@ -41,5 +50,16 @@ func TestBot_RegisterModule_InitErrorDoesNotAddModule(t *testing.T) {
 	_ = b.RegisterModule(&stubModule{name: "bad", initErr: errors.New("boom")})
 	if len(b.modules) != 0 {
 		t.Fatalf("failed module should not be appended, got %d modules", len(b.modules))
+	}
+}
+
+func TestBot_RegisterModule_RouterCollectsCommands(t *testing.T) {
+	b := New(Deps{})
+	if err := b.RegisterModule(&stubModule{name: "leetoclock", register: true}); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	cmds := b.Router.Commands()
+	if len(cmds) != 1 || cmds[0].Name != "leetoclock" {
+		t.Fatalf("router commands = %#v, want the module's command", cmds)
 	}
 }

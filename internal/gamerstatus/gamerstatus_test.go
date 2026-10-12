@@ -34,18 +34,15 @@ func TestInitStoresSession(t *testing.T) {
 	}
 }
 
-func TestNoCommandsListenersComponents(t *testing.T) {
+func TestInitRegistersNothing(t *testing.T) {
 	m := New()
-	_ = m.Init(bot.Deps{})
+	r := bot.New(bot.Deps{}).Router
+	if err := m.Init(bot.Deps{Router: r}); err != nil {
+		t.Fatalf("Init returned error: %v", err)
+	}
 
-	if len(m.Commands()) != 0 {
-		t.Error("Commands() should be empty")
-	}
-	if len(m.Listeners()) != 0 {
-		t.Error("Listeners() should be empty")
-	}
-	if len(m.Components()) != 0 {
-		t.Error("Components() should be empty")
+	if len(r.Commands()) != 0 {
+		t.Error("gamerstatus should register no commands")
 	}
 }
 

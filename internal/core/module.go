@@ -40,30 +40,22 @@ func (m *Module) Init(d bot.Deps) error {
 	m.tools = d.Tools
 	m.dbPaths = []string{shareddb.Filename}
 	m.registerTools()
+	m.registerHandlers(d.Router)
 	return nil
 }
 
-// Commands returns the core slash commands.
-func (m *Module) Commands() []*discordgo.ApplicationCommand {
-	cmds := []*discordgo.ApplicationCommand{statusCommand()}
-	return append(cmds, coreSlashCommands()...)
-}
-
-// Listeners returns the core Discord event handlers.
-func (m *Module) Listeners() []bot.EventListener {
-	return []bot.EventListener{
-		m.onReady,
-		m.onConnect,
-		m.onDisconnect,
-		m.onResumed,
-		m.onMessageCreate,
-		m.onStatusInteractionCreate,
-		m.onCoreSlashInteractionCreate,
+// registerHandlers wires the core Discord handlers into the router.
+func (m *Module) registerHandlers(r *bot.Router) {
+	r.OnReady(m.onReady)
+	r.OnConnect(m.onConnect)
+	r.OnDisconnect(m.onDisconnect)
+	r.OnResumed(m.onResumed)
+	r.OnMessage(m.onMessageCreate)
+	r.AddCommand(statusCommand(), m.onStatusInteractionCreate)
+	for _, cmd := range coreSlashCommands() {
+		r.AddCommand(cmd, m.onCoreSlashInteractionCreate)
 	}
 }
-
-// Components returns no component handlers.
-func (m *Module) Components() []bot.ComponentHandler { return nil }
 
 // Background returns no background tasks.
 func (m *Module) Background() []bot.BackgroundTask { return nil }

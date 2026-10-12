@@ -31,4 +31,10 @@ type Deps struct {
 	// The gippity answer loop reads it while composing an answer. A module
 	// registers its own tools; no second wiring phase is needed.
 	Tools *tool.Registry
+
+	// Router is where a module registers its Discord handlers (commands,
+	// components, messages, gateway events) during Init. The Bot sets it
+	// before any module is registered; it is nil only in tests that call a
+	// module's Init directly, in which case the Router methods are no-ops.
+	Router *Router
 }

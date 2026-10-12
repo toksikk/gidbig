@@ -128,6 +128,9 @@ func (m *Module) Name() string { return "anticheat" }
 func (m *Module) Init(d bot.Deps) error {
 	m.tools = d.Tools
 	m.registerTools()
+	for _, cmd := range m.Commands() {
+		d.Router.AddCommand(cmd, m.onInteractionCreate)
+	}
 	slog.Info("anticheat: initialized")
 	return nil
 }
@@ -150,12 +153,6 @@ func (m *Module) Commands() []*discordgo.ApplicationCommand {
 		},
 	}
 }
-
-func (m *Module) Listeners() []bot.EventListener {
-	return []bot.EventListener{m.onInteractionCreate}
-}
-
-func (m *Module) Components() []bot.ComponentHandler { return nil }
 
 // Background keeps the dataset warm so lookups and autocomplete work without a
 // cold fetch in the interaction handler.

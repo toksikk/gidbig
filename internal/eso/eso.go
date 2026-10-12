@@ -53,6 +53,9 @@ func (m *Module) Init(d bot.Deps) error {
 	}
 
 	slog.Info("eso: initialized")
+	for _, cmd := range m.Commands() {
+		d.Router.AddCommand(cmd, m.onInteractionCreate)
+	}
 	return nil
 }
 
@@ -74,13 +77,8 @@ func (m *Module) Commands() []*discordgo.ApplicationCommand {
 	}
 }
 
-func (m *Module) Listeners() []bot.EventListener {
-	return []bot.EventListener{m.onInteractionCreate}
-}
-
-func (m *Module) Components() []bot.ComponentHandler { return nil }
-func (m *Module) Background() []bot.BackgroundTask   { return nil }
-func (m *Module) Shutdown() error                    { return nil }
+func (m *Module) Background() []bot.BackgroundTask { return nil }
+func (m *Module) Shutdown() error                  { return nil }
 
 // GenerateText generates an esoteric sentence, optionally themed.
 func (m *Module) GenerateText(ctx context.Context, thema string) string {

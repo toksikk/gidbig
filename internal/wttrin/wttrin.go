@@ -298,6 +298,9 @@ func (m *Module) Init(d bot.Deps) error {
 	}
 	m.tools = d.Tools
 	m.registerTools()
+	for _, cmd := range m.Commands() {
+		d.Router.AddCommand(cmd, m.onInteractionCreate)
+	}
 	slog.Info("wttrin: initialized")
 	return nil
 }
@@ -318,13 +321,8 @@ func (m *Module) Commands() []*discordgo.ApplicationCommand {
 	}
 }
 
-func (m *Module) Listeners() []bot.EventListener {
-	return []bot.EventListener{m.onInteractionCreate}
-}
-
-func (m *Module) Components() []bot.ComponentHandler { return nil }
-func (m *Module) Background() []bot.BackgroundTask   { return nil }
-func (m *Module) Shutdown() error                    { return nil }
+func (m *Module) Background() []bot.BackgroundTask { return nil }
+func (m *Module) Shutdown() error                  { return nil }
 
 func (m *Module) onInteractionCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	if i.Type != discordgo.InteractionApplicationCommand {

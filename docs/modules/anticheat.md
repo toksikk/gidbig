@@ -63,9 +63,12 @@ sequenceDiagram
     A->>D: InteractionResponseEdit(content, allowed_mentions: [])
 ```
 
-The listener is registered globally, so it checks `i.Type` before reading the
-command data: `ApplicationCommandData()` panics on button, select, modal and
-ping interactions, and the dispatcher does not recover a panicking handler.
+The router routes both the command and its autocomplete event to this handler,
+so it switches on `i.Type` before reading the command data:
+`ApplicationCommandData()` panics on button, select, modal and ping
+interactions. The router wraps command handlers in `Recover`, so a panic is
+logged rather than fatal, but the type switch keeps non-command payloads out of
+`ApplicationCommandData()`.
 
 `Background()` warms the cache at startup and re-checks it every 15 minutes, so
 a cold cache does not have to be filled from a command; failed fetches are not

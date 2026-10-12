@@ -41,7 +41,7 @@ sequenceDiagram
     core->>dg: Open()
     dg-->>core: READY
     core->>bot: RegisterModule(soundboard/coffee/eso/gamerstatus/gippity/admin/leetoclock/anticheat/stoll/wardogs/wttrin)
-    bot-->>core: listeners routed, stats registered
+    bot-->>core: module handlers registered, stats registered
     core->>web: go startWebServer(config, session, soundboard, eso) (if configured)
     core->>bot: Run(ctx) — bulk overwrite commands, start background, block
     core->>core: wait SIGINT/SIGTERM, cancel ctx
