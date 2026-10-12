@@ -102,6 +102,43 @@ func removeSpoilerTagContentInStringMessage(message string) string {
 	return llmChatMessage.Message
 }
 
+// anonymizeHistory applies the privacy rule to a batch of stored messages in
+// place, for both the prompt path and the history-search tool. A message from a
+// user who opted out of privacy (and that is not a mention of the bot) gets an
+// assigned pseudonym and a placeholder body; every other non-bot message is
+// sanitised (user IDs replaced with usernames, spoilers removed). The bot's own
+// messages are left untouched. Pseudonyms are assigned in first-seen order, so
+// feeding the same batch through either path yields byte-identical output.
+func (m *Module) anonymizeHistory(messages []LLMChatMessage, botUserID string) {
+	pseudonymMap := make(map[string]string)
+	pseudonymCounter := 0
+	privacyCache := make(map[string]bool)
+
+	for i := range messages {
+		message := &messages[i]
+		if message.UserID == botUserID {
+			continue
+		}
+		if _, cached := privacyCache[message.UserID]; !cached {
+			privacyCache[message.UserID] = m.getUserPrivacy(message.UserID)
+		}
+		if !message.IsBotMention && privacyCache[message.UserID] {
+			pseudo, ok := pseudonymMap[message.UserID]
+			if !ok {
+				pseudonymCounter++
+				pseudo = fmt.Sprintf("Benutzer %d", pseudonymCounter)
+				pseudonymMap[message.UserID] = pseudo
+			}
+			message.Username = pseudo
+			message.Message = "[Anonymisierte Nachricht]"
+			message.ImageDescriptions = nil
+			continue
+		}
+		m.replaceAllUserIDsWithUsernamesInMessage(message)
+		removeSpoilerTagContent(message)
+	}
+}
+
 func (m *Module) replaceAllUserIDsWithUsernamesInMessage(message *LLMChatMessage) {
 	regexp := regexp.MustCompile(`<@!?(\d+)>`)
 	matches := regexp.FindAllStringSubmatch(message.Message, -1)

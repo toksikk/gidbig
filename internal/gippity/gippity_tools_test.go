@@ -320,6 +320,70 @@ func TestSearchChatHistoryHandler_PrivacyParity(t *testing.T) {
 	}
 }
 
+// TestAnonymizationParity_PromptAndToolAgree proves the prompt path and the
+// search tool apply the same rule to the same stored rows: for an opted-out
+// user, both render the identical anonymized line. This is the invariant
+// docs/tools.md requires and the two former copies could silently violate.
+func TestAnonymizationParity_PromptAndToolAgree(t *testing.T) {
+	m, _ := setupGippityTest(t)
+	m.idToNameCache["channel-1"] = "general"
+	m.idToNameCache["allowed-guild"] = "Test Guild"
+
+	// Opt the visible user out of privacy; u-hidden keeps the default (privacy on).
+	if err := m.setUserPrivacy("u-visible", false); err != nil {
+		t.Fatalf("setUserPrivacy: %v", err)
+	}
+	insertHistory(t, m, "channel-1", "allowed-guild", "u-visible", "1000000000000000101", "marker visible", false)
+	insertHistory(t, m, "channel-1", "allowed-guild", "u-hidden", "1000000000000000102", "marker hidden", false)
+
+	// Tool path.
+	out, err := m.searchChatHistoryHandler(context.Background(),
+		tool.Env{ChannelID: "channel-1", GuildID: "allowed-guild"},
+		json.RawMessage(`{"query":"marker"}`))
+	if err != nil {
+		t.Fatalf("searchChatHistoryHandler: %v", err)
+	}
+	var hiddenLine string
+	for _, line := range strings.Split(out, "\n") {
+		if strings.Contains(line, "[Anonymisierte Nachricht]") {
+			hiddenLine = line
+		}
+	}
+	if hiddenLine == "" {
+		t.Fatalf("tool output has no anonymized line: %q", out)
+	}
+	if !strings.Contains(out, "marker visible") {
+		t.Errorf("tool output dropped the opted-out-visible message: %q", out)
+	}
+
+	// Prompt path over the same rows.
+	captured := captureChatCompletion(m, t)
+	if _, err := m.generateAnswer(testGenerateMessage("current-parity-msg"), nil); err != nil {
+		t.Fatalf("generateAnswer: %v", err)
+	}
+	if !capturedContains(*captured, hiddenLine) {
+		t.Fatalf("prompt output does not contain the tool's anonymized line %q", hiddenLine)
+	}
+	if !capturedContains(*captured, "marker visible") {
+		t.Error("prompt output dropped the opted-out-visible message")
+	}
+}
+
+// capturedContains reports whether any captured message carries the substring.
+func capturedContains(captured []openai.ChatCompletionMessageParamUnion, want string) bool {
+	for _, msg := range captured {
+		switch {
+		case msg.OfUser != nil && strings.Contains(msg.OfUser.Content.OfString.Value, want):
+			return true
+		case msg.OfSystem != nil && strings.Contains(msg.OfSystem.Content.OfString.Value, want):
+			return true
+		case msg.OfAssistant != nil && strings.Contains(msg.OfAssistant.Content.OfString.Value, want):
+			return true
+		}
+	}
+	return false
+}
+
 func TestSearchChatHistoryHandler_ScopeClampedToEnv(t *testing.T) {
 	m, _ := setupGippityTest(t)
 	if err := m.setUserPrivacy("u1", false); err != nil {

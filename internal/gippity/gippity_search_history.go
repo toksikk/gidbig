@@ -114,10 +114,7 @@ func (m *Module) searchChatHistoryHandler(ctx context.Context, env tool.Env, arg
 		botUserID = m.session.State.User.ID
 	}
 
-	pseudonymMap := make(map[string]string)
-	pseudonymCounter := 0
-	privacyCache := make(map[string]bool)
-	lines := make([]string, 0, len(rows))
+	messages := make([]LLMChatMessage, 0, len(rows))
 	for _, row := range rows {
 		message := LLMChatMessage{
 			UserID:       row.UserID,
@@ -129,26 +126,13 @@ func (m *Module) searchChatHistoryHandler(ctx context.Context, env tool.Env, arg
 			IsBotMention: row.IsBotMention,
 		}
 		m.fillNames(&message)
+		messages = append(messages, message)
+	}
 
-		if message.UserID != botUserID {
-			if _, cached := privacyCache[message.UserID]; !cached {
-				privacyCache[message.UserID] = m.getUserPrivacy(message.UserID)
-			}
-			if !message.IsBotMention && privacyCache[message.UserID] {
-				pseudo, ok := pseudonymMap[message.UserID]
-				if !ok {
-					pseudonymCounter++
-					pseudo = fmt.Sprintf("Benutzer %d", pseudonymCounter)
-					pseudonymMap[message.UserID] = pseudo
-				}
-				message.Username = pseudo
-				message.Message = "[Anonymisierte Nachricht]"
-			} else {
-				m.replaceAllUserIDsWithUsernamesInMessage(&message)
-				removeSpoilerTagContent(&message)
-			}
-		}
+	m.anonymizeHistory(messages, botUserID)
 
+	lines := make([]string, 0, len(messages))
+	for _, message := range messages {
 		line := convertLLMChatMessageToLLMCompatibleFlowingText(message)
 		if scope == "guild" && message.ChannelName != "" {
 			line = "#" + message.ChannelName + " " + line

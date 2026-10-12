@@ -507,14 +507,18 @@ Manche Namen sind Pseudonyme (Benutzer 1, 2, …) für anonyme Teilnehmer. Echte
 		}
 	}
 
-	pseudonymMap := make(map[string]string)
-	pseudonymCounter := 0
-	privacyCache := make(map[string]bool)
+	botUserID := ""
+	if m.session != nil && m.session.State != nil && m.session.State.User != nil {
+		botUserID = m.session.State.User.ID
+	}
+
+	for i := range chatHistory {
+		chatHistory[i].ReactionSummary = m.reactionSummary(reactionSummaries, chatHistory[i].ChannelID, chatHistory[i].MessageID)
+	}
+	m.anonymizeHistory(chatHistory, botUserID)
 
 	for _, message := range chatHistory {
-		message.ReactionSummary = m.reactionSummary(reactionSummaries, message.ChannelID, message.MessageID)
-
-		if message.UserID == m.session.State.User.ID {
+		if message.UserID == botUserID {
 			content := message.Message
 			if message.ReactionSummary != "" {
 				content += " " + message.ReactionSummary
@@ -523,28 +527,6 @@ Manche Namen sind Pseudonyme (Benutzer 1, 2, …) für anonyme Teilnehmer. Echte
 			continue
 		}
 
-		if _, cached := privacyCache[message.UserID]; !cached {
-			privacyCache[message.UserID] = m.getUserPrivacy(message.UserID)
-		}
-		if !message.IsBotMention && privacyCache[message.UserID] {
-			pseudo, ok := pseudonymMap[message.UserID]
-			if !ok {
-				pseudonymCounter++
-				pseudo = fmt.Sprintf("Benutzer %d", pseudonymCounter)
-				pseudonymMap[message.UserID] = pseudo
-			}
-			anon := LLMChatMessage{
-				Username:        pseudo,
-				TimestampString: message.TimestampString,
-				Message:         "[Anonymisierte Nachricht]",
-				ReactionSummary: message.ReactionSummary,
-			}
-			messages = append(messages, openai.ChatCompletionMessageParamUnion(openai.UserMessage(convertLLMChatMessageToLLMCompatibleFlowingText(anon))))
-			continue
-		}
-
-		m.replaceAllUserIDsWithUsernamesInMessage(&message)
-		removeSpoilerTagContent(&message)
 		messages = append(messages, openai.ChatCompletionMessageParamUnion(openai.UserMessage(convertLLMChatMessageToLLMCompatibleFlowingText(message))))
 	}
 
