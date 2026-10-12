@@ -8,4 +8,4 @@ Every module reads and writes the same file through `bot.Deps.DB`; `Open` is cal
 
 Modules must not close the shared handle; the composition root owns its lifecycle and closes it last during shutdown.
 
-Because `Open` caps the pool at one connection, any query issued on the shared `*gorm.DB` handle from inside a `db.Transaction` closure would block forever waiting for that connection. Inside a transaction, always thread the `tx` handle the closure receives (`tx.Model(...)`, `tx.Create(...)`); never call `m.db`/`Deps.DB` from within it.
+Because `Open` caps the pool at one connection, any query issued on the shared `*gorm.DB` handle from inside a `db.Transaction` closure would block forever waiting for that connection. Inside a transaction, always thread the `tx` handle the closure receives (`tx.Model(...)`, `tx.Create(...)`); never call `m.db`/`Deps.DB` from within it. `internal/shareddb/txinvariant_test.go` scans every `db.Transaction` closure in `internal/` and fails if a GORM method is called on anything but the closure's `tx`.
