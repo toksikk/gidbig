@@ -2,6 +2,7 @@ package bot
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/bwmarrin/discordgo"
@@ -90,5 +91,32 @@ func TestBot_RegisterModule_RollsBackOnInitError(t *testing.T) {
 	cmds := b.Router.Commands()
 	if len(cmds) != 1 || cmds[0].Name != "good" {
 		t.Fatalf("router commands = %#v, want only the healthy module's command", cmds)
+	}
+}
+
+// duplicateModule registers two commands with the same name.
+type duplicateModule struct{}
+
+func (duplicateModule) Name() string { return "dupes" }
+func (duplicateModule) Init(d Deps) error {
+	h := func(_ *discordgo.Session, _ *discordgo.InteractionCreate) {}
+	d.Router.AddCommand(&discordgo.ApplicationCommand{Name: "same"}, h)
+	d.Router.AddCommand(&discordgo.ApplicationCommand{Name: "same"}, h)
+	return nil
+}
+func (duplicateModule) Background() []BackgroundTask { return nil }
+func (duplicateModule) Shutdown() error              { return nil }
+
+func TestBot_RegisterModule_FailsOnDuplicateCommand(t *testing.T) {
+	b := New(Deps{})
+	err := b.RegisterModule(duplicateModule{})
+	if err == nil {
+		t.Fatal("expected RegisterModule to fail on a duplicate command name")
+	}
+	if !strings.Contains(err.Error(), "duplicate") {
+		t.Errorf("error = %v, want it to mention the duplicate", err)
+	}
+	if cmds := b.Router.Commands(); len(cmds) != 0 {
+		t.Fatalf("commands = %#v, want the duplicate module rolled back", cmds)
 	}
 }

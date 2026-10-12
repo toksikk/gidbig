@@ -2,6 +2,7 @@ package bot
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 )
 
@@ -42,13 +43,17 @@ func (b *Bot) installSessionHandlers() {
 
 // RegisterModule initialises a Module and records its background tasks and
 // stats. A module registers its handlers with the router during Init; if Init
-// fails, everything it registered is rolled back so a broken module cannot
-// leave half its commands published.
+// fails, or it registered a conflicting command, everything it registered is
+// rolled back and the error is returned so the module is dropped loudly.
 func (b *Bot) RegisterModule(m Module) error {
 	snapshot := b.Router.snapshot()
 	if err := m.Init(b.deps); err != nil {
 		b.Router.restore(snapshot)
 		return err
+	}
+	if err := b.Router.takeRegistrationError(); err != nil {
+		b.Router.restore(snapshot)
+		return fmt.Errorf("module %s: %w", m.Name(), err)
 	}
 	if sp, ok := m.(StatsProvider); ok {
 		b.deps.Stats.Register(sp)
