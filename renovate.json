@@ -3,6 +3,9 @@
     "extends": [
         "config:recommended"
     ],
+    "semanticCommits": "disabled",
+    "commitMessagePrefix": "deps:",
+    "commitMessageAction": "update",
     "labels": ["patch"],
     "platformAutomerge": true,
     "automergeStrategy": "rebase",
