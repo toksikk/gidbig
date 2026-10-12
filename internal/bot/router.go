@@ -1,6 +1,7 @@
 package bot
 
 import (
+	"fmt"
 	"log/slog"
 	"strings"
 	"sync"
@@ -32,6 +33,11 @@ type Router struct {
 	components      map[string]func(*discordgo.Session, *discordgo.InteractionCreate)
 	messageHandlers []func(*discordgo.Session, *discordgo.MessageCreate)
 	sessionCleanups []func()
+
+	// registrationErr records a rejected registration (a duplicate command
+	// name). RegisterModule surfaces it after Init so a collision fails the
+	// module loudly instead of silently dropping a command.
+	registrationErr error
 }
 
 func newRouter(d Deps) *Router {
@@ -46,6 +52,7 @@ func newRouter(d Deps) *Router {
 // handler together keeps a command and its behaviour in one place. A duplicate
 // name is rejected loudly: ApplicationCommandBulkOverwrite fails the whole
 // batch on one collision, so keeping duplicates out preserves every command.
+// The rejected name is recorded and surfaced by Bot.RegisterModule.
 func (r *Router) AddCommand(cmd *discordgo.ApplicationCommand, h HandlerFunc, mw ...Middleware) {
 	if r == nil || cmd == nil || h == nil {
 		return
@@ -54,12 +61,26 @@ func (r *Router) AddCommand(cmd *discordgo.ApplicationCommand, h HandlerFunc, mw
 	defer r.mu.Unlock()
 	for _, e := range r.commands {
 		if e.command.Name == cmd.Name {
+			r.registrationErr = fmt.Errorf("bot/router: duplicate command name %q", cmd.Name)
 			slog.Error("bot/router: duplicate command name ignored", "name", cmd.Name)
 			return
 		}
 	}
 	r.commands = append(r.commands, commandEntry{command: cmd, handler: h, middleware: mw})
 	slog.Debug("bot/router: command registered", "name", cmd.Name)
+}
+
+// takeRegistrationError returns and clears a registration failure recorded
+// since the last call, so RegisterModule can fail the offending module.
+func (r *Router) takeRegistrationError() error {
+	if r == nil {
+		return nil
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	err := r.registrationErr
+	r.registrationErr = nil
+	return err
 }
 
 // AddComponent registers a component handler matched by custom-ID prefix.
@@ -136,6 +157,7 @@ type routerState struct {
 	components      map[string]func(*discordgo.Session, *discordgo.InteractionCreate)
 	messageHandlers []func(*discordgo.Session, *discordgo.MessageCreate)
 	sessionCleanups int
+	registrationErr error
 }
 
 func (r *Router) snapshot() routerState {
@@ -146,6 +168,7 @@ func (r *Router) snapshot() routerState {
 		messageHandlers: append([]func(*discordgo.Session, *discordgo.MessageCreate){}, r.messageHandlers...),
 		components:      make(map[string]func(*discordgo.Session, *discordgo.InteractionCreate), len(r.components)),
 		sessionCleanups: len(r.sessionCleanups),
+		registrationErr: r.registrationErr,
 	}
 	for k, v := range r.components {
 		st.components[k] = v
@@ -164,6 +187,7 @@ func (r *Router) restore(st routerState) {
 	r.commands = st.commands
 	r.messageHandlers = st.messageHandlers
 	r.components = st.components
+	r.registrationErr = st.registrationErr
 	for _, remove := range r.sessionCleanups[st.sessionCleanups:] {
 		if remove != nil {
 			remove()
@@ -209,13 +233,15 @@ func (r *Router) onInteractionCreate(s *discordgo.Session, i *discordgo.Interact
 	case discordgo.InteractionMessageComponent:
 		customID := i.MessageComponentData().CustomID
 		r.mu.RLock()
-		var handler func(*discordgo.Session, *discordgo.InteractionCreate)
-		for prefix, h := range r.components {
-			if strings.HasPrefix(customID, prefix) {
-				handler = h
-				break
+		// Pick the longest matching prefix so overlapping prefixes resolve
+		// deterministically instead of by map iteration order.
+		best := ""
+		for prefix := range r.components {
+			if strings.HasPrefix(customID, prefix) && len(prefix) > len(best) {
+				best = prefix
 			}
 		}
+		handler := r.components[best]
 		r.mu.RUnlock()
 		if handler != nil {
 			Recover()(handler)(s, i)

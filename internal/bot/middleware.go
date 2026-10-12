@@ -27,6 +27,22 @@ func denyEphemeral(s *discordgo.Session, i *discordgo.InteractionCreate, msg str
 	})
 }
 
+// deny rejects an interaction. Autocomplete interactions only accept an
+// autocomplete result, so a denial there returns empty choices instead of a
+// message the client would reject.
+func deny(s *discordgo.Session, i *discordgo.InteractionCreate, msg string) {
+	if i.Type == discordgo.InteractionApplicationCommandAutocomplete {
+		_ = interactionRespondFn(s, i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionApplicationCommandAutocompleteResult,
+			Data: &discordgo.InteractionResponseData{
+				Choices: []*discordgo.ApplicationCommandOptionChoice{},
+			},
+		})
+		return
+	}
+	denyEphemeral(s, i, msg)
+}
+
 func interactionUserID(i *discordgo.InteractionCreate) string {
 	if i.Member != nil {
 		return i.Member.User.ID
@@ -42,7 +58,7 @@ func OwnerOnly(ownerID string) Middleware {
 	return func(next HandlerFunc) HandlerFunc {
 		return func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			if interactionUserID(i) != ownerID {
-				denyEphemeral(s, i, "Access denied.")
+				deny(s, i, "Access denied.")
 				return
 			}
 			next(s, i)

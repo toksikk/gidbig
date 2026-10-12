@@ -77,6 +77,33 @@ func TestOwnerOnly_NonOwnerDenied(t *testing.T) {
 	}
 }
 
+func TestOwnerOnly_AutocompleteDenied(t *testing.T) {
+	captured := captureRespond(t)
+	var called atomic.Bool
+	h := applyChain(func(_ *discordgo.Session, _ *discordgo.InteractionCreate) {
+		called.Store(true)
+	}, OwnerOnly("owner123"))
+
+	i := &discordgo.InteractionCreate{
+		Interaction: &discordgo.Interaction{
+			Type:   discordgo.InteractionApplicationCommandAutocomplete,
+			Member: &discordgo.Member{User: &discordgo.User{ID: "other456"}},
+			Data:   discordgo.ApplicationCommandInteractionData{Name: "cmd"},
+		},
+	}
+	h(nil, i)
+
+	if called.Load() {
+		t.Fatal("handler called for non-owner autocomplete")
+	}
+	if len(*captured) != 1 {
+		t.Fatalf("want 1 deny response, got %d", len(*captured))
+	}
+	if (*captured)[0].Type != discordgo.InteractionApplicationCommandAutocompleteResult {
+		t.Errorf("response Type = %v, want autocomplete result", (*captured)[0].Type)
+	}
+}
+
 func TestOwnerOnly_NoMember_UserFieldUsed(t *testing.T) {
 	captureRespond(t)
 	var called atomic.Bool

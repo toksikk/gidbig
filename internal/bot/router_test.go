@@ -201,6 +201,24 @@ func TestRouter_DuplicateCommandIgnored(t *testing.T) {
 	if got := len(r.Commands()); got != 1 {
 		t.Fatalf("Commands() = %d, want 1 (duplicate rejected)", got)
 	}
+	if err := r.takeRegistrationError(); err == nil {
+		t.Fatal("duplicate registration should record an error for RegisterModule")
+	}
+}
+
+func TestRouter_ComponentLongestPrefixWins(t *testing.T) {
+	r := makeRouter()
+	var short, long atomic.Bool
+	r.AddComponent("coffee_", func(_ *discordgo.Session, _ *discordgo.InteractionCreate) { short.Store(true) })
+	r.AddComponent("coffee_brew_cfg", func(_ *discordgo.Session, _ *discordgo.InteractionCreate) { long.Store(true) })
+
+	r.onInteractionCreate(nil, componentInteraction("coffee_brew_cfg:pick"))
+	if !long.Load() {
+		t.Fatal("longest matching prefix handler was not called")
+	}
+	if short.Load() {
+		t.Fatal("shorter overlapping prefix handler was called")
+	}
 }
 
 func TestRouter_RecoversComponentPanic(t *testing.T) {
