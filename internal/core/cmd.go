@@ -105,6 +105,7 @@ func registerOrLog(b *bot.Bot, m bot.Module) bool {
 
 // StartGidbig obviously
 func StartGidbig() {
+	processStart := time.Now()
 	conf := cfg.GetConfig()
 	setupLogging(conf)
 	LogVersion()
@@ -166,6 +167,9 @@ func StartGidbig() {
 	// registered before the gateway opens so its lifecycle handlers are active
 	// from the first connect.
 	coreMod := NewCore()
+	// Uptime (/status, /uptime, bot_status) is measured from process start, not
+	// from when the core module happens to be constructed after startup work.
+	coreMod.startTime = processStart
 	registerOrLog(b, coreMod)
 
 	watchdogCtx, stopWatchdog := context.WithCancel(context.Background())

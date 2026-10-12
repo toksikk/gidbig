@@ -180,14 +180,14 @@ type webServer struct {
 	oauthState string
 }
 
-// newWebServer builds a web server around the injected session and modules.
-func newWebServer(config *cfg.Config, session *discordgo.Session, sb soundboardAPI, eso esoGenerator) *webServer {
-	return &webServer{
-		session:    session,
-		soundboard: sb,
-		eso:        eso,
-		store:      newSessionStore(config.Web.SessionSecret),
-		tmpls:      map[string]*template.Template{},
+// newWebServer builds a web server around the injected session and modules. A
+// nil module is stored as a nil interface so the handlers' nil checks (for
+// example the /api/eso 503) still work for a nil *Module.
+func newWebServer(config *cfg.Config, session *discordgo.Session, sb *soundboard.Module, esoMod *eso.Module) *webServer {
+	ws := &webServer{
+		session: session,
+		store:   newSessionStore(config.Web.SessionSecret),
+		tmpls:   map[string]*template.Template{},
 		oauth: &oauth2.Config{
 			ClientID:     config.Web.Oauth.ClientID,
 			ClientSecret: config.Web.Oauth.ClientSecret,
@@ -196,6 +196,13 @@ func newWebServer(config *cfg.Config, session *discordgo.Session, sb soundboardA
 			Endpoint:     oauthEndpoint,
 		},
 	}
+	if sb != nil {
+		ws.soundboard = sb
+	}
+	if esoMod != nil {
+		ws.eso = esoMod
+	}
+	return ws
 }
 
 // loadTemplates parses the page templates into the instance's map.
