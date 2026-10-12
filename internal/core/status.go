@@ -125,7 +125,7 @@ func statusOptions(opts []*discordgo.ApplicationCommandInteractionDataOption) (v
 	return view, format
 }
 
-func collectStatus(ctx context.Context, s *discordgo.Session, providers []bot.StatsProvider, dbPaths []string) statusSnapshot {
+func collectStatus(ctx context.Context, s *discordgo.Session, providers []bot.StatsProvider, dbPaths []string, started time.Time) statusSnapshot {
 	mem := runtime.MemStats{}
 	runtime.ReadMemStats(&mem)
 
@@ -134,8 +134,8 @@ func collectStatus(ctx context.Context, s *discordgo.Session, providers []bot.St
 		GoVersion:  runtime.Version(),
 		Discordgo:  discordgo.VERSION,
 		Platform:   runtime.GOOS + "/" + runtime.GOARCH,
-		Started:    startTime,
-		Uptime:     time.Since(startTime),
+		Started:    started,
+		Uptime:     time.Since(started),
 		Goroutines: runtime.NumGoroutine(),
 		HeapAlloc:  mem.HeapAlloc,
 		HeapSys:    mem.HeapSys,

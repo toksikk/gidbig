@@ -39,14 +39,14 @@ func (m *Module) registerTools() {
 
 // botRuntimeStatus summarizes process memory and scheduler state, the same
 // figures /status shows in its Runtime section.
-func botRuntimeStatus() string {
+func botRuntimeStatus(started time.Time) string {
 	mem := runtime.MemStats{}
 	runtime.ReadMemStats(&mem)
 	return fmt.Sprintf(
 		"runtime: heap=%s heap_sys=%s sys=%s stack=%s goroutines=%d gc_cycles=%d uptime=%s version=%s",
 		humanize.IBytes(mem.HeapAlloc), humanize.IBytes(mem.HeapSys), humanize.IBytes(mem.Sys),
 		humanize.IBytes(mem.StackInuse), runtime.NumGoroutine(), mem.NumGC,
-		formatUptime(time.Since(startTime)), currentVersion(),
+		formatUptime(time.Since(started)), currentVersion(),
 	)
 }
 
@@ -71,7 +71,7 @@ func (m *Module) botStatusHandler(ctx context.Context, _ tool.Env, args json.Raw
 	filter := strings.ToLower(strings.TrimSpace(in.Module))
 
 	var b strings.Builder
-	b.WriteString(botRuntimeStatus())
+	b.WriteString(botRuntimeStatus(m.startTime))
 	b.WriteString("\n")
 	matched := 0
 	for _, ms := range stats {

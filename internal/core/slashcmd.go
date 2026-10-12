@@ -18,9 +18,9 @@ func coreSlashCommands() []*discordgo.ApplicationCommand {
 	}
 }
 
-func buildUptimeBody() string {
-	uptime := time.Since(startTime).Round(time.Second)
-	startDateTime := startTime.Format("2006-01-02 15:04:05")
+func (m *Module) buildUptimeBody() string {
+	uptime := time.Since(m.startTime).Round(time.Second)
+	startDateTime := m.startTime.Format("2006-01-02 15:04:05")
 	return fmt.Sprintf("`Uptime: %s (since %s)`", uptime, startDateTime)
 }
 

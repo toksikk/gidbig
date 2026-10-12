@@ -3,6 +3,7 @@ package gidbig
 import (
 	"context"
 	"log/slog"
+	"time"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/toksikk/gidbig/internal/bot"
@@ -16,15 +17,17 @@ import (
 // commands. It is registered with the Bot like any other module so the session
 // carries a single MessageCreate and InteractionCreate handler.
 type Module struct {
-	session *discordgo.Session
-	conf    *cfg.Config
-	stats   *bot.StatsRegistry
-	tools   *tool.Registry
-	dbPaths []string
+	session   *discordgo.Session
+	conf      *cfg.Config
+	stats     *bot.StatsRegistry
+	tools     *tool.Registry
+	dbPaths   []string
+	startTime time.Time
 }
 
-// NewCore returns an uninitialised core module.
-func NewCore() *Module { return &Module{} }
+// NewCore returns an uninitialised core module, stamping the process start time
+// it reports through /status, /uptime and the bot_status tool.
+func NewCore() *Module { return &Module{startTime: time.Now()} }
 
 // Name returns the module identifier.
 func (m *Module) Name() string { return "core" }
@@ -139,11 +142,11 @@ func (m *Module) onStatusInteractionCreate(s *discordgo.Session, i *discordgo.In
 			respondEphemeral(s, i, "Access denied.")
 			return
 		}
-		respondStatusUsers(s, i, format)
+		respondStatusUsers(s, i, format, m.startTime)
 		return
 	}
 	resp := statusInteractionResponse(userID, m.conf.Discord.OwnerID, func() *discordgo.InteractionResponseData {
-		snap := collectStatus(context.Background(), s, m.stats.All(), m.dbPaths)
+		snap := collectStatus(context.Background(), s, m.stats.All(), m.dbPaths, m.startTime)
 		return statusResponseData(snap, view, format)
 	})
 	if err := s.InteractionRespond(i.Interaction, resp); err != nil {
@@ -163,11 +166,11 @@ func (m *Module) onCoreSlashInteractionCreate(s *discordgo.Session, i *discordgo
 		respondEphemeral(s, i, "Access denied.")
 		return
 	}
-	respondEphemeral(s, i, buildUptimeBody())
+	respondEphemeral(s, i, m.buildUptimeBody())
 }
 
 // statsMessage renders the compact status used by /admin info.
 func (m *Module) statsMessage(s *discordgo.Session) string {
-	snap := collectStatus(context.Background(), s, m.stats.All(), m.dbPaths)
+	snap := collectStatus(context.Background(), s, m.stats.All(), m.dbPaths, m.startTime)
 	return renderStatusText(snap, statusViewSummary, discordMessageLimit-6)
 }
