@@ -163,11 +163,10 @@ func (m *Module) Background() []bot.BackgroundTask {
 func (m *Module) Shutdown() error { return nil }
 
 func (m *Module) onInteractionCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	// The listener is registered globally, so it also receives button, select
-	// and modal interactions. Check the type first: ApplicationCommandData
-	// panics on every other type, and the event dispatcher does not recover a
-	// panicking handler, so a single unrelated button click would take the
-	// whole bot down.
+	// The router routes both the command and its autocomplete event to this
+	// handler (and wraps it in Recover), so it switches on i.Type before
+	// reading the command data: ApplicationCommandData panics on the other
+	// interaction types.
 	switch i.Type {
 	case discordgo.InteractionApplicationCommand:
 		if i.ApplicationCommandData().Name == commandName {
