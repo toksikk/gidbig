@@ -197,6 +197,12 @@ func (m *Module) Init(d bot.Deps) error {
 		return fmt.Errorf("gippity: init db: %w", err)
 	}
 
+	d.Router.OnMessage(m.onMessageCreate)
+	d.Router.OnMessageUpdate(m.onMessageUpdate)
+	for _, cmd := range m.Commands() {
+		d.Router.AddCommand(cmd, m.onGippityInteractionCreate)
+	}
+
 	slog.Info("gippity: initialized")
 	return nil
 }
@@ -246,14 +252,6 @@ func (m *Module) Commands() []*discordgo.ApplicationCommand {
 		},
 	}
 }
-
-// Listeners returns the Discord event listeners for this module.
-func (m *Module) Listeners() []bot.EventListener {
-	return []bot.EventListener{m.onMessageCreate, m.onMessageUpdate, m.onGippityInteractionCreate}
-}
-
-// Components returns no message-component handlers for this module.
-func (m *Module) Components() []bot.ComponentHandler { return nil }
 
 // Background returns the id/cache reset loop.
 func (m *Module) Background() []bot.BackgroundTask {

@@ -147,18 +147,15 @@ func (m *Module) Init(d bot.Deps) error {
 	m.updateTarget()
 	m.tools = d.Tools
 	m.registerTools()
+	d.Router.OnMessage(m.onMessageCreate)
+	for _, cmd := range m.Commands() {
+		d.Router.AddCommand(cmd, m.onInteractionCreate)
+	}
 	slog.Info("leetoclock: initialized", "debug", lec.Debug, "announcement_channels", m.announcementChannels, "target", m.currentTarget().String())
 	return nil
 }
 
 func (m *Module) Commands() []*discordgo.ApplicationCommand { return recordCommands() }
-
-// Listeners returns the Discord listeners owned by this module.
-func (m *Module) Listeners() []bot.EventListener {
-	return []bot.EventListener{m.onMessageCreate, m.onInteractionCreate}
-}
-
-func (m *Module) Components() []bot.ComponentHandler { return nil }
 
 // Background returns independently supervised announcement loops.
 func (m *Module) Background() []bot.BackgroundTask {

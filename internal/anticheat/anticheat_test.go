@@ -796,15 +796,12 @@ func TestModuleMetadata(t *testing.T) {
 	if m.Name() != "anticheat" {
 		t.Errorf("Name() = %q, want %q", m.Name(), "anticheat")
 	}
-	if len(m.Listeners()) != 1 {
-		t.Errorf("got %d listeners, want 1", len(m.Listeners()))
-	}
 	tasks := m.Background()
 	if len(tasks) != 1 || tasks[0].Name == "" || tasks[0].Run == nil {
 		t.Errorf("background tasks = %#v, want one named task", tasks)
 	}
-	if m.Components() != nil || m.Shutdown() != nil {
-		t.Error("Components() and Shutdown() should be no-ops")
+	if m.Shutdown() != nil {
+		t.Error("Shutdown() should be a no-op")
 	}
 }
 

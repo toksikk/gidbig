@@ -67,6 +67,10 @@ func (m *Module) Init(d bot.Deps) error {
 	m.tools = d.Tools
 	m.registerTools()
 
+	for _, cmd := range m.Commands() {
+		d.Router.AddCommand(cmd, m.onInteractionCreate)
+	}
+
 	slog.Info("soundboard: initialized", "collections", len(m.collections))
 	return nil
 }
@@ -100,14 +104,6 @@ func (m *Module) Commands() []*discordgo.ApplicationCommand {
 		},
 	}
 }
-
-// Listeners returns the Discord event listeners for this module.
-func (m *Module) Listeners() []bot.EventListener {
-	return []bot.EventListener{m.onInteractionCreate}
-}
-
-// Components returns no message-component handlers for this module.
-func (m *Module) Components() []bot.ComponentHandler { return nil }
 
 // Background returns no supervised background tasks for this module.
 func (m *Module) Background() []bot.BackgroundTask { return nil }

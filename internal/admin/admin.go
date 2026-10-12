@@ -50,13 +50,14 @@ func (m *Module) Init(d bot.Deps) error {
 		slog.Warn("admin: no owner ID configured; /admin denies all callers")
 	}
 	m.dispatch = bot.OwnerOnly(m.ownerID)(m.handleAdminCommand)
+	d.Router.AddCommand(m.command(), m.onAdminInteractionCreate)
 	slog.Info("admin: initialized", "providers", len(m.providers))
 	return nil
 }
 
-// Commands returns the /admin slash command definition, built from the
-// registered providers plus the built-in info subcommand.
-func (m *Module) Commands() []*discordgo.ApplicationCommand {
+// command returns the /admin command definition, built from the registered
+// providers plus the built-in info subcommand.
+func (m *Module) command() *discordgo.ApplicationCommand {
 	opts := make([]*discordgo.ApplicationCommandOption, 0, len(m.providers)+1)
 	for _, p := range m.providers {
 		opts = append(opts, p.AdminSubcommandGroup())
@@ -69,22 +70,12 @@ func (m *Module) Commands() []*discordgo.ApplicationCommand {
 		},
 	)
 
-	return []*discordgo.ApplicationCommand{
-		{
-			Name:        "admin",
-			Description: "Admin commands (owner only)",
-			Options:     opts,
-		},
+	return &discordgo.ApplicationCommand{
+		Name:        "admin",
+		Description: "Admin commands (owner only)",
+		Options:     opts,
 	}
 }
-
-// Listeners returns the /admin interaction listener.
-func (m *Module) Listeners() []bot.EventListener {
-	return []bot.EventListener{m.onAdminInteractionCreate}
-}
-
-// Components returns no message-component handlers for this module.
-func (m *Module) Components() []bot.ComponentHandler { return nil }
 
 // Background returns no background tasks for this module.
 func (m *Module) Background() []bot.BackgroundTask { return nil }

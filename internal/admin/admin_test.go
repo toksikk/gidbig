@@ -93,17 +93,11 @@ func TestModule_LifecycleNoOps(t *testing.T) {
 	if m.Name() != "admin" {
 		t.Errorf("Name = %q, want %q", m.Name(), "admin")
 	}
-	if m.Components() != nil {
-		t.Error("Components() should be nil")
-	}
 	if m.Background() != nil {
 		t.Error("Background() should be nil")
 	}
 	if err := m.Shutdown(); err != nil {
 		t.Errorf("Shutdown() = %v, want nil", err)
-	}
-	if len(m.Listeners()) != 1 {
-		t.Errorf("Listeners() = %d, want 1", len(m.Listeners()))
 	}
 }
 
@@ -120,11 +114,7 @@ func TestInit_OwnerIDFromConfig(t *testing.T) {
 }
 
 func TestCommands_Structure(t *testing.T) {
-	cmds := newTestModule(stubCoffeeProvider(), stubGippityProvider()).Commands()
-	if len(cmds) != 1 {
-		t.Fatalf("expected 1 command, got %d", len(cmds))
-	}
-	cmd := cmds[0]
+	cmd := newTestModule(stubCoffeeProvider(), stubGippityProvider()).command()
 	if cmd.Name != "admin" {
 		t.Errorf("Name = %q, want %q", cmd.Name, "admin")
 	}
@@ -141,18 +131,15 @@ func TestCommands_Structure(t *testing.T) {
 }
 
 func TestCommands_NoProviders(t *testing.T) {
-	cmds := newTestModule().Commands()
-	if len(cmds) != 1 {
-		t.Fatalf("expected 1 command, got %d", len(cmds))
-	}
-	if len(cmds[0].Options) != 1 || cmds[0].Options[0].Name != "info" {
-		t.Errorf("expected only info subcommand, got %+v", cmds[0].Options)
+	cmd := newTestModule().command()
+	if len(cmd.Options) != 1 || cmd.Options[0].Name != "info" {
+		t.Errorf("expected only info subcommand, got %+v", cmd.Options)
 	}
 }
 
 func TestCommands_CoffeeBeveragesSubcommand(t *testing.T) {
-	cmds := newTestModule(stubCoffeeProvider()).Commands()
-	coffeeGroup := findOption(cmds[0].Options, "coffee")
+	cmd := newTestModule(stubCoffeeProvider()).command()
+	coffeeGroup := findOption(cmd.Options, "coffee")
 	if coffeeGroup == nil {
 		t.Fatal("no coffee subcommand group")
 		return
@@ -171,8 +158,8 @@ func TestCommands_CoffeeBeveragesSubcommand(t *testing.T) {
 }
 
 func TestCommands_GippitySubcommands(t *testing.T) {
-	cmds := newTestModule(stubGippityProvider()).Commands()
-	gippityGroup := findOption(cmds[0].Options, "gippity")
+	cmd := newTestModule(stubGippityProvider()).command()
+	gippityGroup := findOption(cmd.Options, "gippity")
 	if gippityGroup == nil {
 		t.Fatal("no gippity subcommand group")
 		return
@@ -190,8 +177,8 @@ func TestCommands_GippitySubcommands(t *testing.T) {
 }
 
 func TestCommands_InfoSubcommand(t *testing.T) {
-	cmds := newTestModule().Commands()
-	info := findOption(cmds[0].Options, "info")
+	cmd := newTestModule().command()
+	info := findOption(cmd.Options, "info")
 	if info == nil {
 		t.Fatal("no info subcommand")
 		return

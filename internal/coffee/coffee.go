@@ -137,6 +137,12 @@ func (m *Module) Init(d bot.Deps) error {
 	m.tools = d.Tools
 	m.session = d.Session
 	m.registerTools()
+	d.Router.OnMessage(m.onMessageCreate)
+	d.Router.AddComponent(brewCfgPrefix, m.onInteractionCreate)
+	d.Router.AddComponent(takeCupPrefix, m.onInteractionCreate)
+	for _, cmd := range m.Commands() {
+		d.Router.AddCommand(cmd, m.onInteractionCreate)
+	}
 	slog.Info("coffee: initialized")
 	return nil
 }
@@ -246,14 +252,6 @@ func refillChoices() []*discordgo.ApplicationCommandOptionChoice {
 	}
 	return choices
 }
-
-// Listeners returns the Discord event listeners for this module.
-func (m *Module) Listeners() []bot.EventListener {
-	return []bot.EventListener{m.onMessageCreate, m.onInteractionCreate}
-}
-
-// Components returns no message-component handlers for this module.
-func (m *Module) Components() []bot.ComponentHandler { return nil }
 
 // Background returns the persistent drink-expiry sweeper.
 func (m *Module) Background() []bot.BackgroundTask {

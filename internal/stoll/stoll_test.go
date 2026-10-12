@@ -42,12 +42,6 @@ func TestModule_Commands_HasStoll(t *testing.T) {
 	}
 }
 
-func TestModule_Components_Empty(t *testing.T) {
-	if comps := New().Components(); len(comps) != 0 {
-		t.Fatalf("expected 0 components, got %d", len(comps))
-	}
-}
-
 func TestModule_Background_Empty(t *testing.T) {
 	if tasks := New().Background(); len(tasks) != 0 {
 		t.Fatalf("expected 0 background tasks, got %d", len(tasks))
@@ -57,13 +51,6 @@ func TestModule_Background_Empty(t *testing.T) {
 func TestModule_Shutdown_NoError(t *testing.T) {
 	if err := New().Shutdown(); err != nil {
 		t.Fatalf("Shutdown returned error: %v", err)
-	}
-}
-
-func TestModule_Listeners_Count(t *testing.T) {
-	listeners := New().Listeners()
-	if len(listeners) != 1 {
-		t.Fatalf("expected 1 listener, got %d", len(listeners))
 	}
 }
 

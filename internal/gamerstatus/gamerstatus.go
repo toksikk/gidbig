@@ -77,10 +77,7 @@ func (m *Module) Init(d bot.Deps) error {
 	return nil
 }
 
-func (m *Module) Commands() []*discordgo.ApplicationCommand { return nil }
-func (m *Module) Listeners() []bot.EventListener            { return nil }
-func (m *Module) Components() []bot.ComponentHandler        { return nil }
-func (m *Module) Shutdown() error                           { return nil }
+func (m *Module) Shutdown() error { return nil }
 
 func (m *Module) Background() []bot.BackgroundTask {
 	return []bot.BackgroundTask{

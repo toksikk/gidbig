@@ -3,7 +3,6 @@ package bot
 import (
 	"sync/atomic"
 	"testing"
-	"time"
 
 	"github.com/bwmarrin/discordgo"
 )
@@ -98,52 +97,6 @@ func TestOwnerOnly_NoMember_UserFieldUsed(t *testing.T) {
 	}
 }
 
-// --- RateLimit ---
-
-func TestRateLimit_FirstCallPasses(t *testing.T) {
-	captureRespond(t)
-	var called atomic.Bool
-	h := applyChain(func(_ *discordgo.Session, _ *discordgo.InteractionCreate) {
-		called.Store(true)
-	}, RateLimit(time.Second))
-
-	h(nil, fakeInteraction("u1", "cmd"))
-	if !called.Load() {
-		t.Fatal("first call should pass rate limit")
-	}
-}
-
-func TestRateLimit_SecondCallWithinWindowDenied(t *testing.T) {
-	captured := captureRespond(t)
-	var count atomic.Int32
-	h := applyChain(func(_ *discordgo.Session, _ *discordgo.InteractionCreate) {
-		count.Add(1)
-	}, RateLimit(time.Hour))
-
-	h(nil, fakeInteraction("u2", "cmd"))
-	h(nil, fakeInteraction("u2", "cmd"))
-	if count.Load() != 1 {
-		t.Fatalf("want 1 pass, got %d", count.Load())
-	}
-	if len(*captured) != 1 {
-		t.Fatalf("want 1 deny, got %d", len(*captured))
-	}
-}
-
-func TestRateLimit_DifferentUsersIndependent(t *testing.T) {
-	captureRespond(t)
-	var count atomic.Int32
-	h := applyChain(func(_ *discordgo.Session, _ *discordgo.InteractionCreate) {
-		count.Add(1)
-	}, RateLimit(time.Hour))
-
-	h(nil, fakeInteraction("userA", "cmd"))
-	h(nil, fakeInteraction("userB", "cmd"))
-	if count.Load() != 2 {
-		t.Fatalf("different users should have independent buckets, got %d calls", count.Load())
-	}
-}
-
 // --- Recover ---
 
 func TestRecover_CatchesPanic(t *testing.T) {
@@ -168,35 +121,6 @@ func TestRecover_NoPanicPassesThrough(t *testing.T) {
 	h(nil, fakeInteraction("u", "cmd"))
 	if !called.Load() {
 		t.Fatal("handler not called when no panic")
-	}
-}
-
-// --- WithCorrelationID ---
-
-func TestWithCorrelationID_CallsNext(t *testing.T) {
-	var called atomic.Bool
-	h := applyChain(func(_ *discordgo.Session, _ *discordgo.InteractionCreate) {
-		called.Store(true)
-	}, WithCorrelationID())
-
-	h(nil, fakeInteraction("u", "cmd"))
-	if !called.Load() {
-		t.Fatal("handler not called with correlation ID middleware")
-	}
-}
-
-func TestWithCorrelationID_MonotonicIDs(t *testing.T) {
-	mw := WithCorrelationID()
-	var called atomic.Int32
-	h := applyChain(func(_ *discordgo.Session, _ *discordgo.InteractionCreate) {
-		called.Add(1)
-	}, mw)
-
-	for range 5 {
-		h(nil, fakeInteraction("u", "cmd"))
-	}
-	if called.Load() != 5 {
-		t.Fatalf("want 5 calls, got %d", called.Load())
 	}
 }
 

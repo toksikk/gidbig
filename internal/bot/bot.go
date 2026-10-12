@@ -3,8 +3,6 @@ package bot
 import (
 	"context"
 	"log/slog"
-
-	"github.com/bwmarrin/discordgo"
 )
 
 // Bot wires together a Router, BackgroundSupervisor, and registered Modules.
@@ -14,19 +12,20 @@ type Bot struct {
 	background        *BackgroundSupervisor
 	cancel            context.CancelFunc
 	modules           []Module
-	commands          []*discordgo.ApplicationCommand
 	handlersInstalled bool
 }
 
 // New creates a Bot from the given Deps. When a session is present the router's
 // single MessageCreate and InteractionCreate handlers are installed right away,
-// so they are active before the gateway is opened.
+// so they are active before the gateway is opened. The router is exposed to
+// modules through Deps.Router, which is set here before any module registers.
 func New(d Deps) *Bot {
 	b := &Bot{
 		deps:       d,
-		Router:     newRouter(d),
 		background: newBackgroundSupervisor(),
 	}
+	b.Router = newRouter(b.deps)
+	b.deps.Router = b.Router
 	b.installSessionHandlers()
 	return b
 }
@@ -41,39 +40,23 @@ func (b *Bot) installSessionHandlers() {
 	b.handlersInstalled = true
 }
 
-// RegisterModule wires a Module's commands, listeners, background tasks and
-// stats into the Bot. A module whose Init fails is not registered.
+// RegisterModule initialises a Module — which registers its handlers with the
+// router — and records its background tasks and stats. A module whose Init
+// fails is not registered.
 func (b *Bot) RegisterModule(m Module) error {
-	if err := b.Router.register(m, b.deps); err != nil {
+	if err := m.Init(b.deps); err != nil {
 		return err
 	}
-	for _, comp := range m.Components() {
-		b.Router.AddComponent(comp.Prefix, comp.Handler)
-	}
-	b.commands = append(b.commands, m.Commands()...)
 	if sp, ok := m.(StatsProvider); ok {
 		b.deps.Stats.Register(sp)
 	}
 	b.modules = append(b.modules, m)
+	slog.Info("bot: module registered", "module", m.Name())
 	return nil
 }
 
-// AddCommands appends extra slash commands (composition-root owned) to the set
-// registered with Discord on Run.
-func (b *Bot) AddCommands(cmds ...*discordgo.ApplicationCommand) {
-	b.commands = append(b.commands, cmds...)
-}
-
-// Commands returns the slash commands collected from registered modules and
-// AddCommands, in registration order.
-func (b *Bot) Commands() []*discordgo.ApplicationCommand {
-	out := make([]*discordgo.ApplicationCommand, len(b.commands))
-	copy(out, b.commands)
-	return out
-}
-
-// Run registers the router on the Discord session, starts background tasks,
-// publishes slash commands, and blocks until ctx is cancelled.
+// Run registers the router's slash commands, starts background tasks, and
+// blocks until ctx is cancelled.
 func (b *Bot) Run(ctx context.Context) error {
 	ctx, b.cancel = context.WithCancel(ctx)
 
@@ -86,7 +69,7 @@ func (b *Bot) Run(ctx context.Context) error {
 	b.background.Start(ctx, tasks...)
 
 	if user := b.deps.Session.State.User; user != nil {
-		if _, err := b.deps.Session.ApplicationCommandBulkOverwrite(user.ID, "", b.commands); err != nil {
+		if _, err := b.deps.Session.ApplicationCommandBulkOverwrite(user.ID, "", b.Router.Commands()); err != nil {
 			slog.Error("bot: failed to register slash commands", "error", err)
 		}
 	} else {
