@@ -264,8 +264,8 @@ func usersWebhookEdit(r usersReport, format string) *discordgo.WebhookEdit {
 	return edit
 }
 
-func buildUsersReport(ctx context.Context, s *discordgo.Session, list guildMembersFunc) usersReport {
-	snap := collectStatus(ctx, s, nil, nil)
+func buildUsersReport(ctx context.Context, s *discordgo.Session, list guildMembersFunc, started time.Time) usersReport {
+	snap := collectStatus(ctx, s, nil, nil, started)
 	ctx, cancel := context.WithTimeout(ctx, statusUsersTimeout)
 	defer cancel()
 	guilds, users := collectUsers(ctx, snap.GuildList, list)
@@ -274,12 +274,12 @@ func buildUsersReport(ctx context.Context, s *discordgo.Session, list guildMembe
 
 // respondStatusUsers defers the interaction, fetches members, then edits the
 // deferred reply with the report and a CSV attachment.
-func respondStatusUsers(s *discordgo.Session, i *discordgo.InteractionCreate, format string) {
+func respondStatusUsers(s *discordgo.Session, i *discordgo.InteractionCreate, format string, started time.Time) {
 	if !deferInteraction(s, i) {
 		return
 	}
 	go func() {
-		report := buildUsersReport(context.Background(), s, sessionGuildMembers(s))
+		report := buildUsersReport(context.Background(), s, sessionGuildMembers(s), started)
 		if _, err := s.InteractionResponseEdit(i.Interaction, usersWebhookEdit(report, format)); err != nil {
 			slog.Error("could not edit /status users response", "error", err)
 		}

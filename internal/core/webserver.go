@@ -24,6 +24,7 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/simplesurance/go-ip-anonymizer/ipanonymizer"
 	"github.com/toksikk/gidbig/internal/cfg"
+	"github.com/toksikk/gidbig/internal/eso"
 	"github.com/toksikk/gidbig/internal/soundboard"
 	"golang.org/x/oauth2"
 )
@@ -140,54 +141,87 @@ func (s *sessionStore) decrypt(cookieValue string) (*sessionData, error) {
 	return &data, nil
 }
 
-var (
-	discordOauthConfig = &oauth2.Config{
-		RedirectURL:  "",
-		ClientID:     "",
-		ClientSecret: "",
-		Scopes:       []string{"identify", "guilds"},
-		Endpoint:     *endp,
-	}
-	// Some random string, random for each request
-	oauthStateString string
-	endp             = &oauth2.Endpoint{
-		AuthURL:  "https://discordapp.com/api/oauth2/authorize",
-		TokenURL: "https://discordapp.com/api/oauth2/token",
-	}
-	tmpls = map[string]*template.Template{}
+// soundboardAPI is the slice of the soundboard module the web UI uses.
+type soundboardAPI interface {
+	Enqueue(user *discordgo.User, guild *discordgo.Guild, command, soundname string) bool
+	QueueStatus() []soundboard.QueueStatus
+	Collections() []soundboard.Collection
+}
 
-	store *sessionStore
+// esoGenerator produces an esoteric sentence for the /api/eso endpoint.
+type esoGenerator interface {
+	GenerateText(context.Context, string) string
+}
 
-	ipAnonymizer = ipanonymizer.NewWithMask(
-		net.CIDRMask(16, 32),
-		net.CIDRMask(64, 128),
-	)
+// oauthEndpoint is Discord's fixed OAuth2 endpoint pair.
+var oauthEndpoint = oauth2.Endpoint{
+	AuthURL:  "https://discordapp.com/api/oauth2/authorize",
+	TokenURL: "https://discordapp.com/api/oauth2/token",
+}
+
+var ipAnonymizer = ipanonymizer.NewWithMask(
+	net.CIDRMask(16, 32),
+	net.CIDRMask(64, 128),
 )
 
-// startWebServer
-func startWebServer(config *cfg.Config) {
-	tmpls["home.html"] = template.Must(template.ParseFiles(templateDir+"home.html", header, footer))
-	tmpls["internal.html"] = template.Must(template.ParseFiles(templateDir+"internal.html", header, footer))
-	tmpls["item.html"] = template.Must(template.ParseFiles(templateDir + "item.html"))
-	tmpls["itemrowstart.html"] = template.Must(template.ParseFiles(templateDir + "itemrowstart.html"))
-	tmpls["itemrowend.html"] = template.Must(template.ParseFiles(templateDir + "itemrowend.html"))
-	tmpls["collwrapstart.html"] = template.Must(template.ParseFiles(templateDir + "collwrapstart.html"))
-	tmpls["collwrapend.html"] = template.Must(template.ParseFiles(templateDir + "collwrapend.html"))
+// webServer owns the optional HTTP UI. Its dependencies (the Discord session and
+// the soundboard/eso modules it queries) are injected at construction instead
+// of living in package-level state, so a test can build one without touching
+// process-wide variables. The session store, templates and OAuth configuration
+// are per-instance for the same reason.
+type webServer struct {
+	session    *discordgo.Session
+	soundboard soundboardAPI
+	eso        esoGenerator
 
-	store = newSessionStore(config.Web.SessionSecret)
+	store      *sessionStore
+	tmpls      map[string]*template.Template
+	oauth      *oauth2.Config
+	oauthState string
+}
 
-	discordOauthConfig.ClientID = config.Web.Oauth.ClientID
-	discordOauthConfig.ClientSecret = config.Web.Oauth.ClientSecret
-	discordOauthConfig.RedirectURL = config.Web.Oauth.RedirectURI + "/discordCallback"
+// newWebServer builds a web server around the injected session and modules.
+func newWebServer(config *cfg.Config, session *discordgo.Session, sb soundboardAPI, eso esoGenerator) *webServer {
+	return &webServer{
+		session:    session,
+		soundboard: sb,
+		eso:        eso,
+		store:      newSessionStore(config.Web.SessionSecret),
+		tmpls:      map[string]*template.Template{},
+		oauth: &oauth2.Config{
+			ClientID:     config.Web.Oauth.ClientID,
+			ClientSecret: config.Web.Oauth.ClientSecret,
+			RedirectURL:  config.Web.Oauth.RedirectURI + "/discordCallback",
+			Scopes:       []string{"identify", "guilds"},
+			Endpoint:     oauthEndpoint,
+		},
+	}
+}
+
+// loadTemplates parses the page templates into the instance's map.
+func (ws *webServer) loadTemplates() {
+	ws.tmpls["home.html"] = template.Must(template.ParseFiles(templateDir+"home.html", header, footer))
+	ws.tmpls["internal.html"] = template.Must(template.ParseFiles(templateDir+"internal.html", header, footer))
+	ws.tmpls["item.html"] = template.Must(template.ParseFiles(templateDir + "item.html"))
+	ws.tmpls["itemrowstart.html"] = template.Must(template.ParseFiles(templateDir + "itemrowstart.html"))
+	ws.tmpls["itemrowend.html"] = template.Must(template.ParseFiles(templateDir + "itemrowend.html"))
+	ws.tmpls["collwrapstart.html"] = template.Must(template.ParseFiles(templateDir + "collwrapstart.html"))
+	ws.tmpls["collwrapend.html"] = template.Must(template.ParseFiles(templateDir + "collwrapend.html"))
+}
+
+// startWebServer starts the HTTP UI around the injected session and modules.
+func startWebServer(config *cfg.Config, session *discordgo.Session, sb *soundboard.Module, esoMod *eso.Module) {
+	ws := newWebServer(config, session, sb, esoMod)
+	ws.loadTemplates()
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/", handleMain)
-	mux.HandleFunc("/logout", handleLogout)
-	mux.HandleFunc("/discordLogin", handleDiscordLogin)
-	mux.HandleFunc("/discordCallback", handleDiscordCallback)
-	mux.HandleFunc("/playsound", handlePlaySound)
-	mux.HandleFunc("/api/queue", handleAPIQueue)
-	mux.HandleFunc("/api/eso", handleAPIEso)
+	mux.HandleFunc("/", ws.handleMain)
+	mux.HandleFunc("/logout", ws.handleLogout)
+	mux.HandleFunc("/discordLogin", ws.handleDiscordLogin)
+	mux.HandleFunc("/discordCallback", ws.handleDiscordCallback)
+	mux.HandleFunc("/playsound", ws.handlePlaySound)
+	mux.HandleFunc("/api/queue", ws.handleAPIQueue)
+	mux.HandleFunc("/api/eso", ws.handleAPIEso)
 	mux.HandleFunc("/health", handleHealth)
 	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("web/static"))))
 
@@ -214,29 +248,32 @@ func readSoundDescription(prefix, name string) (text, shortText string, ok bool)
 	return text, shortText, true
 }
 
-func handlePlaySound(w http.ResponseWriter, r *http.Request) {
+func (ws *webServer) handlePlaySound(w http.ResponseWriter, r *http.Request) {
 	slog.Info("WebUI /playsound Request", "Requesting IP", r.RemoteAddr)
 	err := r.ParseForm()
 	if err != nil {
 		slog.Error("could not ParseForm", "error", err)
 		return
 	}
-	session := store.Get(r)
+	session := ws.store.Get(r)
 	userID := session.DiscordUserID
 	if userID == "" {
 		http.Error(w, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
 		return
 	}
 	var guild *discordgo.Guild
-	user, _ := discord.User(userID)
-	for _, g := range discord.State.Guilds {
-		for _, vs := range g.VoiceStates {
-			if vs.UserID == userID {
-				guild = g
+	var user *discordgo.User
+	if ws.session != nil {
+		user, _ = ws.session.User(userID)
+		for _, g := range ws.session.State.Guilds {
+			for _, vs := range g.VoiceStates {
+				if vs.UserID == userID {
+					guild = g
+				}
 			}
 		}
 	}
-	if soundboardMod != nil && soundboardMod.Enqueue(user, guild, r.FormValue("command"), r.FormValue("soundname")) {
+	if ws.soundboard != nil && ws.soundboard.Enqueue(user, guild, r.FormValue("command"), r.FormValue("soundname")) {
 		http.Error(w, http.StatusText(200), 200)
 	} else {
 		http.Error(w, http.StatusText(500), 500)
@@ -249,16 +286,16 @@ type guildQueueStatus struct {
 	QueueLength int    `json:"queue_length"`
 }
 
-func handleAPIQueue(w http.ResponseWriter, r *http.Request) {
-	session := store.Get(r)
+func (ws *webServer) handleAPIQueue(w http.ResponseWriter, r *http.Request) {
+	session := ws.store.Get(r)
 	if session.DiscordUserID == "" {
 		http.Error(w, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
 		return
 	}
 
 	var guilds []guildQueueStatus
-	if soundboardMod != nil {
-		for _, qs := range soundboardMod.QueueStatus() {
+	if ws.soundboard != nil {
+		for _, qs := range ws.soundboard.QueueStatus() {
 			guilds = append(guilds, guildQueueStatus{
 				GuildID:     qs.GuildID,
 				NowPlaying:  qs.NowPlaying,
@@ -275,16 +312,12 @@ func handleAPIQueue(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{"guilds": guilds})
 }
 
-func handleAPIEso(w http.ResponseWriter, r *http.Request) {
-	if esoMod == nil {
+func (ws *webServer) handleAPIEso(w http.ResponseWriter, r *http.Request) {
+	if ws.eso == nil {
 		handleAPIEsoWithGenerator(w, r, nil)
 		return
 	}
-	handleAPIEsoWithGenerator(w, r, esoMod)
-}
-
-type esoGenerator interface {
-	GenerateText(context.Context, string) string
+	handleAPIEsoWithGenerator(w, r, ws.eso)
 }
 
 type esoRequest struct {
@@ -339,13 +372,13 @@ func handleAPIEsoWithGenerator(w http.ResponseWriter, r *http.Request, generator
 	}
 }
 
-func handleMain(w http.ResponseWriter, r *http.Request) {
+func (ws *webServer) handleMain(w http.ResponseWriter, r *http.Request) {
 	logWebRequests(r)
 	if r.URL.Path != "/" {
 		http.NotFound(w, r)
 		return
 	}
-	session := store.Get(r)
+	session := ws.store.Get(r)
 	if session.DiscordUsername != "" {
 		username := session.DiscordUsername
 		avatarURL := session.DiscordAvatarURL
@@ -353,8 +386,8 @@ func handleMain(w http.ResponseWriter, r *http.Request) {
 		var prefixes []string
 		var si []soundItem
 		var collections []soundboard.Collection
-		if soundboardMod != nil {
-			collections = soundboardMod.Collections()
+		if ws.soundboard != nil {
+			collections = ws.soundboard.Collections()
 		}
 		for _, sc := range collections {
 			newSoundItemRandom := soundItem{
@@ -388,7 +421,7 @@ func handleMain(w http.ResponseWriter, r *http.Request) {
 			AvatarURL: avatarURL,
 		}
 
-		err := tmpls["internal.html"].ExecuteTemplate(w, "header", td)
+		err := ws.tmpls["internal.html"].ExecuteTemplate(w, "header", td)
 		if err != nil {
 			slog.Error("failed to execute template", "template", "internal.html/header", "error", err)
 			return
@@ -399,19 +432,19 @@ func handleMain(w http.ResponseWriter, r *http.Request) {
 		for _, snd := range si {
 			if snd.Itemprefix != currentPrefix {
 				if i != 0 {
-					err = tmpls["itemrowend.html"].Execute(w, nil)
+					err = ws.tmpls["itemrowend.html"].Execute(w, nil)
 					if err != nil {
 						slog.Error("failed to execute template", "template", "itemrowend.html", "error", err)
 						return
 					}
-					err = tmpls["collwrapend.html"].Execute(w, nil)
+					err = ws.tmpls["collwrapend.html"].Execute(w, nil)
 					if err != nil {
 						slog.Error("failed to execute template", "template", "collwrapend.html", "error", err)
 						return
 					}
 					i = 0
 				}
-				err = tmpls["collwrapstart.html"].Execute(w, snd)
+				err = ws.tmpls["collwrapstart.html"].Execute(w, snd)
 				if err != nil {
 					slog.Error("failed to execute template", "template", "collwrapstart.html", "error", err)
 					return
@@ -419,19 +452,19 @@ func handleMain(w http.ResponseWriter, r *http.Request) {
 				currentPrefix = snd.Itemprefix
 			}
 			if i%4 == 0 {
-				err = tmpls["itemrowstart.html"].Execute(w, nil)
+				err = ws.tmpls["itemrowstart.html"].Execute(w, nil)
 				if err != nil {
 					slog.Error("failed to execute template", "template", "itemrowstart.html", "error", err)
 					return
 				}
 			}
-			err = tmpls["item.html"].Execute(w, snd)
+			err = ws.tmpls["item.html"].Execute(w, snd)
 			if err != nil {
 				slog.Error("failed to execute template", "template", "item.html", "error", err)
 				return
 			}
 			if i%4 == 3 {
-				err = tmpls["itemrowend.html"].Execute(w, nil)
+				err = ws.tmpls["itemrowend.html"].Execute(w, nil)
 				if err != nil {
 					slog.Error("failed to execute template", "template", "itemrowend.html", "error", err)
 					return
@@ -442,26 +475,26 @@ func handleMain(w http.ResponseWriter, r *http.Request) {
 
 		// Explicitly close the last collection (loop only closes previous ones on prefix change)
 		if i > 0 {
-			err = tmpls["collwrapend.html"].Execute(w, nil)
+			err = ws.tmpls["collwrapend.html"].Execute(w, nil)
 			if err != nil {
 				slog.Error("failed to execute template", "template", "collwrapend.html", "error", err)
 				return
 			}
 		}
 
-		err = tmpls["internal.html"].ExecuteTemplate(w, "footer", map[string]interface{}{})
+		err = ws.tmpls["internal.html"].ExecuteTemplate(w, "footer", map[string]interface{}{})
 		if err != nil {
 			slog.Error("failed to execute template", "template", "internal.html/footer", "error", err)
 			return
 		}
 		return
 	}
-	err := tmpls["home.html"].ExecuteTemplate(w, "header", templateData{})
+	err := ws.tmpls["home.html"].ExecuteTemplate(w, "header", templateData{})
 	if err != nil {
 		slog.Error("unable to execute template", "error", err)
 		return
 	}
-	err = tmpls["home.html"].ExecuteTemplate(w, "footer", map[string]interface{}{})
+	err = ws.tmpls["home.html"].ExecuteTemplate(w, "footer", map[string]interface{}{})
 	if err != nil {
 		slog.Error("unable to execute template", "error", err)
 		return
@@ -476,13 +509,13 @@ func handleHealth(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func handleLogout(w http.ResponseWriter, r *http.Request) {
+func (ws *webServer) handleLogout(w http.ResponseWriter, r *http.Request) {
 	slog.Info("WebUI /logout Request", "Requesting IP", r.RemoteAddr)
-	store.Clear(w)
+	ws.store.Clear(w)
 	http.Redirect(w, r, "/", http.StatusFound)
 }
 
-func handleDiscordLogin(w http.ResponseWriter, r *http.Request) {
+func (ws *webServer) handleDiscordLogin(w http.ResponseWriter, r *http.Request) {
 	logWebRequests(r)
 	b := make([]byte, 16)
 	_, err := rand.Read(b)
@@ -490,22 +523,22 @@ func handleDiscordLogin(w http.ResponseWriter, r *http.Request) {
 		slog.Error("unable to Read", "error", err)
 		return
 	}
-	oauthStateString = base64.URLEncoding.EncodeToString(b)
+	ws.oauthState = base64.URLEncoding.EncodeToString(b)
 
-	session := store.Get(r)
-	session.State = oauthStateString
-	err = store.Save(w, session)
+	session := ws.store.Get(r)
+	session.State = ws.oauthState
+	err = ws.store.Save(w, session)
 	if err != nil {
 		slog.Error("unable to Save", "error", err)
 	}
 
-	url := discordOauthConfig.AuthCodeURL(oauthStateString)
+	url := ws.oauth.AuthCodeURL(ws.oauthState)
 	http.Redirect(w, r, url, http.StatusTemporaryRedirect)
 }
 
-func handleDiscordCallback(w http.ResponseWriter, r *http.Request) {
+func (ws *webServer) handleDiscordCallback(w http.ResponseWriter, r *http.Request) {
 	logWebRequests(r)
-	session := store.Get(r)
+	session := ws.store.Get(r)
 	if r.URL.Query().Get("state") != session.State {
 		slog.Warn("oauth state mismatch; possible CSRF or cookies disabled")
 		http.Error(w, "no state match; possible csrf OR cookies not enabled", http.StatusForbidden)
@@ -513,13 +546,13 @@ func handleDiscordCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	state := r.FormValue("state")
-	if state != oauthStateString {
-		slog.Warn("invalid oauth state", "expected", oauthStateString, "got", state)
+	if state != ws.oauthState {
+		slog.Warn("invalid oauth state", "expected", ws.oauthState, "got", state)
 		http.Redirect(w, r, "/", http.StatusTemporaryRedirect)
 		return
 	}
 
-	token, err := discordOauthConfig.Exchange(context.Background(), r.FormValue("code"))
+	token, err := ws.oauth.Exchange(context.Background(), r.FormValue("code"))
 	if err != nil {
 		slog.Error("oauth code exchange failed", "error", err)
 		http.Error(w, "code exchange failed", http.StatusInternalServerError)
@@ -548,7 +581,7 @@ func handleDiscordCallback(w http.ResponseWriter, r *http.Request) {
 	session.DiscordUsername = user.Username
 	session.DiscordAvatarURL = avatarURL
 	session.AccessToken = token.AccessToken
-	err = store.Save(w, session)
+	err = ws.store.Save(w, session)
 	if err != nil {
 		slog.Error("unable to Save", "error", err)
 		return

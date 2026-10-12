@@ -175,11 +175,11 @@ func TestSessionStore_TamperedCookie(t *testing.T) {
 }
 
 func TestHandleAPIQueue_unauthorized(t *testing.T) {
-	store = newSessionStore("test-secret")
+	ws := &webServer{store: newSessionStore("test-secret")}
 
 	req := httptest.NewRequest(http.MethodGet, "/api/queue", nil)
 	w := httptest.NewRecorder()
-	handleAPIQueue(w, req)
+	ws.handleAPIQueue(w, req)
 
 	if w.Code != http.StatusUnauthorized {
 		t.Errorf("expected %d, got %d", http.StatusUnauthorized, w.Code)
@@ -187,12 +187,12 @@ func TestHandleAPIQueue_unauthorized(t *testing.T) {
 }
 
 func TestHandleAPIQueue_emptyQueue(t *testing.T) {
-	store = newSessionStore("test-secret")
+	ws := &webServer{store: newSessionStore("test-secret")}
 
 	// Create a session with a logged-in user by saving it to a recorder first.
 	setRec := httptest.NewRecorder()
 	sess := &sessionData{DiscordUserID: "12345"}
-	if err := store.Save(setRec, sess); err != nil {
+	if err := ws.store.Save(setRec, sess); err != nil {
 		t.Fatalf("save session: %v", err)
 	}
 
@@ -201,7 +201,7 @@ func TestHandleAPIQueue_emptyQueue(t *testing.T) {
 		req.AddCookie(c)
 	}
 	w := httptest.NewRecorder()
-	handleAPIQueue(w, req)
+	ws.handleAPIQueue(w, req)
 
 	if w.Code != http.StatusOK {
 		t.Errorf("expected %d, got %d", http.StatusOK, w.Code)
@@ -242,14 +242,12 @@ func TestHandleAPIEso_success(t *testing.T) {
 }
 
 func TestHandleAPIEso_moduleUnavailable(t *testing.T) {
-	previousEsoMod := esoMod
-	esoMod = nil
-	t.Cleanup(func() { esoMod = previousEsoMod })
+	ws := &webServer{}
 
 	req := httptest.NewRequest(http.MethodPost, "/api/eso", nil)
 	w := httptest.NewRecorder()
 
-	handleAPIEso(w, req)
+	ws.handleAPIEso(w, req)
 
 	if w.Code != http.StatusServiceUnavailable {
 		t.Errorf("status = %d, want %d", w.Code, http.StatusServiceUnavailable)

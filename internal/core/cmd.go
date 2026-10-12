@@ -27,20 +27,6 @@ import (
 	"github.com/toksikk/gidbig/internal/wttrin"
 )
 
-var (
-	// discordgo session
-	discord *discordgo.Session
-
-	// Start time for uptime calculation
-	startTime = time.Now()
-
-	// Eso module instance for web server access
-	esoMod *eso.Module
-
-	// Soundboard module instance for web server access
-	soundboardMod *soundboard.Module
-)
-
 // statusInteractionResponse builds the ephemeral interaction response for /status.
 // Owner gets the status payload; non-owners get a denial. build is injectable for testing.
 func statusInteractionResponse(userID, ownerID string, build func() *discordgo.InteractionResponseData) *discordgo.InteractionResponse {
@@ -59,9 +45,11 @@ func statusInteractionResponse(userID, ownerID string, build func() *discordgo.I
 	}
 }
 
-func setStartedStatus() {
-	err := discord.UpdateCustomStatus(startedStatus())
-	if err != nil {
+func (m *Module) setStartedStatus() {
+	if m.session == nil {
+		return
+	}
+	if err := m.session.UpdateCustomStatus(startedStatus()); err != nil {
 		slog.Warn("Failed to set custom status", "error", err)
 	}
 }
@@ -148,7 +136,7 @@ func StartGidbig() {
 
 	// Create a discord session
 	slog.Info("Starting discord session...")
-	discord, err = newDiscordSession(conf)
+	session, err := newDiscordSession(conf)
 	if err != nil {
 		slog.Error("Failed to create discord session", "error", err)
 		os.Exit(1)
@@ -172,7 +160,7 @@ func StartGidbig() {
 	}
 
 	deps := bot.Deps{
-		Session: discord,
+		Session: session,
 		Config:  conf,
 		LLM:     llmClient,
 		Logger:  slog.Default(),
@@ -191,21 +179,21 @@ func StartGidbig() {
 
 	watchdogCtx, stopWatchdog := context.WithCancel(context.Background())
 	defer stopWatchdog()
-	go runDiscordWatchdog(watchdogCtx, discord, discordWatchdogInterval, discordWatchdogTimeout, func() {
+	go runDiscordWatchdog(watchdogCtx, session, discordWatchdogInterval, discordWatchdogTimeout, func() {
 		os.Exit(1)
 	})
 
-	if err := discord.Open(); err != nil {
+	if err := session.Open(); err != nil {
 		slog.Error("Failed to create discord websocket connection", "error", err)
 		os.Exit(1)
 		return
 	}
 
-	soundboardMod = soundboard.New()
+	soundboardMod := soundboard.New()
 	registerOrLog(b, soundboardMod)
 	coffeeMod := coffee.New()
 	coffeeReady := registerOrLog(b, coffeeMod)
-	esoMod = eso.New()
+	esoMod := eso.New()
 	registerOrLog(b, esoMod)
 	registerOrLog(b, gamerstatus.New())
 	gippityMod := gippity.New()
@@ -233,7 +221,7 @@ func StartGidbig() {
 	// Start Webserver if a valid port is provided and if ClientID and ClientSecret are set
 	if conf.Web.Port != 0 && conf.Web.Port >= 1 && conf.Web.Oauth.ClientID != "" && conf.Web.Oauth.ClientSecret != "" && conf.Web.Oauth.RedirectURI != "" {
 		slog.Info("Starting web server", "port", conf.Web.Port)
-		go startWebServer(conf)
+		go startWebServer(conf, session, soundboardMod, esoMod)
 	} else {
 		slog.Info("Required web server arguments missing or invalid. Skipping web server start.")
 	}
@@ -241,7 +229,7 @@ func StartGidbig() {
 	Banner(nil)
 
 	slog.Info("Gidbig is ready. Quit with CTRL-C.")
-	setStartedStatus()
+	coreMod.setStartedStatus()
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
