@@ -95,6 +95,17 @@ func TestCoreSlashCommands_UptimeMetadata(t *testing.T) {
 	}
 }
 
+func TestBuildUptimeBody_UsesInjectedStart(t *testing.T) {
+	m := NewCore()
+	start := time.Date(2026, 10, 6, 5, 47, 0, 0, time.UTC)
+	m.startTime = start
+
+	body := m.buildUptimeBody()
+	if !strings.Contains(body, start.Format("2006-01-02 15:04:05")) {
+		t.Errorf("body = %q, want it to contain the injected start time", body)
+	}
+}
+
 func TestCoreSlashHandlers_Uptime(t *testing.T) {
 	mod := NewCore()
 	mod.conf = &cfg.Config{}

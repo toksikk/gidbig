@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/toksikk/gidbig/internal/cfg"
 )
 
 type stubEsoGenerator struct {
@@ -171,6 +173,19 @@ func TestSessionStore_TamperedCookie(t *testing.T) {
 	got := s.Get(req)
 	if got.DiscordUserID != "" {
 		t.Errorf("expected empty session for tampered cookie, got %+v", got)
+	}
+}
+
+func TestNewWebServer_NilModulesAreNilInterfaces(t *testing.T) {
+	// A nil *eso.Module / *soundboard.Module must become a nil interface so the
+	// handlers' nil checks still work; a typed nil in an interface would not be
+	// caught by `ws.eso == nil`.
+	ws := newWebServer(&cfg.Config{}, nil, nil, nil)
+	if ws.soundboard != nil {
+		t.Error("nil soundboard module should be a nil interface")
+	}
+	if ws.eso != nil {
+		t.Error("nil eso module should be a nil interface")
 	}
 }
 
