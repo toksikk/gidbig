@@ -15,21 +15,12 @@ type Module struct {
 	ownerID   string
 	providers []bot.AdminProvider
 	info      func(*discordgo.Session) string
-
-	// dispatch is the owner-gated command handler, built in Init once ownerID is
-	// known. Listeners filters interactions down to /admin before calling it.
-	dispatch bot.HandlerFunc
 }
 
 // New returns an admin Module that exposes each provider's subcommand group
 // under /admin.
 func New(providers ...bot.AdminProvider) *Module {
-	m := &Module{providers: providers}
-	// Pre-wire the owner gate so onAdminInteractionCreate never dereferences a
-	// nil handler if Listeners() runs without a prior Init. Init rebuilds it
-	// with the configured owner ID; until then every caller is denied.
-	m.dispatch = bot.OwnerOnly("")(m.handleAdminCommand)
-	return m
+	return &Module{providers: providers}
 }
 
 // SetInfoText injects the renderer for the built-in /admin info subcommand. The
@@ -40,7 +31,8 @@ func (m *Module) SetInfoText(fn func(*discordgo.Session) string) { m.info = fn }
 func (m *Module) Name() string { return "admin" }
 
 // Init wires the owner gate from Deps. The owner ID comes from Deps.OwnerID, or
-// from the config when running without a composition root.
+// from the config when running without a composition root. The owner gate runs
+// through the router's middleware chain rather than a hand-wired wrapping.
 func (m *Module) Init(d bot.Deps) error {
 	m.ownerID = d.OwnerID
 	if m.ownerID == "" && d.Config != nil {
@@ -49,8 +41,7 @@ func (m *Module) Init(d bot.Deps) error {
 	if m.ownerID == "" {
 		slog.Warn("admin: no owner ID configured; /admin denies all callers")
 	}
-	m.dispatch = bot.OwnerOnly(m.ownerID)(m.handleAdminCommand)
-	d.Router.AddCommand(m.command(), m.onAdminInteractionCreate)
+	d.Router.AddCommand(m.command(), m.onAdminInteractionCreate, bot.OwnerOnly(m.ownerID))
 	slog.Info("admin: initialized", "providers", len(m.providers))
 	return nil
 }
@@ -83,9 +74,9 @@ func (m *Module) Background() []bot.BackgroundTask { return nil }
 // Shutdown is a no-op: admin owns no resources.
 func (m *Module) Shutdown() error { return nil }
 
-// onAdminInteractionCreate routes /admin interactions to the owner-gated
-// dispatch. Every module listener sees every interaction, so non-matching
-// interactions must be ignored without a response.
+// onAdminInteractionCreate routes /admin interactions to the handler. The
+// router dispatches by command name and applies the OwnerOnly middleware, so
+// this only has to guard direct calls and forward.
 func (m *Module) onAdminInteractionCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	if i.Type != discordgo.InteractionApplicationCommand {
 		return
@@ -93,12 +84,12 @@ func (m *Module) onAdminInteractionCreate(s *discordgo.Session, i *discordgo.Int
 	if i.ApplicationCommandData().Name != "admin" {
 		return
 	}
-	m.dispatch(s, i)
+	m.handleAdminCommand(s, i)
 }
 
-// handleAdminCommand runs behind bot.OwnerOnly. It defers an ephemeral response
-// and dispatches the subcommand to the built-in info renderer or the matching
-// provider.
+// handleAdminCommand defers an ephemeral response and dispatches the subcommand
+// to the built-in info renderer or the matching provider. Access control is the
+// OwnerOnly middleware on the /admin command.
 func (m *Module) handleAdminCommand(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	data := i.ApplicationCommandData()
 	if len(data.Options) == 0 {

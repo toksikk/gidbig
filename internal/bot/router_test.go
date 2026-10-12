@@ -1,6 +1,8 @@
 package bot
 
 import (
+	"fmt"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -189,6 +191,72 @@ func TestRouter_NilReceiverIsNoOp(t *testing.T) {
 	if r.Commands() != nil {
 		t.Error("Commands() on a nil Router should be nil")
 	}
+}
+
+func TestRouter_DuplicateCommandIgnored(t *testing.T) {
+	r := makeRouter()
+	r.AddCommand(slashCmd("dup"), func(_ *discordgo.Session, _ *discordgo.InteractionCreate) {})
+	r.AddCommand(slashCmd("dup"), func(_ *discordgo.Session, _ *discordgo.InteractionCreate) {})
+
+	if got := len(r.Commands()); got != 1 {
+		t.Fatalf("Commands() = %d, want 1 (duplicate rejected)", got)
+	}
+}
+
+func TestRouter_RecoversComponentPanic(t *testing.T) {
+	r := makeRouter()
+	r.AddComponent("boom_", func(_ *discordgo.Session, _ *discordgo.InteractionCreate) {
+		panic("component panic")
+	})
+
+	defer func() {
+		if rec := recover(); rec != nil {
+			t.Fatalf("component panic escaped the router: %v", rec)
+		}
+	}()
+	r.onInteractionCreate(nil, componentInteraction("boom_x"))
+}
+
+func TestRouter_RecoversMessagePanic(t *testing.T) {
+	r := makeRouter()
+	done := make(chan struct{})
+	r.OnMessage(func(_ *discordgo.Session, _ *discordgo.MessageCreate) {
+		defer close(done)
+		panic("message panic")
+	})
+
+	r.onMessageCreate(nil, &discordgo.MessageCreate{})
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("message handler did not run")
+	}
+}
+
+// TestRouter_ConcurrentRegistrationAndDispatch registers commands while the
+// dispatcher reads the tables, the window that exists while the gateway is
+// already delivering events. Run with -race it proves the mutex coverage.
+func TestRouter_ConcurrentRegistrationAndDispatch(t *testing.T) {
+	r := makeRouter()
+	var wg sync.WaitGroup
+
+	for i := range 50 {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			r.AddCommand(&discordgo.ApplicationCommand{Name: fmt.Sprintf("cmd-%d", i)}, func(_ *discordgo.Session, _ *discordgo.InteractionCreate) {})
+			r.AddComponent(fmt.Sprintf("c-%d", i), func(_ *discordgo.Session, _ *discordgo.InteractionCreate) {})
+			r.OnMessage(func(_ *discordgo.Session, _ *discordgo.MessageCreate) {})
+		}(i)
+
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			r.onInteractionCreate(nil, slashInteraction("cmd-0"))
+			r.onMessageCreate(nil, &discordgo.MessageCreate{})
+		}()
+	}
+	wg.Wait()
 }
 
 func TestRouter_MultipleCommands(t *testing.T) {

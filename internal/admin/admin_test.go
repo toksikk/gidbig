@@ -215,7 +215,10 @@ func TestDispatch_NonOwnerDenied(t *testing.T) {
 	s, requests := adminDiscordSession(t)
 
 	sub := &discordgo.ApplicationCommandInteractionDataOption{Name: "beverages", Type: discordgo.ApplicationCommandOptionSubCommand}
-	m.onAdminInteractionCreate(s, adminInteraction("admin", ownerInteractionGroup("coffee", sub), "not-the-owner"))
+	// The owner gate runs through the OwnerOnly middleware the /admin command is
+	// registered with, so exercise it here.
+	handler := bot.OwnerOnly("owner-1")(m.onAdminInteractionCreate)
+	handler(s, adminInteraction("admin", ownerInteractionGroup("coffee", sub), "not-the-owner"))
 
 	req := awaitRequest(t, requests)
 	if req.method != http.MethodPost {
@@ -270,12 +273,13 @@ func TestListener_WithoutInitDoesNotPanic(t *testing.T) {
 	m := New(stubCoffeeProvider()) // deliberately no Init
 	s, requests := adminDiscordSession(t)
 
-	m.onAdminInteractionCreate(s, adminInteraction("admin", ownerInteractionGroup("info", nil)))
+	// No owner is configured before Init, so an empty-owner gate denies.
+	handler := bot.OwnerOnly("")(m.onAdminInteractionCreate)
+	handler(s, adminInteraction("admin", ownerInteractionGroup("info", nil)))
 
-	// No owner is configured yet, so the pre-wired gate denies the caller.
 	req := awaitRequest(t, requests)
 	if !strings.Contains(string(req.body), "Access denied.") {
-		t.Errorf("body = %s, want the denial from the pre-wired gate", req.body)
+		t.Errorf("body = %s, want the denial from the owner gate", req.body)
 	}
 }
 

@@ -44,16 +44,23 @@ func (m *Module) Init(d bot.Deps) error {
 	return nil
 }
 
-// registerHandlers wires the core Discord handlers into the router.
+// registerHandlers wires the core Discord handlers into the router. /status and
+// /uptime are owner-only, gated through the router's middleware chain.
 func (m *Module) registerHandlers(r *bot.Router) {
+	ownerID := ""
+	if m.conf != nil {
+		ownerID = m.conf.Discord.OwnerID
+	}
+	ownerOnly := bot.OwnerOnly(ownerID)
+
 	r.OnReady(m.onReady)
 	r.OnConnect(m.onConnect)
 	r.OnDisconnect(m.onDisconnect)
 	r.OnResumed(m.onResumed)
 	r.OnMessage(m.onMessageCreate)
-	r.AddCommand(statusCommand(), m.onStatusInteractionCreate)
+	r.AddCommand(statusCommand(), m.onStatusInteractionCreate, ownerOnly)
 	for _, cmd := range coreSlashCommands() {
-		r.AddCommand(cmd, m.onCoreSlashInteractionCreate)
+		r.AddCommand(cmd, m.onCoreSlashInteractionCreate, ownerOnly)
 	}
 }
 
@@ -121,23 +128,12 @@ func (m *Module) onStatusInteractionCreate(s *discordgo.Session, i *discordgo.In
 		return
 	}
 
-	var userID string
-	if i.Member != nil && i.Member.User != nil {
-		userID = i.Member.User.ID
-	} else if i.User != nil {
-		userID = i.User.ID
-	}
-
 	view, format := statusOptions(data.Options)
 	if view == statusViewUsers {
-		if userID != m.conf.Discord.OwnerID {
-			respondEphemeral(s, i, "Access denied.")
-			return
-		}
 		respondStatusUsers(s, i, format, m.startTime)
 		return
 	}
-	resp := statusInteractionResponse(userID, m.conf.Discord.OwnerID, func() *discordgo.InteractionResponseData {
+	resp := statusInteractionResponse(func() *discordgo.InteractionResponseData {
 		snap := collectStatus(context.Background(), s, m.stats.All(), m.dbPaths, m.startTime)
 		return statusResponseData(snap, view, format)
 	})
@@ -151,11 +147,6 @@ func (m *Module) onCoreSlashInteractionCreate(s *discordgo.Session, i *discordgo
 		return
 	}
 	if i.ApplicationCommandData().Name != "uptime" {
-		return
-	}
-	user := interactionUser(i)
-	if user == nil || user.ID != m.conf.Discord.OwnerID {
-		respondEphemeral(s, i, "Access denied.")
 		return
 	}
 	respondEphemeral(s, i, m.buildUptimeBody())

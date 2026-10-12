@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/toksikk/gidbig/internal/bot"
 )
 
 func TestBanner_WritesToWriter(t *testing.T) {
@@ -29,10 +30,9 @@ func TestBanner_NilWriter(t *testing.T) {
 }
 
 func TestStatusInteractionResponse_Owner(t *testing.T) {
-	ownerID := "owner123"
 	want := &discordgo.InteractionResponseData{Content: "some stats", Flags: discordgo.MessageFlagsEphemeral}
 
-	resp := statusInteractionResponse(ownerID, ownerID, func() *discordgo.InteractionResponseData { return want })
+	resp := statusInteractionResponse(func() *discordgo.InteractionResponseData { return want })
 
 	if resp == nil {
 		t.Fatal("expected non-nil response")
@@ -112,27 +112,22 @@ func TestStartedStatusUsesCurrentVersion(t *testing.T) {
 	}
 }
 
-func TestStatusInteractionResponse_NonOwner(t *testing.T) {
-	ownerID := "owner123"
-	callerID := "rando456"
-
+func TestOwnerGate_DeniesNonOwnerStatus(t *testing.T) {
+	// /status is owner-only via the OwnerOnly middleware the command is
+	// registered with; the handler itself no longer contains the gate.
+	s, requests := discordTestSession(t)
 	called := false
-	resp := statusInteractionResponse(callerID, ownerID, func() *discordgo.InteractionResponseData {
+	handler := bot.OwnerOnly("owner123")(func(_ *discordgo.Session, _ *discordgo.InteractionCreate) {
 		called = true
-		return &discordgo.InteractionResponseData{Content: "stats"}
 	})
 
-	if resp == nil {
-		t.Fatal("expected non-nil response")
-		return
-	}
+	handler(s, coreInteraction("status", "guild", "rando456"))
+
 	if called {
-		t.Error("buildStats should not be called for non-owner")
+		t.Error("handler ran for a non-owner")
 	}
-	if resp.Data.Flags != discordgo.MessageFlagsEphemeral {
-		t.Errorf("Flags = %v, want Ephemeral", resp.Data.Flags)
-	}
-	if resp.Data.Content != "Access denied." {
-		t.Errorf("Content = %q, want %q", resp.Data.Content, "Access denied.")
+	req := awaitDiscordRequest(t, requests)
+	if content := responseContent(t, req.body); !strings.Contains(content, "Access denied.") {
+		t.Errorf("response = %q, want an access denial", content)
 	}
 }
