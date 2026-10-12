@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/toksikk/gidbig/internal/bot"
 	"github.com/toksikk/gidbig/internal/cfg"
 )
 
@@ -108,7 +109,10 @@ func TestCoreSlashHandlers_Uptime(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			s, requests := discordTestSession(t)
-			mod.onCoreSlashInteractionCreate(s, coreInteraction(tt.command, "guild", tt.user))
+			// Uptime is owner-only through the OwnerOnly middleware the command
+			// is registered with, so exercise the gate here.
+			handler := bot.OwnerOnly("owner")(mod.onCoreSlashInteractionCreate)
+			handler(s, coreInteraction(tt.command, "guild", tt.user))
 			req := awaitDiscordRequest(t, requests)
 			if !strings.Contains(responseContent(t, req.body), tt.contains) {
 				t.Errorf("response %s does not contain %q", req.body, tt.contains)

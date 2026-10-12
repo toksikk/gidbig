@@ -27,18 +27,9 @@ import (
 	"github.com/toksikk/gidbig/internal/wttrin"
 )
 
-// statusInteractionResponse builds the ephemeral interaction response for /status.
-// Owner gets the status payload; non-owners get a denial. build is injectable for testing.
-func statusInteractionResponse(userID, ownerID string, build func() *discordgo.InteractionResponseData) *discordgo.InteractionResponse {
-	if userID != ownerID {
-		return &discordgo.InteractionResponse{
-			Type: discordgo.InteractionResponseChannelMessageWithSource,
-			Data: &discordgo.InteractionResponseData{
-				Content: "Access denied.",
-				Flags:   discordgo.MessageFlagsEphemeral,
-			},
-		}
-	}
+// statusInteractionResponse wraps a status payload in the /status interaction
+// response. Access control is the OwnerOnly middleware on the command.
+func statusInteractionResponse(build func() *discordgo.InteractionResponseData) *discordgo.InteractionResponse {
 	return &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseChannelMessageWithSource,
 		Data: build(),

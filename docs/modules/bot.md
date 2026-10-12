@@ -33,6 +33,13 @@ sequenceDiagram
 
 Messages are dispatched the same way: one session `MessageCreate` handler fans out
 to each module's `OnMessage` handler in its own goroutine, matching discordgo's
-default `SyncEvents=false` behaviour.
+default `SyncEvents=false` behaviour. Command, component and message handlers all
+run behind `Recover`.
+
+`AddCommand` rejects a duplicate command name with an error log: Discord's bulk
+overwrite fails the whole batch on one collision, so keeping duplicates out
+preserves every command. `Bot.RegisterModule` snapshots the router before a
+module's `Init` and rolls the registrations back if `Init` fails, so a broken
+module cannot leave half its commands published.
 
 `BackgroundSupervisor.Start` launches each task in a goroutine and recovers panics; `Wait` blocks until all return.

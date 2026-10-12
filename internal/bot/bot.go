@@ -40,11 +40,14 @@ func (b *Bot) installSessionHandlers() {
 	b.handlersInstalled = true
 }
 
-// RegisterModule initialises a Module — which registers its handlers with the
-// router — and records its background tasks and stats. A module whose Init
-// fails is not registered.
+// RegisterModule initialises a Module and records its background tasks and
+// stats. A module registers its handlers with the router during Init; if Init
+// fails, everything it registered is rolled back so a broken module cannot
+// leave half its commands published.
 func (b *Bot) RegisterModule(m Module) error {
+	snapshot := b.Router.snapshot()
 	if err := m.Init(b.deps); err != nil {
+		b.Router.restore(snapshot)
 		return err
 	}
 	if sp, ok := m.(StatsProvider); ok {

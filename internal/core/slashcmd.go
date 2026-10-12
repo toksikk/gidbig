@@ -24,13 +24,6 @@ func (m *Module) buildUptimeBody() string {
 	return fmt.Sprintf("`Uptime: %s (since %s)`", uptime, startDateTime)
 }
 
-func interactionUser(i *discordgo.InteractionCreate) *discordgo.User {
-	if i.Member != nil && i.Member.User != nil {
-		return i.Member.User
-	}
-	return i.User
-}
-
 func respondEphemeral(s *discordgo.Session, i *discordgo.InteractionCreate, content string) {
 	if err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseChannelMessageWithSource,

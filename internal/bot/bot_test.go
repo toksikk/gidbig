@@ -63,3 +63,32 @@ func TestBot_RegisterModule_RouterCollectsCommands(t *testing.T) {
 		t.Fatalf("router commands = %#v, want the module's command", cmds)
 	}
 }
+
+// registerThenFailModule registers a command and then fails Init, simulating a
+// module that starts wiring handlers before hitting a fallible step.
+type registerThenFailModule struct{}
+
+func (registerThenFailModule) Name() string { return "half" }
+func (registerThenFailModule) Init(d Deps) error {
+	d.Router.AddCommand(&discordgo.ApplicationCommand{Name: "ghost"}, func(_ *discordgo.Session, _ *discordgo.InteractionCreate) {})
+	return errors.New("init failed after registering")
+}
+func (registerThenFailModule) Background() []BackgroundTask { return nil }
+func (registerThenFailModule) Shutdown() error              { return nil }
+
+func TestBot_RegisterModule_RollsBackOnInitError(t *testing.T) {
+	b := New(Deps{})
+
+	// A healthy module first, so rollback must keep its command.
+	if err := b.RegisterModule(&stubModule{name: "good", register: true}); err != nil {
+		t.Fatalf("register good: %v", err)
+	}
+	if err := b.RegisterModule(registerThenFailModule{}); err == nil {
+		t.Fatal("expected RegisterModule to fail")
+	}
+
+	cmds := b.Router.Commands()
+	if len(cmds) != 1 || cmds[0].Name != "good" {
+		t.Fatalf("router commands = %#v, want only the healthy module's command", cmds)
+	}
+}
