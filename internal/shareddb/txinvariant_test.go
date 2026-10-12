@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"go/ast"
 	"go/parser"
+	"go/printer"
 	"go/token"
 	"io/fs"
 	"os"
@@ -33,8 +34,12 @@ var gormMethods = map[string]bool{
 // TestTransactionClosuresThreadTx is the enforcement half of the one-connection
 // pool: Open caps the pool at one connection, so a query on the shared handle
 // from inside a db.Transaction closure would block the whole process. This
-// scans every db.Transaction closure in internal/ and fails if a GORM method is
-// called on anything other than the closure's own tx parameter.
+// scans every db.Transaction closure in internal/ and fails if the closure
+// either calls a GORM chain method on anything but its own tx parameter or
+// passes the handle the transaction was opened on (d, db, m.db, ...) as an
+// argument to another call. A helper that ignores its arguments and closes over
+// the shared handle internally is out of scope for an AST-only scan; the
+// direct and pass-through shapes are covered.
 func TestTransactionClosuresThreadTx(t *testing.T) {
 	root := repoRoot(t)
 	fset := token.NewFileSet()
@@ -66,6 +71,16 @@ func TestTransactionClosuresThreadTx(t *testing.T) {
 
 func scanTransactionClosures(fset *token.FileSet, path string, file *ast.File) []string {
 	var violations []string
+	seen := map[string]bool{}
+	report := func(pos token.Pos, msg string) {
+		key := fset.Position(pos).String()
+		if seen[key] {
+			return
+		}
+		seen[key] = true
+		violations = append(violations, "  "+key+": "+msg)
+	}
+
 	ast.Inspect(file, func(n ast.Node) bool {
 		call, ok := n.(*ast.CallExpr)
 		if !ok {
@@ -86,24 +101,42 @@ func scanTransactionClosures(fset *token.FileSet, path string, file *ast.File) [
 		if txName == "" {
 			return true
 		}
+		// The shared handle the transaction was opened on (d, db, m.db, ...).
+		// Any use of it inside the closure competes for the one connection.
+		handle := exprString(fset, sel.X)
 		ast.Inspect(lit.Body, func(m ast.Node) bool {
 			call, ok := m.(*ast.CallExpr)
 			if !ok {
 				return true
 			}
-			s, ok := call.Fun.(*ast.SelectorExpr)
-			if !ok || !gormMethods[s.Sel.Name] {
-				return true
+			// A GORM chain method on anything but tx is the classic mistake.
+			if s, ok := call.Fun.(*ast.SelectorExpr); ok && gormMethods[s.Sel.Name] {
+				if root := rootIdent(s.X); root != "" && root != txName {
+					report(s.Pos(), fmt.Sprintf("%s.%s (want %s)", root, s.Sel.Name, txName))
+				}
 			}
-			root := rootIdent(s.X)
-			if root != "" && root != txName {
-				violations = append(violations, fmt.Sprintf("  %s: %s.%s (want %s)", fset.Position(s.Pos()), root, s.Sel.Name, txName))
+			// Passing the shared handle to a helper is the same footgun in a
+			// shape the receiver check cannot see.
+			for _, arg := range call.Args {
+				if handle != "" && exprString(fset, arg) == handle {
+					report(arg.Pos(), fmt.Sprintf("shared handle %s used inside Transaction; thread %s", handle, txName))
+				}
 			}
 			return true
 		})
 		return true
 	})
 	return violations
+}
+
+// exprString renders an expression back to source so the shared handle can be
+// matched even when it is spelled as a field access (m.db) rather than a local.
+func exprString(fset *token.FileSet, e ast.Expr) string {
+	var sb strings.Builder
+	if err := printer.Fprint(&sb, fset, e); err != nil {
+		return ""
+	}
+	return sb.String()
 }
 
 // rootIdent walks a selector/call chain down to the base identifier, so
@@ -127,8 +160,9 @@ func rootIdent(e ast.Expr) string {
 	}
 }
 
-// TestScanTransactionClosures proves the scanner flags a shared-handle use and
-// passes a properly threaded closure, so the guard above cannot pass vacuously.
+// TestScanTransactionClosures proves the scanner flags both shapes of
+// shared-handle use and passes a properly threaded closure, so the guard above
+// cannot pass vacuously.
 func TestScanTransactionClosures(t *testing.T) {
 	const src = `package p
 
@@ -136,9 +170,17 @@ import "gorm.io/gorm"
 
 type M struct{ db *gorm.DB }
 
+func doThing(*gorm.DB) error { return nil }
+
 func (m *M) bad() error {
 	return m.db.Transaction(func(tx *gorm.DB) error {
 		return m.db.Model(nil).Error
+	})
+}
+
+func (m *M) badHelper() error {
+	return m.db.Transaction(func(tx *gorm.DB) error {
+		return doThing(m.db)
 	})
 }
 
@@ -154,11 +196,15 @@ func (m *M) good() error {
 		t.Fatalf("parse snippet: %v", err)
 	}
 	violations := scanTransactionClosures(fset, "snippet.go", file)
-	if len(violations) != 1 {
-		t.Fatalf("violations = %d (%v), want exactly the bad closure's m.db use", len(violations), violations)
+	if len(violations) != 2 {
+		t.Fatalf("violations = %d (%v), want exactly the two bad closures' handle uses", len(violations), violations)
 	}
-	if !strings.Contains(violations[0], "m.Model") || !strings.Contains(violations[0], "want tx") {
-		t.Errorf("violation = %q, want it to point at the shared-handle m.Model use", violations[0])
+	joined := strings.Join(violations, "\n")
+	if !strings.Contains(joined, "m.Model") || !strings.Contains(joined, "want tx") {
+		t.Errorf("violations = %q, want one pointing at the shared-handle m.Model use", joined)
+	}
+	if !strings.Contains(joined, "shared handle m.db") {
+		t.Errorf("violations = %q, want one for passing the shared handle to a helper", joined)
 	}
 }
 
