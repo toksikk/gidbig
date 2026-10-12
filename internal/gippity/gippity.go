@@ -291,7 +291,7 @@ func (m *Module) onMessageCreate(s *discordgo.Session, mc *discordgo.MessageCrea
 		slog.Debug("Message has image attachments and content")
 		generatedAnswer, err = m.generateAnswerFunc(mc, imageURLs)
 		if err != nil {
-			slog.Error("Could not generate answer")
+			logCompletionError(err)
 			return
 		}
 	}
@@ -300,7 +300,7 @@ func (m *Module) onMessageCreate(s *discordgo.Session, mc *discordgo.MessageCrea
 		slog.Debug("Message has content but no attachments")
 		generatedAnswer, err = m.generateAnswerFunc(mc, nil)
 		if err != nil {
-			slog.Error("Could not generate answer")
+			logCompletionError(err)
 			return
 		}
 	}
