@@ -21,6 +21,9 @@ type Deps struct {
 	// DB is the shared gidbig database, opened once by the composition root.
 	// Modules that persist data use it instead of opening the file themselves.
 	// Modules must not close it; the composition root owns its lifecycle.
+	// The pool holds a single connection, so inside DB.Transaction always use
+	// the provided tx handle for further queries — reusing this shared handle
+	// there would block forever on the one connection.
 	DB *gorm.DB
 
 	// Stats collects StatsProviders from modules registered with the Bot. The
