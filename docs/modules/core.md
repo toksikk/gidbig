@@ -8,6 +8,7 @@ Package `gidbig`, directory `internal/core`. Composition root and core module.
 - `slashcmd.go` – `/uptime` rendering helpers.
 - `status.go` / `status_users.go` – `/status` snapshot collection and rendering.
 - `webserver.go` – optional OAuth session web UI, sound + eso APIs.
+- `ratelimit.go` – per-IP token bucket and global concurrency cap guarding the unauthenticated, token-billed `/api/eso`, tuned through the optional `web.eso` config (`resolveEsoLimits`).
 - `wsdeadline.go` – read/write deadlines on discordgo websockets.
 - `version.go`, `discordlog.go`, `structs.go`.
 

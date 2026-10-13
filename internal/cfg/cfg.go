@@ -53,6 +53,21 @@ type LeetoclockConfig struct {
 	Emojis LeetoclockEmojisConfig `yaml:"emojis,omitempty"`
 }
 
+// EsoAPIConfig tunes the guards on the unauthenticated, LLM-billed /api/eso
+// endpoint. Every field is optional: an omitted or non-positive value keeps the
+// built-in default, which the web server applies in resolveEsoLimits.
+type EsoAPIConfig struct {
+	// RateLimitBurst is how many requests one client address may issue back to
+	// back. Default 5.
+	RateLimitBurst int `yaml:"rate_limit_burst,omitempty"`
+	// RateLimitPerMinute is the sustained per-client refill rate. Default 30.
+	RateLimitPerMinute int `yaml:"rate_limit_per_minute,omitempty"`
+	// MaxConcurrentRequests caps simultaneous generations. Default 4.
+	MaxConcurrentRequests int `yaml:"max_concurrent_requests,omitempty"`
+	// RequestTimeoutSeconds bounds one generation. Default 15.
+	RequestTimeoutSeconds int `yaml:"request_timeout_seconds,omitempty"`
+}
+
 // Config struct with all parameters
 type Config struct {
 	Discord struct {
@@ -69,6 +84,8 @@ type Config struct {
 		} `yaml:"oauth"`
 		SessionSecret string `yaml:"session_secret"`
 		Port          int    `yaml:"port,omitempty" default:"8080"`
+		// Eso optionally overrides the /api/eso rate and concurrency limits.
+		Eso EsoAPIConfig `yaml:"eso,omitempty"`
 	} `yaml:"web"`
 	// Database is deprecated and retained only to warn about the removed
 	// database.path option. It no longer selects the file location: the shared

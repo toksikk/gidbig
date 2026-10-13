@@ -10,8 +10,10 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/toksikk/gidbig/internal/cfg"
 )
@@ -385,5 +387,183 @@ func TestHandleHealth(t *testing.T) {
 	}
 	if w.Body.String() != `{"status":"ok"}` {
 		t.Errorf("body = %q, want %q", w.Body.String(), `{"status":"ok"}`)
+	}
+}
+
+// guardedTestWebServer builds a web server whose only endpoint is /api/eso on a
+// generator, with the production guards installed.
+func guardedTestWebServer(gen esoGenerator) *webServer {
+	return &webServer{
+		eso:            gen,
+		esoLimiter:     newIPRateLimiter(esoRateLimitBurst, esoRateLimitPerSecond),
+		esoConcurrency: newConcurrencyLimiter(esoMaxConcurrentRequests),
+		esoTimeout:     esoRequestTimeout,
+	}
+}
+
+func TestNewWebServer_AppliesEsoConfig(t *testing.T) {
+	config := &cfg.Config{}
+	config.Web.Eso.RateLimitBurst = 2
+	config.Web.Eso.RateLimitPerMinute = 60
+	config.Web.Eso.MaxConcurrentRequests = 1
+	config.Web.Eso.RequestTimeoutSeconds = 3
+
+	ws := newWebServer(config, nil, nil, nil)
+
+	if ws.esoLimiter.burst != 2 {
+		t.Errorf("burst = %v, want 2", ws.esoLimiter.burst)
+	}
+	if ws.esoLimiter.refillRate != 1 {
+		t.Errorf("refillRate = %v, want 1", ws.esoLimiter.refillRate)
+	}
+	if ws.esoTimeout != 3*time.Second {
+		t.Errorf("esoTimeout = %v, want %v", ws.esoTimeout, 3*time.Second)
+	}
+	if !ws.esoConcurrency.tryAcquire() {
+		t.Fatal("first slot rejected with max_concurrent_requests = 1")
+	}
+	if ws.esoConcurrency.tryAcquire() {
+		t.Error("configured concurrency cap of 1 not enforced")
+	}
+	ws.esoConcurrency.release()
+
+	// The configured burst is what the endpoint actually enforces.
+	ws.eso = &stubEsoGenerator{text: "response"}
+	for i := 0; i < 2; i++ {
+		w := httptest.NewRecorder()
+		ws.handleAPIEso(w, httptest.NewRequest(http.MethodGet, "/api/eso", nil))
+		if w.Code != http.StatusOK {
+			t.Fatalf("request %d status = %d, want %d", i+1, w.Code, http.StatusOK)
+		}
+	}
+	w := httptest.NewRecorder()
+	ws.handleAPIEso(w, httptest.NewRequest(http.MethodGet, "/api/eso", nil))
+	if w.Code != http.StatusTooManyRequests {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusTooManyRequests)
+	}
+}
+
+func TestNewWebServer_DefaultsEsoLimitsWhenUnset(t *testing.T) {
+	ws := newWebServer(&cfg.Config{}, nil, nil, nil)
+
+	if ws.esoLimiter.burst != esoRateLimitBurst || ws.esoLimiter.refillRate != esoRateLimitPerSecond {
+		t.Errorf("unset config changed the rate limit: burst=%v refill=%v",
+			ws.esoLimiter.burst, ws.esoLimiter.refillRate)
+	}
+	if ws.esoTimeout != esoRequestTimeout {
+		t.Errorf("esoTimeout = %v, want %v", ws.esoTimeout, esoRequestTimeout)
+	}
+}
+
+func TestHandleAPIEso_RateLimitsPerClient(t *testing.T) {
+	generator := &stubEsoGenerator{text: "response"}
+	ws := guardedTestWebServer(generator)
+
+	for i := 0; i < esoRateLimitBurst; i++ {
+		w := httptest.NewRecorder()
+		ws.handleAPIEso(w, httptest.NewRequest(http.MethodGet, "/api/eso", nil))
+		if w.Code != http.StatusOK {
+			t.Fatalf("request %d status = %d, want %d", i+1, w.Code, http.StatusOK)
+		}
+	}
+
+	w := httptest.NewRecorder()
+	ws.handleAPIEso(w, httptest.NewRequest(http.MethodGet, "/api/eso", nil))
+	if w.Code != http.StatusTooManyRequests {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusTooManyRequests)
+	}
+	retryAfter, err := strconv.Atoi(w.Header().Get("Retry-After"))
+	if err != nil || retryAfter < 1 {
+		t.Errorf("Retry-After = %q, want a positive integer", w.Header().Get("Retry-After"))
+	}
+}
+
+func TestHandleAPIEso_RateLimitIsPerAddress(t *testing.T) {
+	ws := guardedTestWebServer(&stubEsoGenerator{text: "response"})
+
+	for i := 0; i < esoRateLimitBurst; i++ {
+		ws.handleAPIEso(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/api/eso", nil))
+	}
+	// Same address again is rejected.
+	w := httptest.NewRecorder()
+	ws.handleAPIEso(w, httptest.NewRequest(http.MethodGet, "/api/eso", nil))
+	if w.Code != http.StatusTooManyRequests {
+		t.Fatalf("same address status = %d, want %d", w.Code, http.StatusTooManyRequests)
+	}
+
+	// A different client still gets a full budget.
+	other := httptest.NewRequest(http.MethodGet, "/api/eso", nil)
+	other.RemoteAddr = "198.51.100.7:5555"
+	w = httptest.NewRecorder()
+	ws.handleAPIEso(w, other)
+	if w.Code != http.StatusOK {
+		t.Errorf("other address status = %d, want %d", w.Code, http.StatusOK)
+	}
+}
+
+func TestHandleAPIEso_RejectsWhenConcurrencySaturated(t *testing.T) {
+	generator := &stubEsoGenerator{text: "response"}
+	ws := guardedTestWebServer(generator)
+	for i := 0; i < esoMaxConcurrentRequests; i++ {
+		if !ws.esoConcurrency.tryAcquire() {
+			t.Fatalf("could not fill concurrency slot %d", i+1)
+		}
+	}
+
+	w := httptest.NewRecorder()
+	ws.handleAPIEso(w, httptest.NewRequest(http.MethodGet, "/api/eso", nil))
+
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusServiceUnavailable)
+	}
+	if w.Header().Get("Retry-After") == "" {
+		t.Error("missing Retry-After header")
+	}
+	if generator.thema != "" {
+		t.Error("generator called while saturated")
+	}
+}
+
+func TestHandleAPIEso_ReleasesConcurrencySlot(t *testing.T) {
+	ws := guardedTestWebServer(&stubEsoGenerator{text: "response"})
+
+	ws.handleAPIEso(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/api/eso", nil))
+
+	for i := 0; i < esoMaxConcurrentRequests; i++ {
+		if !ws.esoConcurrency.tryAcquire() {
+			t.Fatalf("slot %d not released after the request", i+1)
+		}
+	}
+}
+
+// ctxObservingEsoGenerator blocks until its context is done and reports the
+// cancellation cause, so a test can prove the request timeout reached it.
+type ctxObservingEsoGenerator struct {
+	ctxErr chan error
+}
+
+func (g *ctxObservingEsoGenerator) GenerateText(ctx context.Context, _ string) string {
+	select {
+	case <-ctx.Done():
+		g.ctxErr <- ctx.Err()
+	case <-time.After(5 * time.Second):
+		g.ctxErr <- nil
+	}
+	return "late response"
+}
+
+func TestHandleAPIEso_AppliesRequestTimeout(t *testing.T) {
+	generator := &ctxObservingEsoGenerator{ctxErr: make(chan error, 1)}
+	ws := guardedTestWebServer(generator)
+	ws.esoTimeout = 20 * time.Millisecond
+
+	w := httptest.NewRecorder()
+	ws.handleAPIEso(w, httptest.NewRequest(http.MethodGet, "/api/eso", nil))
+
+	if err := <-generator.ctxErr; err != context.DeadlineExceeded {
+		t.Errorf("generator context error = %v, want %v", err, context.DeadlineExceeded)
+	}
+	if w.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusOK)
 	}
 }
