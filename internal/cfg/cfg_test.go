@@ -336,6 +336,58 @@ leetoclock:
 	}
 }
 
+func TestDecodeConfig_webEsoFields(t *testing.T) {
+	yaml := `
+discord:
+  token: "tok"
+gippity:
+  allowed_guilds: ["456"]
+web:
+  port: 8080
+  session_secret: "secret"
+  eso:
+    rate_limit_burst: 2
+    rate_limit_per_minute: 120
+    max_concurrent_requests: 1
+    request_timeout_seconds: 3
+`
+	cfg, err := decodeConfig(strings.NewReader(yaml))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Web.Eso.RateLimitBurst != 2 {
+		t.Errorf("web.eso.rate_limit_burst = %d, want 2", cfg.Web.Eso.RateLimitBurst)
+	}
+	if cfg.Web.Eso.RateLimitPerMinute != 120 {
+		t.Errorf("web.eso.rate_limit_per_minute = %d, want 120", cfg.Web.Eso.RateLimitPerMinute)
+	}
+	if cfg.Web.Eso.MaxConcurrentRequests != 1 {
+		t.Errorf("web.eso.max_concurrent_requests = %d, want 1", cfg.Web.Eso.MaxConcurrentRequests)
+	}
+	if cfg.Web.Eso.RequestTimeoutSeconds != 3 {
+		t.Errorf("web.eso.request_timeout_seconds = %d, want 3", cfg.Web.Eso.RequestTimeoutSeconds)
+	}
+}
+
+func TestDecodeConfig_webEsoOmitted(t *testing.T) {
+	yaml := `
+discord:
+  token: "tok"
+gippity:
+  allowed_guilds: ["456"]
+web:
+  port: 8080
+  session_secret: "secret"
+`
+	cfg, err := decodeConfig(strings.NewReader(yaml))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Web.Eso != (EsoAPIConfig{}) {
+		t.Errorf("web.eso should be empty when omitted, got %+v", cfg.Web.Eso)
+	}
+}
+
 func TestDecodeConfig_leetoclockOmitted(t *testing.T) {
 	yaml := `
 discord:

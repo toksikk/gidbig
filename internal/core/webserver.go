@@ -19,6 +19,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"time"
 	"unicode/utf8"
 
 	"github.com/bwmarrin/discordgo"
@@ -174,6 +175,13 @@ type webServer struct {
 	soundboard soundboardAPI
 	eso        esoGenerator
 
+	// esoLimiter and esoConcurrency keep the unauthenticated, token-billed
+	// /api/eso endpoint from being weaponised for cost or DoS; esoTimeout
+	// bounds one generation.
+	esoLimiter     *ipRateLimiter
+	esoConcurrency *concurrencyLimiter
+	esoTimeout     time.Duration
+
 	store      *sessionStore
 	tmpls      map[string]*template.Template
 	oauth      *oauth2.Config
@@ -184,10 +192,17 @@ type webServer struct {
 // nil module is stored as a nil interface so the handlers' nil checks (for
 // example the /api/eso 503) still work for a nil *Module.
 func newWebServer(config *cfg.Config, session *discordgo.Session, sb *soundboard.Module, esoMod *eso.Module) *webServer {
+	esoBurst, esoRefillPerSecond, esoMaxConcurrent, esoTimeout := resolveEsoLimits(config.Web.Eso)
+
 	ws := &webServer{
 		session: session,
 		store:   newSessionStore(config.Web.SessionSecret),
 		tmpls:   map[string]*template.Template{},
+
+		esoLimiter:     newIPRateLimiter(esoBurst, esoRefillPerSecond),
+		esoConcurrency: newConcurrencyLimiter(esoMaxConcurrent),
+		esoTimeout:     esoTimeout,
+
 		oauth: &oauth2.Config{
 			ClientID:     config.Web.Oauth.ClientID,
 			ClientSecret: config.Web.Oauth.ClientSecret,
@@ -319,12 +334,42 @@ func (ws *webServer) handleAPIQueue(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{"guilds": guilds})
 }
 
+// handleAPIEso guards the unauthenticated, LLM-backed endpoint with a per-IP
+// rate limit and a global concurrency cap, then applies a request timeout so a
+// stalled provider call cannot hold a slot forever.
 func (ws *webServer) handleAPIEso(w http.ResponseWriter, r *http.Request) {
 	if ws.eso == nil {
 		handleAPIEsoWithGenerator(w, r, nil)
 		return
 	}
-	handleAPIEsoWithGenerator(w, r, ws.eso)
+
+	ip := clientIP(r)
+	allowed, retryAfter, newlyBlocked := ws.esoLimiter.allow(ip)
+	if !allowed {
+		if newlyBlocked {
+			anonIP, err := ipAnonymizer.IPString(ip)
+			if err != nil {
+				anonIP = ip
+			}
+			slog.Warn("ESO API rate limit exceeded", "Requesting IP", anonIP, "Retry-After", retryAfter.String())
+		}
+		w.Header().Set("Retry-After", strconv.Itoa(int(retryAfter.Seconds()+0.999)))
+		http.Error(w, http.StatusText(http.StatusTooManyRequests), http.StatusTooManyRequests)
+		return
+	}
+
+	if !ws.esoConcurrency.tryAcquire() {
+		slog.Warn("ESO API concurrency limit reached; rejecting request")
+		w.Header().Set("Retry-After", "1")
+		http.Error(w, http.StatusText(http.StatusServiceUnavailable), http.StatusServiceUnavailable)
+		return
+	}
+	defer ws.esoConcurrency.release()
+
+	ctx, cancel := context.WithTimeout(r.Context(), ws.esoTimeout)
+	defer cancel()
+
+	handleAPIEsoWithGenerator(w, r.WithContext(ctx), ws.eso)
 }
 
 type esoRequest struct {

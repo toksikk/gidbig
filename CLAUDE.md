@@ -78,7 +78,7 @@ All modules live in `internal/`, compile into the binary, and implement `bot.Mod
 
 ### Web server (`internal/core/webserver.go`)
 
-Standard library `net/http` (`ServeMux`) + AES-GCM encrypted cookie session store. Discord OAuth2 (identify + guilds). Session key is derived from the Web SessionSecret. Routes: `/`, `/discordLogin`, `/discordCallback`, `/playsound` (POST), `/logout`, `/api/queue`, `/api/eso`, `/health`, and `/static/`. IP addresses are anonymized to /16 (IPv4) or /64 (IPv6).
+Standard library `net/http` (`ServeMux`) + AES-GCM encrypted cookie session store. Discord OAuth2 (identify + guilds). Session key is derived from the Web SessionSecret. Routes: `/`, `/discordLogin`, `/discordCallback`, `/playsound` (POST), `/logout`, `/api/queue`, `/api/eso`, `/health`, and `/static/`. IP addresses are anonymized to /16 (IPv4) or /64 (IPv6). `/api/queue` requires a Discord session; `/api/eso` is unauthenticated and token-billed, so it is guarded by a per-IP token bucket and a global concurrency cap with a per-request timeout (`internal/core/ratelimit.go`, tunable via the optional `web.eso` config).
 
 ### Key packages
 
