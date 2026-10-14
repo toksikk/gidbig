@@ -15,6 +15,9 @@ a `*llm.Client` through `bot.Deps.LLM`. Not user-facing.
   `genalpha`) > built-in default (resolved once in `New`).
 - `Client.Model`, `Client.VisionModel`, `Client.GetClient` – resolved
   configuration and the raw client for direct calls (gippity).
+- `Client.Info` – resolved, non-secret configuration for status output
+  (provider, models, base URL, credential *source*, persona *source*, timeout,
+  max tokens). It never returns the API key or the persona text.
 - `CompletionContent` – pure helper that returns the first choice or an error.
 
 There is no package-level mutable state: all of it lives on the `Client`, so

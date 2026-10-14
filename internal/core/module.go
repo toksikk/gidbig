@@ -8,6 +8,7 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/toksikk/gidbig/internal/bot"
 	"github.com/toksikk/gidbig/internal/cfg"
+	"github.com/toksikk/gidbig/internal/llm"
 	"github.com/toksikk/gidbig/internal/shareddb"
 	"github.com/toksikk/gidbig/internal/tool"
 )
@@ -19,6 +20,7 @@ import (
 type Module struct {
 	session   *discordgo.Session
 	conf      *cfg.Config
+	llm       *llm.Client
 	stats     *bot.StatsRegistry
 	tools     *tool.Registry
 	dbPaths   []string
@@ -36,6 +38,7 @@ func (m *Module) Name() string { return "core" }
 func (m *Module) Init(d bot.Deps) error {
 	m.session = d.Session
 	m.conf = d.Config
+	m.llm = d.LLM
 	m.stats = d.Stats
 	m.tools = d.Tools
 	m.dbPaths = []string{shareddb.Filename}
@@ -134,7 +137,7 @@ func (m *Module) onStatusInteractionCreate(s *discordgo.Session, i *discordgo.In
 		return
 	}
 	resp := statusInteractionResponse(func() *discordgo.InteractionResponseData {
-		snap := collectStatus(context.Background(), s, m.stats.All(), m.dbPaths, m.startTime)
+		snap := m.collectSnapshot(s)
 		return statusResponseData(snap, view, format)
 	})
 	if err := s.InteractionRespond(i.Interaction, resp); err != nil {
@@ -154,6 +157,44 @@ func (m *Module) onCoreSlashInteractionCreate(s *discordgo.Session, i *discordgo
 
 // statsMessage renders the compact status used by /admin info.
 func (m *Module) statsMessage(s *discordgo.Session) string {
-	snap := collectStatus(context.Background(), s, m.stats.All(), m.dbPaths, m.startTime)
+	snap := m.collectSnapshot(s)
 	return renderStatusText(snap, statusViewSummary, discordMessageLimit-6)
+}
+
+// collectSnapshot gathers the runtime status and attaches the effective LLM
+// configuration, so /status and /admin info both report it.
+func (m *Module) collectSnapshot(s *discordgo.Session) statusSnapshot {
+	snap := collectStatus(context.Background(), s, m.stats.All(), m.dbPaths, m.startTime)
+	snap.LLM = m.llmStatus()
+	return snap
+}
+
+// llmStatus resolves the non-secret LLM configuration for /status. It reads the
+// effective client settings from the shared llm.Client and the gippity knobs
+// from config, applying the same fallback the gippity module uses so the report
+// matches runtime behaviour. It never copies the API key or the persona text.
+func (m *Module) llmStatus() llmStatus {
+	st := llmStatus{AnswerMode: "mention only", ClassifierRateLimit: defaultClassifierRateLimit}
+	if m.llm != nil {
+		st.Info = m.llm.Info()
+	}
+	if m.conf == nil {
+		return st
+	}
+
+	g := m.conf.Gippity
+	st.ClassifierModel = g.ClassifierModel
+	if g.ClassifierRateLimitPerHour > 0 {
+		st.ClassifierRateLimit = g.ClassifierRateLimitPerHour
+	}
+	st.MessageRateLimit = g.RateLimitMessagesPerHour
+	st.ReasoningEffort = g.Tools.ReasoningEffort
+	st.ToolsEnabled = g.Tools.Enabled
+	st.ToolsMaxIterations = g.Tools.MaxIterations
+	st.ToolsAllowed = g.Tools.Allowed
+	st.DebugChannel = g.DebugChannel
+	if g.RespondToAllMessages {
+		st.AnswerMode = "all messages (classified)"
+	}
+	return st
 }

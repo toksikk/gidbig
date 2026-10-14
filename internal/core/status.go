@@ -16,6 +16,7 @@ import (
 	"github.com/bwmarrin/discordgo"
 	humanize "github.com/dustin/go-humanize"
 	"github.com/toksikk/gidbig/internal/bot"
+	"github.com/toksikk/gidbig/internal/llm"
 )
 
 const (
@@ -34,6 +35,11 @@ const (
 	statusFormatEmbed     = "embed"
 	statusEmbedColorOK    = 0x2ecc71
 	statusEmbedColorWarn  = 0xe67e22
+
+	// defaultClassifierRateLimit mirrors the gippity module's fallback when
+	// gippity.classifier_rate_limit_per_hour is unset, so /status reports the
+	// effective limit rather than zero.
+	defaultClassifierRateLimit = 30
 )
 
 // moduleStatus is one module's status snapshot plus its error, if any.
@@ -56,6 +62,24 @@ type guildStatus struct {
 	Voice   bool
 }
 
+// llmStatus is the non-secret LLM configuration shown in /status. It combines
+// the resolved llm.* client settings with the gippity knobs that steer LLM
+// calls. Field values are effective (defaults applied), never raw config, and
+// never contain the API key or the persona text.
+type llmStatus struct {
+	Info llm.Info
+
+	ClassifierModel     string
+	ClassifierRateLimit int
+	MessageRateLimit    int
+	AnswerMode          string
+	ReasoningEffort     string
+	ToolsEnabled        bool
+	ToolsMaxIterations  int
+	ToolsAllowed        []string
+	DebugChannel        string
+}
+
 type statusSnapshot struct {
 	Version    string
 	GoVersion  string
@@ -76,6 +100,7 @@ type statusSnapshot struct {
 	DBFiles    []dbFileStatus
 	Modules    []moduleStatus
 	GuildList  []guildStatus
+	LLM        llmStatus
 }
 
 func statusCommand() *discordgo.ApplicationCommand {
@@ -352,6 +377,51 @@ func (snap statusSnapshot) dbLines() []string {
 	return lines
 }
 
+// llmLines renders the effective, non-secret LLM configuration. It is empty
+// when no LLM client is wired, so the section disappears entirely in that case.
+func (snap statusSnapshot) llmLines() []string {
+	s := snap.LLM
+	if s.Info.Provider == "" {
+		return nil
+	}
+
+	classifier := s.Info.Model
+	if s.ClassifierModel != "" {
+		classifier = s.ClassifierModel
+	}
+	reasoning := s.ReasoningEffort
+	if reasoning == "" {
+		reasoning = "provider default"
+	}
+	tools := "off"
+	if s.ToolsEnabled {
+		allowed := "all registered"
+		if len(s.ToolsAllowed) > 0 {
+			allowed = strings.Join(s.ToolsAllowed, ", ")
+		}
+		tools = fmt.Sprintf("on · max %d iterations · %s", s.ToolsMaxIterations, allowed)
+	}
+
+	lines := []string{
+		fmt.Sprintf("%-11s %s", "provider", s.Info.Provider),
+		fmt.Sprintf("%-11s %s", "model", s.Info.Model),
+		fmt.Sprintf("%-11s %s", "vision", s.Info.VisionModel),
+		fmt.Sprintf("%-11s %s", "base url", s.Info.BaseURL),
+		fmt.Sprintf("%-11s %s", "credential", s.Info.KeySource),
+		fmt.Sprintf("%-11s %s", "personality", s.Info.PersonalitySource),
+		fmt.Sprintf("%-11s %s", "classifier", classifier),
+		fmt.Sprintf("%-11s %s", "reasoning", reasoning),
+		fmt.Sprintf("%-11s %s", "tools", tools),
+		fmt.Sprintf("%-11s %s", "answer mode", s.AnswerMode),
+		fmt.Sprintf("%-11s %s", "rate limits", fmt.Sprintf("%d msg/h · %d classify/h", s.MessageRateLimit, s.ClassifierRateLimit)),
+		fmt.Sprintf("%-11s %s", "completion", fmt.Sprintf("%s timeout · %d max tokens", s.Info.Timeout, s.Info.MaxTokens)),
+	}
+	if s.DebugChannel != "" {
+		lines = append(lines, fmt.Sprintf("%-11s %s", "debug channel", s.DebugChannel))
+	}
+	return lines
+}
+
 func (snap statusSnapshot) moduleLines(detailed bool) []string {
 	var lines []string
 	for _, m := range snap.Modules {
@@ -421,6 +491,7 @@ func renderStatusText(snap statusSnapshot, view string, limit int) string {
 	detailed := view == statusViewDetailed
 	sections := []textSection{
 		{title: "Runtime", lines: snap.runtimeLines(detailed)},
+		{title: "LLM", lines: snap.llmLines()},
 		{title: "Database", lines: snap.dbLines()},
 		{title: "Modules", lines: snap.moduleLines(detailed), trimmable: true},
 	}
@@ -511,6 +582,9 @@ func statusEmbedResponseData(snap statusSnapshot, view string) *discordgo.Intera
 	fields := []*discordgo.MessageEmbedField{
 		{Name: "Runtime", Value: embedValue(snap.runtimeLines(detailed))},
 		{Name: "Database", Value: embedValue(snap.dbLines())},
+	}
+	if lines := snap.llmLines(); len(lines) > 0 {
+		fields = append(fields, &discordgo.MessageEmbedField{Name: "LLM", Value: embedValue(lines)})
 	}
 	for _, m := range snap.Modules {
 		var lines []string
