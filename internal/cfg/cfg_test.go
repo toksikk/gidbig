@@ -190,6 +190,39 @@ gippity:
 	}
 }
 
+func TestDecodeConfig_llmAPIKey(t *testing.T) {
+	yaml := `
+discord:
+  token: "tok"
+gippity:
+  allowed_guilds: ["456"]
+llm:
+  provider: "openai"
+  api_key: "sk-config-secret"
+`
+	cfg, err := decodeConfig(strings.NewReader(yaml))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.LLM.APIKey != "sk-config-secret" {
+		t.Errorf("llm.api_key = %q, want sk-config-secret", cfg.LLM.APIKey)
+	}
+
+	omitted := `
+discord:
+  token: "tok"
+gippity:
+  allowed_guilds: ["456"]
+`
+	cfg, err = decodeConfig(strings.NewReader(omitted))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.LLM.APIKey != "" {
+		t.Errorf("llm.api_key = %q, want empty", cfg.LLM.APIKey)
+	}
+}
+
 func TestDecodeConfig_gippityToolsRejectsInvalidMaxIterations(t *testing.T) {
 	yaml := `
 discord:

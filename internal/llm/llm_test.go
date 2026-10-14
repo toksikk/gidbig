@@ -170,6 +170,53 @@ func TestNewRequiresProviderCredential(t *testing.T) {
 	}
 }
 
+func TestNewAPIKeyPrecedence(t *testing.T) {
+	tests := []struct {
+		name       string
+		envKey     string
+		configKey  string
+		wantHeader string
+	}{
+		{name: "environment wins over config", envKey: "env-secret", configKey: "config-secret", wantHeader: "Bearer env-secret"},
+		{name: "config used when environment unset", envKey: "", configKey: "config-secret", wantHeader: "Bearer config-secret"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("OPENAI_API_KEY", tt.envKey)
+
+			var gotAuth string
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				gotAuth = r.Header.Get("Authorization")
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"id":"test","choices":[{"message":{"role":"assistant","content":"hello"}}]}`))
+			}))
+			defer server.Close()
+
+			c, err := New(Options{Provider: "openai", Model: "test-model", BaseURL: server.URL, APIKey: tt.configKey})
+			if err != nil {
+				t.Fatalf("New: %v", err)
+			}
+			if _, err := c.GenerateMessage(context.Background(), "system", "user"); err != nil {
+				t.Fatalf("GenerateMessage: %v", err)
+			}
+			if gotAuth != tt.wantHeader {
+				t.Errorf("Authorization = %q, want %q", gotAuth, tt.wantHeader)
+			}
+		})
+	}
+}
+
+func TestNewMissingCredentialMentionsBothSources(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "")
+	_, err := New(Options{Provider: "openai", Model: "test-model"})
+	if err == nil {
+		t.Fatal("New() error = nil, want missing credential error")
+	}
+	if !strings.Contains(err.Error(), "OPENAI_API_KEY") || !strings.Contains(err.Error(), "llm.api_key") {
+		t.Fatalf("New() error = %v, want mention of OPENAI_API_KEY and llm.api_key", err)
+	}
+}
+
 func TestNewConfiguresOpenRouterRequest(t *testing.T) {
 	t.Setenv("OPENROUTER_API_KEY", "router-secret")
 

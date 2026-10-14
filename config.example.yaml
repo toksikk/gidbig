@@ -100,6 +100,10 @@ llm:
     # Optional OpenRouter app attribution headers.
     http_referer: ""
     title: "Gidbig"
+    # Optional API key for the selected provider. In production prefer the
+    # provider environment variable (OPENAI_API_KEY / OPENROUTER_API_KEY): when
+    # it is set, it wins over this value.
+    api_key: ""
     # Bot personality. Optional — if omitted, a built-in default persona is used.
     # Set a custom persona string here; it takes precedence over personality_preset.
     personality: ""
