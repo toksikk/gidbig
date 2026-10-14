@@ -83,25 +83,30 @@ func TestDetectChannelLanguage_ReturnsDetectedLanguage(t *testing.T) {
 
 func TestResolvePersonality(t *testing.T) {
 	tests := []struct {
-		name   string
-		custom string
-		preset string
-		want   string
+		name       string
+		custom     string
+		preset     string
+		want       string
+		wantSource string
 	}{
-		{"custom wins over preset", "be a pirate", "hal", "be a pirate"},
-		{"custom wins over default", "be a pirate", "", "be a pirate"},
-		{"whitespace custom is ignored", "   ", "dry", PersonalityPresets["dry"]},
-		{"known preset hal", "", "hal", PersonalityPresets["hal"]},
-		{"known preset schemer", "", "schemer", PersonalityPresets["schemer"]},
-		{"known preset genalpha", "", "genalpha", PersonalityPresets["genalpha"]},
-		{"unknown preset falls back to default", "", "nope", defaultPersonality},
-		{"nothing set uses default", "", "", defaultPersonality},
+		{"custom wins over preset", "be a pirate", "hal", "be a pirate", "custom"},
+		{"custom wins over default", "be a pirate", "", "be a pirate", "custom"},
+		{"whitespace custom is ignored", "   ", "dry", PersonalityPresets["dry"], "preset:dry"},
+		{"known preset hal", "", "hal", PersonalityPresets["hal"], "preset:hal"},
+		{"known preset schemer", "", "schemer", PersonalityPresets["schemer"], "preset:schemer"},
+		{"known preset genalpha", "", "genalpha", PersonalityPresets["genalpha"], "preset:genalpha"},
+		{"unknown preset falls back to default", "", "nope", defaultPersonality, "default"},
+		{"nothing set uses default", "", "", defaultPersonality, "default"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := resolvePersonality(tt.custom, tt.preset); got != tt.want {
+			got, source := resolvePersonality(tt.custom, tt.preset)
+			if got != tt.want {
 				t.Errorf("resolvePersonality(%q, %q) = %q, want %q", tt.custom, tt.preset, got, tt.want)
+			}
+			if source != tt.wantSource {
+				t.Errorf("resolvePersonality(%q, %q) source = %q, want %q", tt.custom, tt.preset, source, tt.wantSource)
 			}
 		})
 	}
@@ -281,6 +286,35 @@ func TestNewOpenAIDefaultModels(t *testing.T) {
 	}
 	if c.Personality() != defaultPersonality {
 		t.Error("default personality not applied")
+	}
+
+	info := c.Info()
+	if info.Provider != "openai" || info.Model != openai.ChatModelGPT4oMini || info.VisionModel != openai.ChatModelGPT4oMini {
+		t.Errorf("Info provider/models = %q/%q/%q", info.Provider, info.Model, info.VisionModel)
+	}
+	if info.BaseURL != "https://api.example/v1" || info.KeySource != "OPENAI_API_KEY" {
+		t.Errorf("Info base URL/credential = %q/%q", info.BaseURL, info.KeySource)
+	}
+	if info.PersonalitySource != "default" || info.Timeout != llmTimeout || info.MaxTokens != llmMaxTokens {
+		t.Errorf("Info personality/timeout/tokens = %q/%s/%d", info.PersonalitySource, info.Timeout, info.MaxTokens)
+	}
+}
+
+func TestInfoReflectsPreset(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "openai-key")
+	c, err := New(Options{Preset: "dry", BaseURL: "https://api.example/v1"})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if got := c.Info().PersonalitySource; got != "preset:dry" {
+		t.Errorf("PersonalitySource = %q, want preset:dry", got)
+	}
+}
+
+func TestInfoNilSafe(t *testing.T) {
+	var c *Client
+	if got := c.Info(); got != (Info{}) {
+		t.Errorf("nil client Info = %+v, want zero value", got)
 	}
 }
 

@@ -12,6 +12,8 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/toksikk/gidbig/internal/bot"
+	"github.com/toksikk/gidbig/internal/cfg"
+	"github.com/toksikk/gidbig/internal/llm"
 )
 
 func sampleSnapshot() statusSnapshot {
@@ -72,6 +74,134 @@ func TestRenderStatusTextDetailedAddsDetailAndGuilds(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("detailed missing %q:\n%s", want, out)
 		}
+	}
+}
+
+func llmSampleSnapshot() statusSnapshot {
+	snap := sampleSnapshot()
+	snap.LLM = llmStatus{
+		Info: llm.Info{
+			Provider:          "openrouter",
+			Model:             "vendor/model",
+			VisionModel:       "vendor/vision",
+			BaseURL:           "https://openrouter.ai/api/v1",
+			KeySource:         "OPENROUTER_API_KEY",
+			PersonalitySource: "preset:dry",
+			Timeout:           30 * time.Second,
+			MaxTokens:         150,
+		},
+		ClassifierModel:     "vendor/classifier",
+		ClassifierRateLimit: 12,
+		MessageRateLimit:    30,
+		AnswerMode:          "all messages (classified)",
+		ReasoningEffort:     "low",
+		ToolsEnabled:        true,
+		ToolsMaxIterations:  3,
+		ToolsAllowed:        []string{"bot_status", "coffee_status"},
+		DebugChannel:        "42",
+	}
+	return snap
+}
+
+func TestRenderStatusTextLLMSection(t *testing.T) {
+	out := renderStatusText(llmSampleSnapshot(), statusViewSummary, discordMessageLimit)
+	for _, want := range []string{
+		"── LLM",
+		"provider    openrouter",
+		"model       vendor/model",
+		"vision      vendor/vision",
+		"https://openrouter.ai/api/v1",
+		"credential  OPENROUTER_API_KEY",
+		"personality preset:dry",
+		"classifier  vendor/classifier",
+		"reasoning   low",
+		"max 3 iterations · bot_status, coffee_status",
+		"answer mode all messages (classified)",
+		"limits", "30 msg/h · 12 classify/h",
+		"30s timeout · 150 max tokens",
+		"debug channel 42",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("LLM section missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestRenderStatusTextOmitsLLMSectionWithoutClient(t *testing.T) {
+	out := renderStatusText(sampleSnapshot(), statusViewSummary, discordMessageLimit)
+	if strings.Contains(out, "── LLM") {
+		t.Errorf("empty LLM config should not render a section:\n%s", out)
+	}
+}
+
+func TestStatusEmbedLLMField(t *testing.T) {
+	data := statusEmbedResponseData(llmSampleSnapshot(), statusViewSummary)
+	found := false
+	for _, f := range data.Embeds[0].Fields {
+		if f.Name == "LLM" {
+			found = true
+			if !strings.Contains(f.Value, "openrouter") || !strings.Contains(f.Value, "vendor/classifier") {
+				t.Errorf("LLM field missing config: %q", f.Value)
+			}
+		}
+	}
+	if !found {
+		t.Error("summary embed missing LLM field")
+	}
+
+	plain := statusEmbedResponseData(sampleSnapshot(), statusViewSummary)
+	for _, f := range plain.Embeds[0].Fields {
+		if f.Name == "LLM" {
+			t.Error("LLM field rendered without a configured client")
+		}
+	}
+}
+
+func TestModuleLLMStatusEffectiveConfig(t *testing.T) {
+	t.Setenv("OPENROUTER_API_KEY", "test-key")
+	client, err := llm.New(llm.Options{Provider: "openrouter", Model: "vendor/model", VisionModel: "vendor/vision"})
+	if err != nil {
+		t.Fatalf("llm.New: %v", err)
+	}
+
+	conf := &cfg.Config{}
+	conf.Gippity.ClassifierModel = "vendor/classifier"
+	conf.Gippity.RespondToAllMessages = true
+	conf.Gippity.RateLimitMessagesPerHour = 40
+	conf.Gippity.Tools.Enabled = true
+	conf.Gippity.Tools.MaxIterations = 5
+	conf.Gippity.Tools.ReasoningEffort = "low"
+	conf.Gippity.Tools.Allowed = []string{"bot_status"}
+	conf.Gippity.DebugChannel = "42"
+
+	st := (&Module{llm: client, conf: conf}).llmStatus()
+	if st.Info.Provider != "openrouter" || st.Info.Model != "vendor/model" || st.Info.VisionModel != "vendor/vision" {
+		t.Errorf("Info = %+v, want resolved openrouter models", st.Info)
+	}
+	if st.Info.PersonalitySource != "default" {
+		t.Errorf("PersonalitySource = %q, want default", st.Info.PersonalitySource)
+	}
+	if st.ClassifierRateLimit != defaultClassifierRateLimit {
+		t.Errorf("ClassifierRateLimit = %d, want fallback %d", st.ClassifierRateLimit, defaultClassifierRateLimit)
+	}
+	if st.MessageRateLimit != 40 || st.AnswerMode != "all messages (classified)" {
+		t.Errorf("rate/answer = %d/%q", st.MessageRateLimit, st.AnswerMode)
+	}
+	if st.ReasoningEffort != "low" || !st.ToolsEnabled || st.ToolsMaxIterations != 5 {
+		t.Errorf("tools config = %+v", st)
+	}
+	if len(st.ToolsAllowed) != 1 || st.ToolsAllowed[0] != "bot_status" || st.DebugChannel != "42" {
+		t.Errorf("allowed/debug = %v/%q", st.ToolsAllowed, st.DebugChannel)
+	}
+}
+
+func TestModuleLLMStatusWithoutConfig(t *testing.T) {
+	st := (&Module{}).llmStatus()
+	if st.Info.Provider != "" {
+		t.Errorf("provider = %q, want empty without a client", st.Info.Provider)
+	}
+	if st.ClassifierRateLimit != defaultClassifierRateLimit || st.AnswerMode != "mention only" {
+		t.Errorf("defaults = %+v", st)
 	}
 }
 

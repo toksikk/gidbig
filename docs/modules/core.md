@@ -6,7 +6,7 @@ Package `gidbig`, directory `internal/core`. Composition root and core module.
 - `module.go` – the core `bot.Module`: lifecycle logging (`onReady`/`onConnect`/`onDisconnect`/`onResumed`), ping/pong, `/status`, `/uptime`.
 - `tools.go` – registers the `bot_status` LLM tool, which reports the process runtime line (heap, sys, stack, goroutines, GC cycles, uptime) plus aggregated `StatsProvider` counters for the answer path.
 - `slashcmd.go` – `/uptime` rendering helpers.
-- `status.go` / `status_users.go` – `/status` snapshot collection and rendering.
+- `status.go` / `status_users.go` – `/status` snapshot collection and rendering. The snapshot carries an `LLM` section with the effective, non-secret LLM configuration (provider, models, base URL, credential source, persona source, classifier, reasoning effort, tools, rate limits, timeouts), sourced from the shared `*llm.Client` (`Info`) and the gippity config via `Module.llmStatus`.
 - `webserver.go` – optional OAuth session web UI, sound + eso APIs.
 - `ratelimit.go` – per-IP token bucket and global concurrency cap guarding the unauthenticated, token-billed `/api/eso`, tuned through the optional `web.eso` config (`resolveEsoLimits`).
 - `wsdeadline.go` – read/write deadlines on discordgo websockets.

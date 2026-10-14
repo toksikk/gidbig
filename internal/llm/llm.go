@@ -69,10 +69,50 @@ type Client struct {
 	visionModel string
 	personality string
 
+	// Resolved, non-secret configuration surfaced through Info. provider and
+	// baseURL are the effective values after defaults are applied; keySource
+	// names where the credential came from, never the credential itself.
+	provider          string
+	baseURL           string
+	keySource         string
+	personalitySource string
+
 	// generateFn is the underlying completion call, swappable in tests.
 	generateFn func(ctx context.Context, systemPrompt, userPrompt string) (string, error)
 
 	langCache sync.Map // channelID -> cachedLang
+}
+
+// Info is the resolved, non-secret LLM configuration for status output. It
+// carries the effective provider, models, endpoint and the source of the
+// credential — never the credential itself.
+type Info struct {
+	Provider          string
+	Model             string
+	VisionModel       string
+	BaseURL           string
+	KeySource         string
+	PersonalitySource string
+	Timeout           time.Duration
+	MaxTokens         int64
+}
+
+// Info returns the resolved configuration. The API key is never included, only
+// the name of the environment variable or config key it came from.
+func (c *Client) Info() Info {
+	if c == nil {
+		return Info{}
+	}
+	return Info{
+		Provider:          c.provider,
+		Model:             c.textModel,
+		VisionModel:       c.visionModel,
+		BaseURL:           c.baseURL,
+		KeySource:         c.keySource,
+		PersonalitySource: c.personalitySource,
+		Timeout:           llmTimeout,
+		MaxTokens:         llmMaxTokens,
+	}
 }
 
 type cachedLang struct {
@@ -152,11 +192,16 @@ func New(opts Options) (*Client, error) {
 	}
 	openaiClient := openai.NewClient(requestOpts...)
 
+	personality, personalitySource := resolvePersonality(opts.Personality, opts.Preset)
 	c := &Client{
-		client:      &openaiClient,
-		textModel:   model,
-		visionModel: visionModel,
-		personality: resolvePersonality(opts.Personality, opts.Preset),
+		client:            &openaiClient,
+		textModel:         model,
+		visionModel:       visionModel,
+		personality:       personality,
+		provider:          provider,
+		baseURL:           strings.TrimRight(baseURL, "/"),
+		keySource:         keySource,
+		personalitySource: personalitySource,
 	}
 	c.generateFn = c.generateMessage
 	slog.Info("llm: client initialized", "provider", provider, "model", c.textModel, "vision_model", c.visionModel, "api_key_source", keySource)
@@ -197,23 +242,25 @@ func (c *Client) Personality() string {
 	return c.personality
 }
 
-// resolvePersonality picks the persona from config. A non-empty custom string
-// wins; otherwise a known preset key is used; otherwise the built-in default is
-// kept. An unknown preset logs a warning and falls back to the default.
-func resolvePersonality(custom, preset string) string {
+// resolvePersonality picks the persona from config and labels its source. A
+// non-empty custom string wins; otherwise a known preset key is used; otherwise
+// the built-in default is kept. An unknown preset logs a warning and falls back
+// to the default. The source label is reported in status output, so it never
+// contains the persona text itself.
+func resolvePersonality(custom, preset string) (persona, source string) {
 	switch {
 	case strings.TrimSpace(custom) != "":
 		slog.Info("llm: using custom personality from config")
-		return custom
+		return custom, "custom"
 	case preset != "":
 		if p, ok := PersonalityPresets[preset]; ok {
 			slog.Info("llm: using personality preset", "preset", preset)
-			return p
+			return p, "preset:" + preset
 		}
 		slog.Warn("llm: unknown personality_preset, falling back to default", "preset", preset)
-		return defaultPersonality
+		return defaultPersonality, "default"
 	default:
-		return defaultPersonality
+		return defaultPersonality, "default"
 	}
 }
 
