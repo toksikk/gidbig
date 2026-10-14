@@ -142,6 +142,7 @@ func StartGidbig() {
 		BaseURL:     conf.LLM.BaseURL,
 		HTTPReferer: conf.LLM.HTTPReferer,
 		Title:       conf.LLM.Title,
+		APIKey:      conf.LLM.APIKey,
 		Personality: conf.LLM.Personality,
 		Preset:      conf.LLM.Preset,
 	})

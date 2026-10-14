@@ -54,6 +54,9 @@ type Options struct {
 	BaseURL     string
 	HTTPReferer string
 	Title       string
+	// APIKey is the provider credential from llm.api_key. Optional: the
+	// provider's environment variable wins when both are set.
+	APIKey      string
 	Personality string
 	Preset      string
 }
@@ -77,9 +80,11 @@ type cachedLang struct {
 	expiresAt time.Time
 }
 
-// New creates a Client. API keys are read from OPENAI_API_KEY or
-// OPENROUTER_API_KEY according to the selected provider. The provider's
-// credentials and base URL are validated here so a misconfiguration fails fast.
+// New creates a Client. The API key is taken from the provider's environment
+// variable (OPENAI_API_KEY or OPENROUTER_API_KEY) when set, otherwise from
+// llm.api_key. The environment wins so a deployment can override the file
+// without editing it. The provider's credentials and base URL are validated
+// here so a misconfiguration fails fast.
 func New(opts Options) (*Client, error) {
 	provider := strings.ToLower(strings.TrimSpace(opts.Provider))
 	model := strings.TrimSpace(opts.Model)
@@ -112,8 +117,15 @@ func New(opts Options) (*Client, error) {
 	}
 
 	apiKey := strings.TrimSpace(os.Getenv(keyEnv))
+	keySource := keyEnv
 	if apiKey == "" {
-		return nil, fmt.Errorf("%s is required when llm.provider is %s", keyEnv, provider)
+		// The environment wins over the file; llm.api_key is the fallback so a
+		// single self-contained config.yaml can carry the credential.
+		apiKey = strings.TrimSpace(opts.APIKey)
+		keySource = "llm.api_key"
+	}
+	if apiKey == "" {
+		return nil, fmt.Errorf("%s or llm.api_key is required when llm.provider is %s", keyEnv, provider)
 	}
 	parsedBaseURL, err := url.ParseRequestURI(baseURL)
 	if err != nil || parsedBaseURL.Scheme == "" || parsedBaseURL.Host == "" ||
@@ -147,7 +159,7 @@ func New(opts Options) (*Client, error) {
 		personality: resolvePersonality(opts.Personality, opts.Preset),
 	}
 	c.generateFn = c.generateMessage
-	slog.Info("llm: client initialized", "provider", provider, "model", c.textModel, "vision_model", c.visionModel)
+	slog.Info("llm: client initialized", "provider", provider, "model", c.textModel, "vision_model", c.visionModel, "api_key_source", keySource)
 	return c, nil
 }
 

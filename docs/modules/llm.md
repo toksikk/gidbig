@@ -4,9 +4,10 @@ Directory `internal/llm`. Shared OpenAI-compatible client + persona, carried as
 a `*llm.Client` through `bot.Deps.LLM`. Not user-facing.
 
 - `New(Options)` – builds a `Client` from `provider` (`openai`/`openrouter`),
-  reads `OPENAI_API_KEY`/`OPENROUTER_API_KEY`, sets base URL, timeout, models
-  and resolves the persona. Returns an error on a bad provider, missing key or
-  invalid base URL.
+  reads the API key from `OPENAI_API_KEY`/`OPENROUTER_API_KEY` and falls back to
+  `llm.api_key` when the environment variable is unset, sets base URL, timeout,
+  models and resolves the persona. Returns an error on a bad provider, missing
+  key or invalid base URL.
 - `Client.GenerateMessage` – single-turn completion, 30s timeout, 150 max tokens.
 - `Client.DetectChannelLanguage` – LLM language detect over last 20 channel
   messages, 1h cache held on the client.
@@ -29,9 +30,12 @@ sequenceDiagram
     participant API as Provider API
     participant Mod as Module
 
-    Core->>L: New(Options{provider, model, vision, base URL, personality, preset})
+    Core->>L: New(Options{provider, model, vision, base URL, api key, personality, preset})
     L->>Env: read OPENAI_API_KEY / OPENROUTER_API_KEY
-    alt key missing / bad provider / bad base URL
+    alt environment variable empty
+        L->>L: fall back to Options.APIKey (llm.api_key)
+    end
+    alt key still missing / bad provider / bad base URL
         L-->>Core: error (fatal)
     else ok
         L->>L: openai.NewClient(opts) + resolve persona

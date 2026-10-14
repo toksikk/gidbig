@@ -146,6 +146,9 @@ type Config struct {
 		BaseURL     string `yaml:"base_url,omitempty"`
 		HTTPReferer string `yaml:"http_referer,omitempty"`
 		Title       string `yaml:"title,omitempty"`
+		// APIKey is the provider credential. Optional: the provider's environment
+		// variable (OPENAI_API_KEY / OPENROUTER_API_KEY) takes precedence when set.
+		APIKey string `yaml:"api_key,omitempty"`
 		// Personality is a custom persona string. When set it takes precedence
 		// over Preset and the built-in default.
 		Personality string `yaml:"personality,omitempty"`

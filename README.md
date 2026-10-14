@@ -70,7 +70,7 @@ llm:
 dev_mode: true
 ```
 
-Set `OPENAI_API_KEY` in the bot environment for the default OpenAI provider. Keep API credentials out of `config.yaml`.
+Set `OPENAI_API_KEY` in the bot environment for the default OpenAI provider, and `OPENROUTER_API_KEY` when using OpenRouter. The environment variable takes precedence; `llm.api_key` is the fallback so a single `config.yaml` can also carry the credential.
 
 OpenRouter is also supported through its OpenAI-compatible API:
 
@@ -81,6 +81,7 @@ llm:
     vision_model: "google/gemini-2.5-flash" # optional; defaults to model
     http_referer: "https://your-deployment.example" # optional attribution
     title: "Gidbig" # optional attribution
+    api_key: "" # optional; OPENROUTER_API_KEY wins when set
 ```
 
 Set `OPENROUTER_API_KEY` when using OpenRouter. `llm.provider` defaults to `openai`, the OpenAI model defaults to `gpt-4o-mini`, and `llm.vision_model` defaults to `llm.model`. `llm.base_url` can optionally override either provider's API endpoint for an OpenAI-compatible gateway.
