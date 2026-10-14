@@ -90,15 +90,15 @@ func llmSampleSnapshot() statusSnapshot {
 			Timeout:           30 * time.Second,
 			MaxTokens:         150,
 		},
-		ClassifierModel:     "vendor/classifier",
-		ClassifierRateLimit: 12,
-		MessageRateLimit:    30,
-		AnswerMode:          "all messages (classified)",
-		ReasoningEffort:     "low",
-		ToolsEnabled:        true,
-		ToolsMaxIterations:  3,
-		ToolsAllowed:        []string{"bot_status", "coffee_status"},
-		DebugChannel:        "42",
+		ClassifierModel:      "vendor/classifier",
+		ClassifierRateLimit:  12,
+		MessageRateLimit:     30,
+		AnswerMode:           "all messages (classified)",
+		ToolsReasoningEffort: "low",
+		ToolsEnabled:         true,
+		ToolsMaxIterations:   3,
+		ToolsAllowed:         []string{"bot_status", "coffee_status"},
+		DebugChannel:         "42",
 	}
 	return snap
 }
@@ -114,7 +114,8 @@ func TestRenderStatusTextLLMSection(t *testing.T) {
 		"credential  OPENROUTER_API_KEY",
 		"personality preset:dry",
 		"classifier  vendor/classifier",
-		"reasoning   low",
+		"reasoning   tool rounds: low",
+		"            all other calls: provider default",
 		"max 3 iterations · bot_status, coffee_status",
 		"answer mode all messages (classified)",
 		"limits", "30 msg/h · 12 classify/h",
@@ -131,6 +132,17 @@ func TestRenderStatusTextOmitsLLMSectionWithoutClient(t *testing.T) {
 	out := renderStatusText(sampleSnapshot(), statusViewSummary, discordMessageLimit)
 	if strings.Contains(out, "── LLM") {
 		t.Errorf("empty LLM config should not render a section:\n%s", out)
+	}
+}
+
+func TestRenderStatusTextReasoningDefaults(t *testing.T) {
+	snap := llmSampleSnapshot()
+	snap.LLM.ToolsReasoningEffort = ""
+	out := renderStatusText(snap, statusViewSummary, discordMessageLimit)
+	for _, want := range []string{"reasoning   tool rounds: provider default", "all other calls: provider default"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("reasoning defaults missing %q:\n%s", want, out)
+		}
 	}
 }
 
@@ -187,7 +199,7 @@ func TestModuleLLMStatusEffectiveConfig(t *testing.T) {
 	if st.MessageRateLimit != 40 || st.AnswerMode != "all messages (classified)" {
 		t.Errorf("rate/answer = %d/%q", st.MessageRateLimit, st.AnswerMode)
 	}
-	if st.ReasoningEffort != "low" || !st.ToolsEnabled || st.ToolsMaxIterations != 5 {
+	if st.ToolsReasoningEffort != "low" || !st.ToolsEnabled || st.ToolsMaxIterations != 5 {
 		t.Errorf("tools config = %+v", st)
 	}
 	if len(st.ToolsAllowed) != 1 || st.ToolsAllowed[0] != "bot_status" || st.DebugChannel != "42" {

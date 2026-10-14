@@ -188,7 +188,7 @@ func (m *Module) llmStatus() llmStatus {
 		st.ClassifierRateLimit = g.ClassifierRateLimitPerHour
 	}
 	st.MessageRateLimit = g.RateLimitMessagesPerHour
-	st.ReasoningEffort = g.Tools.ReasoningEffort
+	st.ToolsReasoningEffort = g.Tools.ReasoningEffort
 	st.ToolsEnabled = g.Tools.Enabled
 	st.ToolsMaxIterations = g.Tools.MaxIterations
 	st.ToolsAllowed = g.Tools.Allowed

@@ -73,11 +73,15 @@ type llmStatus struct {
 	ClassifierRateLimit int
 	MessageRateLimit    int
 	AnswerMode          string
-	ReasoningEffort     string
-	ToolsEnabled        bool
-	ToolsMaxIterations  int
-	ToolsAllowed        []string
-	DebugChannel        string
+	// ToolsReasoningEffort is gippity.tools.reasoning_effort. It is sent only on
+	// tool-carrying requests; the plain answer path, the forced tool-free final
+	// answer and the classifier/vision calls omit the field, so those fall back
+	// to the provider default.
+	ToolsReasoningEffort string
+	ToolsEnabled         bool
+	ToolsMaxIterations   int
+	ToolsAllowed         []string
+	DebugChannel         string
 }
 
 type statusSnapshot struct {
@@ -389,9 +393,9 @@ func (snap statusSnapshot) llmLines() []string {
 	if s.ClassifierModel != "" {
 		classifier = s.ClassifierModel
 	}
-	reasoning := s.ReasoningEffort
-	if reasoning == "" {
-		reasoning = "provider default"
+	toolReasoning := s.ToolsReasoningEffort
+	if toolReasoning == "" {
+		toolReasoning = "provider default"
 	}
 	tools := "off"
 	if s.ToolsEnabled {
@@ -410,7 +414,8 @@ func (snap statusSnapshot) llmLines() []string {
 		fmt.Sprintf("%-11s %s", "credential", s.Info.KeySource),
 		fmt.Sprintf("%-11s %s", "personality", s.Info.PersonalitySource),
 		fmt.Sprintf("%-11s %s", "classifier", classifier),
-		fmt.Sprintf("%-11s %s", "reasoning", reasoning),
+		fmt.Sprintf("%-11s %s", "reasoning", "tool rounds: "+toolReasoning),
+		fmt.Sprintf("%-11s %s", "", "all other calls: provider default"),
 		fmt.Sprintf("%-11s %s", "tools", tools),
 		fmt.Sprintf("%-11s %s", "answer mode", s.AnswerMode),
 		fmt.Sprintf("%-11s %s", "rate limits", fmt.Sprintf("%d msg/h · %d classify/h", s.MessageRateLimit, s.ClassifierRateLimit)),
