@@ -37,7 +37,11 @@ var PersonalityPresets = map[string]string{
 
 const llmTimeout = 30 * time.Second
 const langCacheTTL = 1 * time.Hour
-const llmMaxTokens = int64(150)
+
+// DefaultMaxTokens caps one completion call when neither llm.max_tokens nor a
+// runtime override supplies a value. The non-mention classifier in gippity has
+// its own much smaller bound and does not use this.
+const DefaultMaxTokens = int64(300)
 
 const (
 	defaultProvider      = "openai"
@@ -65,6 +69,13 @@ type Options struct {
 	ModelOverride func() (string, bool)
 	// VisionModelOverride does the same for the vision model.
 	VisionModelOverride func() (string, bool)
+	// MaxTokens is the completion cap from llm.max_tokens. Zero or negative
+	// falls back to DefaultMaxTokens.
+	MaxTokens int64
+	// MaxTokensOverride supplies the completion cap at request time, so a
+	// runtime settings change applies without a restart. Returning false, or a
+	// non-positive value, keeps MaxTokens.
+	MaxTokensOverride func() (int, bool)
 }
 
 // Client is the shared LLM connection and its resolved configuration. It
@@ -85,6 +96,11 @@ type Client struct {
 	// which case the boot-time models apply. See Options.
 	modelOverride       func() (string, bool)
 	visionModelOverride func() (string, bool)
+
+	// maxTokens is the boot-time completion cap; maxTokensOverride resolves a
+	// runtime llm.max_tokens value per request.
+	maxTokens         int64
+	maxTokensOverride func() (int, bool)
 
 	// Resolved, non-secret configuration surfaced through Info. provider and
 	// baseURL are the effective values after defaults are applied; keySource
@@ -128,7 +144,7 @@ func (c *Client) Info() Info {
 		KeySource:         c.keySource,
 		PersonalitySource: c.personalitySource,
 		Timeout:           llmTimeout,
-		MaxTokens:         llmMaxTokens,
+		MaxTokens:         c.MaxTokens(),
 	}
 }
 
@@ -207,6 +223,10 @@ func New(opts Options) (*Client, error) {
 	if visionModel == "" {
 		visionModel = model
 	}
+	maxTokens := opts.MaxTokens
+	if maxTokens <= 0 {
+		maxTokens = DefaultMaxTokens
+	}
 	openaiClient := openai.NewClient(requestOpts...)
 
 	personality, personalitySource := resolvePersonality(opts.Personality, opts.Preset)
@@ -217,6 +237,8 @@ func New(opts Options) (*Client, error) {
 		visionExplicit:      strings.TrimSpace(opts.VisionModel) != "",
 		modelOverride:       opts.ModelOverride,
 		visionModelOverride: opts.VisionModelOverride,
+		maxTokens:           maxTokens,
+		maxTokensOverride:   opts.MaxTokensOverride,
 		personality:         personality,
 		provider:            provider,
 		baseURL:             strings.TrimRight(baseURL, "/"),
@@ -252,18 +274,52 @@ func (c *Client) Model() string {
 
 // VisionModel returns the effective model for image-aware completions. An
 // explicit llm.vision_model wins; otherwise the vision model follows the text
-// model, so a runtime change to llm.model carries over.
+// model, so a runtime change to llm.model carries over. A stored override that is
+// present but empty deliberately means "follow the text model" — the same thing
+// an empty llm.vision_model means in config.yaml — so unlike the text-model
+// override it must not be collapsed into "no override".
 func (c *Client) VisionModel() string {
 	if c == nil {
 		return ""
 	}
-	if v, ok := resolveOverride(c.visionModelOverride); ok {
-		return v
+	if c.visionModelOverride != nil {
+		if v, ok := c.visionModelOverride(); ok {
+			if v = strings.TrimSpace(v); v != "" {
+				return v
+			}
+			return c.Model()
+		}
 	}
 	if c.visionExplicit {
 		return c.visionModel
 	}
 	return c.Model()
+}
+
+// MaxTokens returns the effective cap for one completion: the runtime override
+// when one is set, otherwise the value resolved at construction.
+func (c *Client) MaxTokens() int64 {
+	if c == nil {
+		return 0
+	}
+	if n, ok := resolveIntOverride(c.maxTokensOverride); ok {
+		return n
+	}
+	return c.maxTokens
+}
+
+// resolveIntOverride calls an optional integer resolver, treating an absent or
+// non-positive result as "no override" so a blank row never disables the
+// client's own fallback.
+func resolveIntOverride(fn func() (int, bool)) (int64, bool) {
+	if fn == nil {
+		return 0, false
+	}
+	n, ok := fn()
+	if !ok || n <= 0 {
+		return 0, false
+	}
+	return int64(n), true
 }
 
 // resolveOverride calls an optional model resolver, treating an empty result as
@@ -322,7 +378,7 @@ func (c *Client) generateMessage(ctx context.Context, systemPrompt, userPrompt s
 		},
 		Model:               c.Model(),
 		N:                   openai.Int(1),
-		MaxCompletionTokens: openai.Int(llmMaxTokens),
+		MaxCompletionTokens: openai.Int(c.MaxTokens()),
 	})
 	if err != nil {
 		return "", err

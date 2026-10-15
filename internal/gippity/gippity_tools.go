@@ -72,7 +72,7 @@ func (m *Module) completeWithTools(ctx context.Context, env tool.Env, messages [
 		Messages:            messages,
 		Model:               m.llmClient.Model(),
 		N:                   openai.Int(1),
-		MaxCompletionTokens: openai.Int(300),
+		MaxCompletionTokens: openai.Int(m.maxTokensNow()),
 	}
 
 	if !m.toolsEnabledNow() || m.tools == nil {

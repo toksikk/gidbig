@@ -11,6 +11,7 @@ import (
 	"github.com/bwmarrin/discordgo"
 	openai "github.com/openai/openai-go/v3"
 	"github.com/toksikk/gidbig/internal/cfg"
+	"github.com/toksikk/gidbig/internal/llm"
 	"github.com/toksikk/gidbig/internal/settings"
 	"github.com/toksikk/gidbig/internal/tool"
 	"gorm.io/gorm"
@@ -306,4 +307,93 @@ func TestOnMessageCreate_DebugChannelIsHot(t *testing.T) {
 	if stored != 0 {
 		t.Errorf("stored %d messages, want 0: the runtime debug channel was ignored", stored)
 	}
+}
+
+// TestMaxTokensNow_UsesTheClientCap pins that the answer and vision paths share
+// one cap with the llm client, so llm.max_tokens governs every completion except
+// the classifier.
+func TestMaxTokensNow_UsesTheClientCap(t *testing.T) {
+	m, _ := setupGippityTest(t)
+	store := newRuntimeSettingsStore(t, m.db)
+	m.settings = store
+
+	if got := m.maxTokensNow(); got != llm.DefaultMaxTokens {
+		t.Errorf("maxTokensNow() = %d, want the client default %d", got, llm.DefaultMaxTokens)
+	}
+
+	// Wire the cap exactly as the composition root does.
+	client, err := llm.New(llm.Options{
+		APIKey:            "test-key",
+		MaxTokens:         123,
+		MaxTokensOverride: func() (int, bool) { return store.OverrideInt(settings.KeyLLMMaxTokens) },
+	})
+	if err != nil {
+		t.Fatalf("llm.New: %v", err)
+	}
+	m.llmClient = client
+	if got := m.maxTokensNow(); got != 123 {
+		t.Errorf("maxTokensNow() = %d, want the boot 123", got)
+	}
+
+	mustSet(t, store, settings.KeyLLMMaxTokens, "777")
+	if got := m.maxTokensNow(); got != 777 {
+		t.Errorf("maxTokensNow() = %d, want the runtime 777", got)
+	}
+}
+
+// TestCompleteWithTools_MaxTokensIsHot proves the runtime cap reaches the request
+// that is actually sent, for both the answer and the vision path.
+func TestCompleteWithTools_MaxTokensIsHot(t *testing.T) {
+	m, _ := setupGippityTest(t)
+	store := newRuntimeSettingsStore(t, m.db)
+	m.settings = store
+	m.llmClient = newMaxTokensClient(t, store, 300)
+
+	var answerCap int64
+	m.chatCompletionFunc = func(_ context.Context, params openai.ChatCompletionNewParams) (*openai.ChatCompletion, error) {
+		answerCap = params.MaxCompletionTokens.Value
+		return completionWithContent("answer"), nil
+	}
+	var visionCap int64
+	m.visionCompletionFunc = func(_ context.Context, params openai.ChatCompletionNewParams) (*openai.ChatCompletion, error) {
+		visionCap = params.MaxCompletionTokens.Value
+		return completionWithContent("a cat"), nil
+	}
+
+	if _, err := m.completeWithTools(context.Background(), tool.Env{}, nil); err != nil {
+		t.Fatalf("completeWithTools: %v", err)
+	}
+	if answerCap != 300 {
+		t.Errorf("answer MaxCompletionTokens = %d, want the boot 300", answerCap)
+	}
+
+	mustSet(t, store, settings.KeyLLMMaxTokens, "777")
+
+	if _, err := m.completeWithTools(context.Background(), tool.Env{}, nil); err != nil {
+		t.Fatalf("completeWithTools after the change: %v", err)
+	}
+	if answerCap != 777 {
+		t.Errorf("answer MaxCompletionTokens = %d, want the runtime 777", answerCap)
+	}
+	if _, err := m.describeImages([]string{"https://example.test/a.png"}); err != nil {
+		t.Fatalf("describeImages: %v", err)
+	}
+	if visionCap != 777 {
+		t.Errorf("vision MaxCompletionTokens = %d, want the runtime 777", visionCap)
+	}
+}
+
+// newMaxTokensClient builds an llm client whose completion cap is backed by the
+// settings store, matching internal/core/cmd.go.
+func newMaxTokensClient(t *testing.T, store *settings.Store, boot int) *llm.Client {
+	t.Helper()
+	client, err := llm.New(llm.Options{
+		APIKey:            "test-key",
+		MaxTokens:         int64(boot),
+		MaxTokensOverride: func() (int, bool) { return store.OverrideInt(settings.KeyLLMMaxTokens) },
+	})
+	if err != nil {
+		t.Fatalf("llm.New: %v", err)
+	}
+	return client
 }

@@ -117,6 +117,21 @@ func (s *Store) Override(key string) (string, bool) {
 	return s.override(key)
 }
 
+// OverrideInt returns the stored override for an integer key, parsed. It reports
+// false when no row exists or the stored value is not a whole number, so a
+// malformed row cannot disable the caller's own fallback.
+func (s *Store) OverrideInt(key string) (int, bool) {
+	v, ok := s.Override(key)
+	if !ok {
+		return 0, false
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(v))
+	if err != nil {
+		return 0, false
+	}
+	return n, true
+}
+
 // Effective returns the effective value for a key and where it came from. The
 // second result is false for an unknown or secret key.
 func (s *Store) Effective(key string) (string, Source, bool) {

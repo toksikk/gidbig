@@ -59,6 +59,7 @@ const (
 	KeySoundboardQueueMaxDepth         = "soundboard.queue_max_depth"
 	KeyLLMModel                        = "llm.model"
 	KeyLLMVisionModel                  = "llm.vision_model"
+	KeyLLMMaxTokens                    = "llm.max_tokens"
 )
 
 // Key describes one runtime-tunable setting.
@@ -178,6 +179,17 @@ var registry = []Key{
 		Extract:  extractString(func(c *cfg.Config) *string { return &c.LLM.Model }),
 		Apply:    applyString(func(c *cfg.Config) *string { return &c.LLM.Model }),
 		Validate: requireNonEmpty,
+	},
+	{
+		// One cap for every completion the bot makes except the non-mention
+		// classifier, which keeps its own much smaller bound so it can only
+		// answer YES or NO.
+		Name:     KeyLLMMaxTokens,
+		Kind:     KindInt,
+		Hot:      true,
+		Extract:  extractInt(func(c *cfg.Config) *int { return &c.LLM.MaxTokens }),
+		Apply:    applyInt(func(c *cfg.Config) *int { return &c.LLM.MaxTokens }),
+		Validate: requirePositiveInt,
 	},
 	{
 		// An empty llm.vision_model means "follow llm.model", so unlike llm.model

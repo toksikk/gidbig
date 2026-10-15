@@ -250,8 +250,23 @@ func TestModuleLLMStatusReadsRuntimeOverrides(t *testing.T) {
 	conf := &cfg.Config{}
 	conf.Gippity.RateLimitMessagesPerHour = 40
 	conf.Gippity.Tools.MaxIterations = 3
+	conf.LLM.MaxTokens = 300
 
-	st := (&Module{conf: conf, settings: store}).llmStatus()
+	// Same llm wiring as the composition root, so /status reports the cap that
+	// the answer path actually uses.
+	client, err := llm.New(llm.Options{
+		APIKey:            "test-key",
+		MaxTokens:         int64(conf.LLM.MaxTokens),
+		MaxTokensOverride: func() (int, bool) { return store.OverrideInt(settings.KeyLLMMaxTokens) },
+	})
+	if err != nil {
+		t.Fatalf("llm.New: %v", err)
+	}
+	if err := store.Set(settings.KeyLLMMaxTokens, "640", "owner"); err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+
+	st := (&Module{conf: conf, llm: client, settings: store}).llmStatus()
 	if st.MessageRateLimit != 7 {
 		t.Errorf("MessageRateLimit = %d, want the runtime 7", st.MessageRateLimit)
 	}
@@ -275,6 +290,9 @@ func TestModuleLLMStatusReadsRuntimeOverrides(t *testing.T) {
 	}
 	if st.DebugChannel != "runtime-channel" {
 		t.Errorf("DebugChannel = %q, want the runtime channel", st.DebugChannel)
+	}
+	if st.Info.MaxTokens != 640 {
+		t.Errorf("Info.MaxTokens = %d, want the runtime 640", st.Info.MaxTokens)
 	}
 }
 

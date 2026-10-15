@@ -1,6 +1,9 @@
 package gippity
 
-import "github.com/toksikk/gidbig/internal/settings"
+import (
+	"github.com/toksikk/gidbig/internal/llm"
+	"github.com/toksikk/gidbig/internal/settings"
+)
 
 // The module's own fallbacks for the two per-user hourly limits. cfg.Decode
 // applies both defaults, so these only cover a hand-built Config that skipped
@@ -15,6 +18,17 @@ const (
 // When no store is wired (tests that build Deps by hand) the Init-time snapshot
 // field is returned, which keeps the existing field-level test setup working
 // unchanged.
+
+// maxTokensNow returns the cap for one completion in the answer and vision
+// paths. The llm client owns the value — llm.max_tokens plus any runtime
+// override — so every completion in the process shares one cap. The non-mention
+// classifier deliberately keeps its own much smaller bound instead.
+func (m *Module) maxTokensNow() int64 {
+	if m.llmClient != nil {
+		return m.llmClient.MaxTokens()
+	}
+	return llm.DefaultMaxTokens
+}
 
 func (m *Module) userMessageLimitNow() int {
 	if m.settings != nil {

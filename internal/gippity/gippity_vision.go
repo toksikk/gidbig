@@ -27,7 +27,7 @@ func (m *Module) describeImages(imageURLs []string) (string, error) {
 		},
 		Model:               m.llmClient.VisionModel(),
 		N:                   openai.Int(1),
-		MaxCompletionTokens: openai.Int(150),
+		MaxCompletionTokens: openai.Int(m.maxTokensNow()),
 	})
 	if err != nil {
 		slog.Error("Error describing image", "error", err)
