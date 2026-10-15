@@ -155,7 +155,7 @@ func TestRecordInteractionRoutingAndVisibility(t *testing.T) {
 		{"top", []*discordgo.ApplicationCommandInteractionDataOption{recordOption("scope", "global")}, discordgo.MessageFlagsEphemeral, "Away Server", "discord.com/channels"},
 		{"top", []*discordgo.ApplicationCommandInteractionDataOption{recordOption("scope", "global"), recordOption("public", true)}, 0, "Carol — 2 ms", "<@"},
 		{"player", nil, discordgo.MessageFlagsEphemeral, "Valid attempts: 1", "msg3"},
-		{"player", []*discordgo.ApplicationCommandInteractionDataOption{recordOption("user", "bob"), recordOption("scope", "global"), recordOption("public", true)}, 0, "<@bob>", "discord.com/channels"},
+		{"player", []*discordgo.ApplicationCommandInteractionDataOption{recordOption("user", "bob"), recordOption("public", true)}, 0, "<@bob>", "elsewhere"},
 		{"player", []*discordgo.ApplicationCommandInteractionDataOption{recordOption("scope", "global")}, discordgo.MessageFlagsEphemeral, "Valid attempts: 2", "discord.com/channels"},
 	} {
 		m.onInteractionCreate(s, recordInteraction(tc.sub, "one", "alice", tc.options...))
@@ -209,6 +209,7 @@ func TestRecordErrorsAndNoScores(t *testing.T) {
 	}{
 		{recordInteraction("top", "", "alice", recordOption("public", true)), "Use this command", false},
 		{recordInteraction("top", "one", "alice", recordOption("period", "bad"), recordOption("public", true)), "Invalid record options", false},
+		{recordInteraction("player", "one", "alice", recordOption("user", "bob"), recordOption("scope", "global"), recordOption("public", true)), "Global records are only available for yourself.", false},
 		{recordInteraction("player", "one", "unknown"), "No stored player", true},
 		{recordInteraction("player", "one", "alice"), "No valid scores", true},
 		{recordInteraction("top", "one", "alice"), "No valid scores", true},

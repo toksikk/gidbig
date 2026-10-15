@@ -204,18 +204,27 @@ func parseRecordRequest(i *discordgo.InteractionCreate) (recordRequest, error) {
 			return r, fmt.Errorf("invalid option")
 		}
 	}
+	callerID := ""
+	if i.Member != nil && i.Member.User != nil {
+		callerID = i.Member.User.ID
+	} else if i.User != nil {
+		callerID = i.User.ID
+	}
 	if r.subcommand == "player" && r.userID == "" {
-		if i.Member != nil && i.Member.User != nil {
-			r.userID = i.Member.User.ID
-		} else if i.User != nil {
-			r.userID = i.User.ID
-		}
+		r.userID = callerID
 		if r.userID == "" {
 			return r, fmt.Errorf("missing user")
 		}
 	}
+	if r.subcommand == "player" && r.scope == "global" && r.userID != callerID {
+		return r, errGlobalOtherPlayer
+	}
 	return r, nil
 }
+
+// errGlobalOtherPlayer rejects a global player lookup for anyone but the
+// caller, so cross-server activity of other users stays private.
+var errGlobalOtherPlayer = errors.New("global player records are only available for the caller")
 
 func (m *Module) onInteractionCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	if i == nil || i.Interaction == nil || i.Type != discordgo.InteractionApplicationCommand || i.ApplicationCommandData().Name != "leetoclock" {
@@ -233,6 +242,10 @@ func (m *Module) onInteractionCreate(s *discordgo.Session, i *discordgo.Interact
 		return
 	}
 	r, err := parseRecordRequest(i)
+	if errors.Is(err, errGlobalOtherPlayer) {
+		respondRecordsError(s, i, "Global records are only available for yourself.")
+		return
+	}
 	if err != nil {
 		respondRecordsError(s, i, "Invalid record options. Choose `/leetoclock top`, `/leetoclock daily` or `/leetoclock player`.")
 		return

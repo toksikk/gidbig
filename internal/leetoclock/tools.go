@@ -145,6 +145,9 @@ func (m *Module) recordsHandler(_ context.Context, env tool.Env, args json.RawMe
 		if r.userID == "" {
 			return "no player given", nil
 		}
+		if r.scope == "global" && r.userID != env.UserID {
+			return "global scope is only available for your own records", nil
+		}
 	}
 
 	if !day.IsZero() {
