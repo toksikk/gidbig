@@ -19,6 +19,7 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/toksikk/gidbig/internal/bot"
 	"github.com/toksikk/gidbig/internal/tool"
+	"github.com/toksikk/gidbig/internal/util"
 )
 
 const (
@@ -109,7 +110,7 @@ func (m *Module) onInteractionCreate(s *discordgo.Session, i *discordgo.Interact
 			slog.Error("wardogs: failed to fetch Linux support status", "error", err)
 			body = "Could not reach `doeswardogshavelinux.support` right now. Try again in a minute."
 		}
-		if _, errEdit := s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: &body}); errEdit != nil {
+		if _, errEdit := s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: &body, AllowedMentions: util.NoMentions()}); errEdit != nil {
 			slog.Error("wardogs: failed to edit interaction response", "error", errEdit)
 		}
 	}()

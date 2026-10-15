@@ -126,7 +126,7 @@ func New() *Module {
 		return m.channelMessageFunc(s, channelID, messageID)
 	}
 	m.messageSendFunc = func(s *discordgo.Session, channelID, content string) (*discordgo.Message, error) {
-		return s.ChannelMessageSend(channelID, content)
+		return s.ChannelMessageSendComplex(channelID, &discordgo.MessageSend{Content: content, AllowedMentions: util.NoMentions()})
 	}
 	m.messageThreadStartFunc = func(s *discordgo.Session, channelID, messageID string, data *discordgo.ThreadStart) (*discordgo.Channel, error) {
 		return s.MessageThreadStartComplex(channelID, messageID, data)

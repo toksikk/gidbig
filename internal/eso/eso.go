@@ -119,7 +119,7 @@ func (m *Module) onInteractionCreate(s *discordgo.Session, i *discordgo.Interact
 			userPrompt = "Generiere esoterischen Unsinn über das Thema: " + subject
 		}
 		text := restoreMentions(m.responder.GenerateWithPrompt(context.Background(), userPrompt))
-		if _, err := s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: &text}); err != nil {
+		if _, err := s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: &text, AllowedMentions: util.NoMentions()}); err != nil {
 			slog.Error("eso: failed to edit interaction response", "error", err)
 			return
 		}

@@ -592,7 +592,7 @@ func (m *Module) sendIntroDMImpl(s *discordgo.Session, userID string, emoji stri
 	}
 
 	content := fmt.Sprintf("Your morning beverage is now %s ☑️\n\nWhenever you say 'moin', 'hallo' or similar, I'll greet you with your preferred beverage! You can change this anytime using the `/setbeverage` command. Enjoy your morning! ☀️", emoji)
-	_, err = s.ChannelMessageSend(channel.ID, content)
+	_, err = s.ChannelMessageSendComplex(channel.ID, &discordgo.MessageSend{Content: content, AllowedMentions: util.NoMentions()})
 	if err != nil {
 		slog.Error("coffee: failed to send intro DM", "error", err, "userID", userID)
 	}

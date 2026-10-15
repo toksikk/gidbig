@@ -1,7 +1,9 @@
 package cfg
 
 import (
+	"bytes"
 	"fmt"
+	"log/slog"
 	"reflect"
 	"strings"
 	"testing"
@@ -752,5 +754,38 @@ func TestDecode_LLMMaxTokensDefault(t *testing.T) {
 	}
 	if explicit.LLM.MaxTokens != 700 {
 		t.Errorf("llm.max_tokens = %d, want the explicit 700", explicit.LLM.MaxTokens)
+	}
+}
+
+func TestValidate_ShortSessionSecretWarns(t *testing.T) {
+	var logs bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	for _, tt := range []struct {
+		secret   string
+		wantWarn bool
+	}{
+		{"short", true},
+		{strings.Repeat("x", minSessionSecretLen), false},
+	} {
+		logs.Reset()
+		c := &Config{}
+		c.Discord.Token = "tok"
+		c.Gippity.AllowedGuilds = []string{"guild"}
+		c.Gippity.RateLimitMessagesPerHour = 30
+		c.Gippity.Tools.MaxIterations = 3
+		c.Gippity.ClassifierRateLimitPerHour = defaultGippityClassifierRateLimit
+		c.Soundboard.QueueMaxDepth = 6
+		c.LLM.MaxTokens = defaultLLMMaxTokens
+		c.Web.Port = 8080
+		c.Web.SessionSecret = tt.secret
+		if err := Validate(c); err != nil {
+			t.Fatalf("Validate(len %d) error = %v, want nil", len(tt.secret), err)
+		}
+		if got := strings.Contains(logs.String(), "web.session_secret is short"); got != tt.wantWarn {
+			t.Errorf("len %d: warned = %v, want %v (logs: %s)", len(tt.secret), got, tt.wantWarn, logs.String())
+		}
 	}
 }
