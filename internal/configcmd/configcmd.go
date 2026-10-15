@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"strings"
 
 	"github.com/bwmarrin/discordgo"
@@ -217,6 +218,10 @@ func (m *Module) effective(key string) (string, settings.Source, bool) {
 		value = m.llm.Model()
 	case settings.KeyLLMVisionModel:
 		value = m.llm.VisionModel()
+	case settings.KeyLLMMaxTokens:
+		// The client floors a non-positive or unparseable value, so echoing the
+		// raw row here would report a cap that is not in force.
+		value = strconv.FormatInt(m.llm.MaxTokens(), 10)
 	}
 	return value, source, true
 }

@@ -305,6 +305,10 @@ func (c *Client) MaxTokens() int64 {
 	if n, ok := resolveIntOverride(c.maxTokensOverride); ok {
 		return n
 	}
+	if c.maxTokens <= 0 {
+		// A Client that skipped New must not send max_completion_tokens: 0.
+		return DefaultMaxTokens
+	}
 	return c.maxTokens
 }
 
