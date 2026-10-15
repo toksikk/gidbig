@@ -3,6 +3,7 @@ package settings
 import (
 	"errors"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -478,5 +479,74 @@ func TestEffective_LLMMaxTokensDefault(t *testing.T) {
 	}
 	if value != "300" || source != SourceDefault {
 		t.Errorf("Effective(llm.max_tokens) = (%q, %q), want (\"300\", %q)", value, source, SourceDefault)
+	}
+}
+
+// TestEffective_UnusableRowIsNotReportedAsInForce pins that "source: db" always
+// means "this is the value in force": a row that does not parse, or that fails
+// the key's own rule, is reported as the config value instead.
+func TestEffective_UnusableRowIsNotReportedAsInForce(t *testing.T) {
+	tests := []struct {
+		name  string
+		key   string
+		value string
+	}{
+		{"unparseable int", KeySoundboardQueueMaxDepth, "not-a-number"},
+		{"unparseable bool", KeyGippityToolsEnabled, "yes"},
+		{"int failing the key rule", KeySoundboardQueueMaxDepth, "-1"},
+		{"string failing the key rule", KeyLLMModel, ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := newTestStore(t, openTestDB(t), baseYAML)
+			// Written outside Set, which would have rejected all four.
+			if err := store.db.Create(&Setting{Key: tt.key, Value: tt.value, UpdatedBy: "manual"}).Error; err != nil {
+				t.Fatalf("insert row: %v", err)
+			}
+			if err := store.reload(); err != nil {
+				t.Fatalf("reload: %v", err)
+			}
+
+			value, source, ok := store.Effective(tt.key)
+			if !ok {
+				t.Fatalf("Effective(%s) reported an unknown key", tt.key)
+			}
+			if source == SourceDB {
+				t.Errorf("Effective(%s) = (%q, %q): an unusable row was reported as in force", tt.key, value, source)
+			}
+			// The reported value must match what the consumer's getter produces.
+			var expected string
+			switch {
+			case strings.HasSuffix(tt.key, "enabled"):
+				expected = strconv.FormatBool(store.Bool(tt.key))
+			case strings.HasSuffix(tt.key, "depth"):
+				expected = strconv.Itoa(store.Int(tt.key))
+			default:
+				expected = store.String(tt.key)
+			}
+			if value != expected {
+				t.Errorf("Effective(%s) = %q, but the getter yields %q", tt.key, value, expected)
+			}
+		})
+	}
+}
+
+// TestSet_SkipsAnUnusableRowInsteadOfBlocking pins that one corrupt row cannot
+// stop unrelated keys from being written.
+func TestSet_SkipsAnUnusableRowInsteadOfBlocking(t *testing.T) {
+	store := newTestStore(t, openTestDB(t), baseYAML)
+	if err := store.db.Create(&Setting{Key: KeySoundboardQueueMaxDepth, Value: "abc", UpdatedBy: "manual"}).Error; err != nil {
+		t.Fatalf("insert row: %v", err)
+	}
+	if err := store.reload(); err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+
+	if err := store.Set(KeyLLMModel, "runtime-model", "owner"); err != nil {
+		t.Fatalf("Set on an unrelated key: %v", err)
+	}
+	if got := store.String(KeyLLMModel); got != "runtime-model" {
+		t.Errorf("llm.model = %q, want the written value", got)
 	}
 }

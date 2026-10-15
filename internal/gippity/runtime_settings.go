@@ -30,9 +30,13 @@ func (m *Module) maxTokensNow() int64 {
 	return llm.DefaultMaxTokens
 }
 
+// userMessageLimitNow keeps the Init-time fallback for a non-positive value, like
+// its siblings: a stored 0 would otherwise make every mention look over budget.
 func (m *Module) userMessageLimitNow() int {
 	if m.settings != nil {
-		return m.settings.Int(settings.KeyGippityRateLimitMessagesPerHour)
+		if n := m.settings.Int(settings.KeyGippityRateLimitMessagesPerHour); n > 0 {
+			return n
+		}
 	}
 	return m.userMessageLimit
 }

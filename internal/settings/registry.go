@@ -80,19 +80,25 @@ type Key struct {
 	// Apply writes the raw value into a config copy so the merged result can be
 	// re-validated with cfg.Validate.
 	Apply func(*cfg.Config, string) error
-	// Validate adds a rule cfg.Validate does not cover for this key. It runs
-	// before Apply. Nil means cfg.Validate is the only rule.
+	// Validate rejects a value this key can never use, and runs before Apply.
+	// Nil means cfg.Validate is the only rule. It covers two cases: a rule cfg
+	// does not express at all (an empty llm.model), and a rule cfg applies to the
+	// merged config but that the store also needs to judge a single stored row —
+	// without it, Effective would report a row as in force that nothing applies.
 	Validate func(string) error
 }
 
 // registry is the set of runtime-editable keys.
 var registry = []Key{
 	{
-		Name:    KeyGippityRateLimitMessagesPerHour,
-		Kind:    KindInt,
-		Hot:     true,
-		Extract: extractInt(func(c *cfg.Config) *int { return &c.Gippity.RateLimitMessagesPerHour }),
-		Apply:   applyInt(func(c *cfg.Config) *int { return &c.Gippity.RateLimitMessagesPerHour }),
+		// cfg.Validate already rejects a non-positive value; repeating it here
+		// lets the store tell that such a row is not in force.
+		Name:     KeyGippityRateLimitMessagesPerHour,
+		Kind:     KindInt,
+		Hot:      true,
+		Extract:  extractInt(func(c *cfg.Config) *int { return &c.Gippity.RateLimitMessagesPerHour }),
+		Apply:    applyInt(func(c *cfg.Config) *int { return &c.Gippity.RateLimitMessagesPerHour }),
+		Validate: requirePositiveInt,
 	},
 	{
 		Name:    KeyGippityReplyInThread,
@@ -166,11 +172,14 @@ var registry = []Key{
 		Apply:   applyString(func(c *cfg.Config) *string { return &c.Gippity.Tools.ReasoningEffort }),
 	},
 	{
-		Name:    KeySoundboardQueueMaxDepth,
-		Kind:    KindInt,
-		Hot:     true,
-		Extract: extractInt(func(c *cfg.Config) *int { return &c.Soundboard.QueueMaxDepth }),
-		Apply:   applyInt(func(c *cfg.Config) *int { return &c.Soundboard.QueueMaxDepth }),
+		// cfg.Validate already rejects a non-positive value; repeating it here
+		// lets the store tell that such a row is not in force.
+		Name:     KeySoundboardQueueMaxDepth,
+		Kind:     KindInt,
+		Hot:      true,
+		Extract:  extractInt(func(c *cfg.Config) *int { return &c.Soundboard.QueueMaxDepth }),
+		Apply:    applyInt(func(c *cfg.Config) *int { return &c.Soundboard.QueueMaxDepth }),
+		Validate: requirePositiveInt,
 	},
 	{
 		Name:     KeyLLMModel,
