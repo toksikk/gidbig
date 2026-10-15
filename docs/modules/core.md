@@ -7,7 +7,7 @@ Package `gidbig`, directory `internal/core`. Composition root and core module.
 - `tools.go` – registers the `bot_status` LLM tool, which reports the process runtime line (heap, sys, stack, goroutines, GC cycles, uptime) plus aggregated `StatsProvider` counters for the answer path.
 - `slashcmd.go` – `/uptime` rendering helpers.
 - `status.go` / `status_users.go` – `/status` snapshot collection and rendering. The snapshot carries an `LLM` section with the effective, non-secret LLM configuration (provider, models, base URL, credential source, persona source, classifier, reasoning effort, tools, rate limits, timeouts), sourced from the shared `*llm.Client` (`Info`) and the gippity config via `Module.llmStatus`.
-- `webserver.go` – optional OAuth session web UI, sound + eso APIs. Served by an `http.Server` with read/write/idle timeouts and a `securityHeaders` middleware (CSP with `frame-ancestors 'none'`, `X-Frame-Options`, `nosniff`, `Referrer-Policy`); the OAuth callback answers 502 when the Discord user lookup fails.
+- `webserver.go` – optional OAuth session web UI, sound + eso APIs. Served by an `http.Server` with read/write/idle timeouts and a `securityHeaders` middleware (CSP with `frame-ancestors 'none'`, `X-Frame-Options`, `nosniff`, `Referrer-Policy`); the OAuth callback answers 502 when the Discord user lookup fails. See "Web sessions and endpoints" below.
 - `webadmin.go` – the owner-only `/admin` panel: it renders the same runtime
   settings the `/admin config` command edits, through the `configcmd` module, and
   applies a set or an unset with the same validation. Access needs the session to
@@ -56,6 +56,51 @@ sequenceDiagram
     core->>core: wait SIGINT/SIGTERM, cancel ctx
     bot-->>core: ctx done
     core->>bot: Shutdown() cancels, waits, closes session
+```
+
+## Web sessions and endpoints
+
+- **Session cookie** – AES-GCM encrypted, `HttpOnly`, `SameSite=Lax`, `MaxAge`
+  7 days, and `Secure` when `web.oauth.redirect_uri` is `https`. It stores the
+  user ID, name, avatar and login time (`IssuedAt`); the OAuth access token is
+  used once to resolve the user and never stored. Every session route
+  (`/`, `/playsound`, `/api/queue`) checks `validSession`: user set and
+  `IssuedAt` at most `sessionMaxAge` (7 days) old; a cookie without `IssuedAt`
+  counts as expired. Logout only clears the cookie; expiry is the bound.
+- **OAuth state** – `/discordLogin` stores a random state in the caller's own
+  session cookie; `/discordCallback` compares it in constant time, rejects an
+  empty one with 403, never logs either value, and clears it on login.
+- **`/playsound`** – POST only (405 with `Allow: POST` otherwise), `Origin` must
+  match the redirect URI's origin (`validOrigin`, shared with `/admin`; a
+  missing `Origin` is accepted), then a valid session (401).
+- **`/api/queue`** – only the queues of guilds where the caller currently has a
+  voice state in the bot's cache (`voiceGuilds`); empty when not in voice.
+- **Logs** – web request logs carry the path (never the query, which holds the
+  OAuth code) and the client IP anonymized to /16 or /64 (`anonymizedIP`).
+- **UI** – `internal.html` builds toasts and queue rows with `textContent`; no
+  `innerHTML`.
+
+```mermaid
+sequenceDiagram
+    participant B as Browser
+    participant W as webServer
+    participant D as Discord OAuth
+    participant SB as soundboard
+
+    B->>W: GET /discordLogin
+    W-->>B: Set-Cookie session{State}, 307 to Discord with state
+    B->>D: authorize
+    D-->>B: redirect /discordCallback?code&state
+    B->>W: GET /discordCallback (cookie)
+    W->>W: constant-time state compare, else 403
+    W->>D: exchange code, fetch @me
+    W-->>B: Set-Cookie session{user, IssuedAt} (Secure on https, 7d)
+    B->>W: POST /playsound (Origin, cookie)
+    W->>W: POST? Origin? validSession?
+    W->>SB: Enqueue(user, voice guild, command, sound)
+    B->>W: GET /api/queue
+    W->>SB: QueueStatus()
+    W-->>B: queues filtered to caller's voice guilds
 ```
 
 ## Web admin panel
