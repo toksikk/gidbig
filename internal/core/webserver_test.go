@@ -1058,3 +1058,33 @@ func TestInternalTemplate_NoInnerHTML(t *testing.T) {
 		t.Error("internal.html uses innerHTML; build the DOM with textContent")
 	}
 }
+
+func TestHandleLogout_LogsAnonymizedIP(t *testing.T) {
+	logs := captureLogs(t)
+	ws := &webServer{store: newSessionStore("secret", false)}
+	req := httptest.NewRequest(http.MethodGet, "/logout", nil)
+	req.RemoteAddr = "203.0.113.77:5555"
+	w := httptest.NewRecorder()
+	ws.handleLogout(w, req)
+	out := logs.String()
+	if strings.Contains(out, "203.0.113.77") || strings.Contains(out, "5555") {
+		t.Errorf("raw IP logged: %s", out)
+	}
+	if !strings.Contains(out, "203.0.0.0") {
+		t.Errorf("anonymized IP missing: %s", out)
+	}
+}
+
+func TestAnonymizedIP(t *testing.T) {
+	for addr, want := range map[string]string{
+		"203.0.113.77:1234":          "203.0.0.0",
+		"[2001:db8:1:2:3:4:5:6]:443": "2001:db8:1:2::",
+		"not-an-address":             "unknown",
+	} {
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		req.RemoteAddr = addr
+		if got := anonymizedIP(req); got != want {
+			t.Errorf("%q: anonymizedIP = %q, want %q", addr, got, want)
+		}
+	}
+}

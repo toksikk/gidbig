@@ -385,14 +385,14 @@ func readSoundDescription(prefix, name string) (text, shortText string, ok bool)
 }
 
 func (ws *webServer) handlePlaySound(w http.ResponseWriter, r *http.Request) {
-	slog.Info("WebUI /playsound Request", "Requesting IP", r.RemoteAddr)
+	logWebRequests(r)
 	if r.Method != http.MethodPost {
 		w.Header().Set("Allow", http.MethodPost)
 		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
 		return
 	}
 	if !ws.validOrigin(r) {
-		slog.Warn("WebUI /playsound rejected a request from a foreign origin", "origin", r.Header.Get("Origin"))
+		slog.Warn("WebUI /playsound rejected a request from a foreign origin", "origin", r.Header.Get("Origin"), "Requesting IP", anonymizedIP(r))
 		http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
 		return
 	}
@@ -506,11 +506,7 @@ func (ws *webServer) handleAPIEso(w http.ResponseWriter, r *http.Request) {
 	allowed, retryAfter, newlyBlocked := ws.esoLimiter.allow(ip)
 	if !allowed {
 		if newlyBlocked {
-			anonIP, err := ipAnonymizer.IPString(ip)
-			if err != nil {
-				anonIP = ip
-			}
-			slog.Warn("ESO API rate limit exceeded", "Requesting IP", anonIP, "Retry-After", retryAfter.String())
+			slog.Warn("ESO API rate limit exceeded", "Requesting IP", anonymizedIP(r), "Retry-After", retryAfter.String())
 		}
 		w.Header().Set("Retry-After", strconv.Itoa(int(retryAfter.Seconds()+0.999)))
 		http.Error(w, http.StatusText(http.StatusTooManyRequests), http.StatusTooManyRequests)
@@ -722,7 +718,7 @@ func handleHealth(w http.ResponseWriter, r *http.Request) {
 }
 
 func (ws *webServer) handleLogout(w http.ResponseWriter, r *http.Request) {
-	slog.Info("WebUI /logout Request", "Requesting IP", r.RemoteAddr)
+	logWebRequests(r)
 	ws.store.Clear(w)
 	http.Redirect(w, r, "/", http.StatusFound)
 }
@@ -856,18 +852,23 @@ func parseIPPort(s string) (ip net.IP, port, space string, err error) {
 	return
 }
 
-// logWebRequests logs the request path, not the full URI: the OAuth callback's
-// query carries the authorization code and state.
-func logWebRequests(r *http.Request) {
-	ip, port, _, err := parseIPPort(r.RemoteAddr)
+// anonymizedIP returns the request's source address masked to /16 (IPv4) or
+// /64 (IPv6). It never falls back to the raw address: an unparseable one is
+// logged as "unknown".
+func anonymizedIP(r *http.Request) string {
+	ip, _, _, err := parseIPPort(r.RemoteAddr)
 	if err != nil {
-		slog.Warn("Error parsing IP address for WebUI Request ", "Request Path", r.URL.Path)
-		return
+		return "unknown"
 	}
 	anonIP, err := ipAnonymizer.IPString(ip.String())
 	if err != nil {
-		slog.Warn("Could not anonymize IP address for WebUI Request ", "Request Path", r.URL.Path)
-	} else {
-		slog.Info("WebUI Request", "Request Path", r.URL.Path, "Requesting IP / Port", anonIP+port)
+		return "unknown"
 	}
+	return anonIP
+}
+
+// logWebRequests logs the request path, not the full URI: the OAuth callback's
+// query carries the authorization code and state.
+func logWebRequests(r *http.Request) {
+	slog.Info("WebUI Request", "Request Path", r.URL.Path, "Requesting IP", anonymizedIP(r))
 }
