@@ -13,9 +13,11 @@ import (
 )
 
 const (
-	// adminMaxSessionAge bounds how old the login behind an admin request may
-	// be. The session cookie has no expiry of its own, so without this an
-	// intercepted cookie would keep granting configuration writes forever.
+	// sessionMaxAge bounds how old the login behind any session route may be.
+	// The cookie's MaxAge matches it, but the server-side check is what binds:
+	// a stolen cookie stops working after this even if replayed.
+	sessionMaxAge = 7 * 24 * time.Hour
+	// adminMaxSessionAge is the stricter bound for configuration writes.
 	adminMaxSessionAge = 12 * time.Hour
 	// adminFormMaxBytes bounds one admin form submission. Every field is short,
 	// so anything larger is not a form this panel rendered.
@@ -81,17 +83,29 @@ func (ws *webServer) handleAdmin(w http.ResponseWriter, r *http.Request) {
 // this check and counts as expired, because a sound board login is not proof
 // that someone just authenticated for a configuration write.
 func (ws *webServer) isOwner(session *sessionData) bool {
-	if ws.ownerID == "" || session == nil || session.DiscordUserID == "" {
+	if ws.ownerID == "" || !ws.validSession(session) {
 		return false
 	}
 	if subtle.ConstantTimeCompare([]byte(session.DiscordUserID), []byte(ws.ownerID)) != 1 {
 		return false
 	}
-	if session.IssuedAt == 0 {
+	return ws.sessionAge(session) <= adminMaxSessionAge
+}
+
+// validSession reports whether the session belongs to a logged-in user whose
+// login is at most sessionMaxAge old. A session without an issue time predates
+// the check and counts as expired.
+func (ws *webServer) validSession(session *sessionData) bool {
+	if session == nil || session.DiscordUserID == "" || session.IssuedAt == 0 {
 		return false
 	}
-	age := ws.currentTime().Sub(time.Unix(session.IssuedAt, 0))
-	return age >= 0 && age <= adminMaxSessionAge
+	age := ws.sessionAge(session)
+	return age >= 0 && age <= sessionMaxAge
+}
+
+// sessionAge is how long ago the session's login completed.
+func (ws *webServer) sessionAge(session *sessionData) time.Duration {
+	return ws.currentTime().Sub(time.Unix(session.IssuedAt, 0))
 }
 
 // currentTime is the process clock, injectable so a test can age a session.

@@ -142,7 +142,7 @@ func TestReadSoundDescription_doesNotLeakFD(t *testing.T) {
 }
 
 func TestSessionStore_EncryptDecrypt(t *testing.T) {
-	s := newSessionStore("secret-key-123")
+	s := newSessionStore("secret-key-123", false)
 	data := &sessionData{
 		DiscordUserID:   "user1",
 		DiscordUsername: "user1_name",
@@ -168,7 +168,7 @@ func TestSessionStore_EncryptDecrypt(t *testing.T) {
 }
 
 func TestSessionStore_TamperedCookie(t *testing.T) {
-	s := newSessionStore("secret-key-123")
+	s := newSessionStore("secret-key-123", false)
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.AddCookie(&http.Cookie{
 		Name:  sessionCookieName,
@@ -195,7 +195,7 @@ func TestNewWebServer_NilModulesAreNilInterfaces(t *testing.T) {
 }
 
 func TestHandleAPIQueue_unauthorized(t *testing.T) {
-	ws := &webServer{store: newSessionStore("test-secret")}
+	ws := &webServer{store: newSessionStore("test-secret", false)}
 
 	req := httptest.NewRequest(http.MethodGet, "/api/queue", nil)
 	w := httptest.NewRecorder()
@@ -207,11 +207,11 @@ func TestHandleAPIQueue_unauthorized(t *testing.T) {
 }
 
 func TestHandleAPIQueue_emptyQueue(t *testing.T) {
-	ws := &webServer{store: newSessionStore("test-secret")}
+	ws := &webServer{store: newSessionStore("test-secret", false)}
 
 	// Create a session with a logged-in user by saving it to a recorder first.
 	setRec := httptest.NewRecorder()
-	sess := &sessionData{DiscordUserID: "12345"}
+	sess := &sessionData{DiscordUserID: "12345", IssuedAt: time.Now().Unix()}
 	if err := ws.store.Save(setRec, sess); err != nil {
 		t.Fatalf("save session: %v", err)
 	}
@@ -627,7 +627,7 @@ func TestCompleteLogin_StampsTheLoginTime(t *testing.T) {
 		FlashOK:   true,
 	}
 
-	ws.completeLogin(session, &discordgo.User{ID: "42", Username: "someone", Avatar: "abc"}, "access-token")
+	ws.completeLogin(session, &discordgo.User{ID: "42", Username: "someone", Avatar: "abc"})
 
 	if session.IssuedAt != now.Unix() {
 		t.Errorf("IssuedAt = %d, want %d", session.IssuedAt, now.Unix())
@@ -638,7 +638,7 @@ func TestCompleteLogin_StampsTheLoginTime(t *testing.T) {
 	if session.Flash != "" || session.FlashOK {
 		t.Errorf("flash = %q (ok=%v), want it cleared by the new login", session.Flash, session.FlashOK)
 	}
-	if session.DiscordUserID != "42" || session.DiscordUsername != "someone" || session.AccessToken != "access-token" {
+	if session.DiscordUserID != "42" || session.DiscordUsername != "someone" {
 		t.Errorf("session = %+v, want the authenticated user", session)
 	}
 	if want := "https://cdn.discordapp.com/avatars/42/abc.png"; session.DiscordAvatarURL != want {
@@ -658,7 +658,7 @@ func TestCompleteLogin_StampsTheLoginTime(t *testing.T) {
 
 	// A user without an avatar keeps an empty URL.
 	noAvatar := &sessionData{}
-	ws.completeLogin(noAvatar, &discordgo.User{ID: "42", Username: "someone"}, "access-token")
+	ws.completeLogin(noAvatar, &discordgo.User{ID: "42", Username: "someone"})
 	if noAvatar.DiscordAvatarURL != "" {
 		t.Errorf("DiscordAvatarURL = %q, want empty without an avatar", noAvatar.DiscordAvatarURL)
 	}
@@ -712,7 +712,7 @@ func TestFinishDiscordLogin_UserLookupFailure(t *testing.T) {
 	if rec.Code != http.StatusBadGateway {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadGateway)
 	}
-	if sess.DiscordUserID != "" || sess.AccessToken != "" {
+	if sess.DiscordUserID != "" {
 		t.Errorf("session populated on failure: %+v", sess)
 	}
 	if rec.Header().Get("Set-Cookie") != "" {
@@ -722,7 +722,7 @@ func TestFinishDiscordLogin_UserLookupFailure(t *testing.T) {
 
 func TestFinishDiscordLogin_Success(t *testing.T) {
 	ws := newWebServer(&cfg.Config{}, nil, nil, nil, nil)
-	ws.store = newSessionStore("test-secret-test-secret-test-secret")
+	ws.store = newSessionStore("test-secret-test-secret-test-secret", false)
 	ws.fetchDiscordUser = func(string) (*discordgo.User, error) {
 		return &discordgo.User{ID: "42", Username: "alice"}, nil
 	}
@@ -732,8 +732,8 @@ func TestFinishDiscordLogin_Success(t *testing.T) {
 	if rec.Code != http.StatusTemporaryRedirect {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusTemporaryRedirect)
 	}
-	if sess.DiscordUserID != "42" || sess.AccessToken != "token" {
-		t.Errorf("session = %+v, want user 42 with token", sess)
+	if sess.DiscordUserID != "42" {
+		t.Errorf("session = %+v, want user 42", sess)
 	}
 }
 
@@ -801,5 +801,107 @@ func TestDiscordCallback_RejectsEmptyState(t *testing.T) {
 	ws.handleDiscordCallback(rec, callbackRequest(t, ws, "", ""))
 	if rec.Code != http.StatusForbidden {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusForbidden)
+	}
+}
+
+func TestSessionStore_SaveSetsSecureAndMaxAge(t *testing.T) {
+	for _, secure := range []bool{true, false} {
+		s := newSessionStore("secret", secure)
+		rec := httptest.NewRecorder()
+		if err := s.Save(rec, &sessionData{DiscordUserID: "1"}); err != nil {
+			t.Fatalf("Save: %v", err)
+		}
+		c := rec.Result().Cookies()[0]
+		if c.Secure != secure || !c.HttpOnly || c.MaxAge != int(sessionMaxAge.Seconds()) {
+			t.Errorf("secure=%v: cookie = %+v", secure, c)
+		}
+		rec = httptest.NewRecorder()
+		s.Clear(rec)
+		c = rec.Result().Cookies()[0]
+		if c.Secure != secure || c.MaxAge >= 0 {
+			t.Errorf("secure=%v: cleared cookie = %+v", secure, c)
+		}
+	}
+}
+
+func TestNewWebServer_SecureFromRedirectURI(t *testing.T) {
+	for uri, want := range map[string]bool{
+		"https://gidbig.example": true,
+		"http://localhost:8080":  false,
+		"":                       false,
+	} {
+		config := &cfg.Config{}
+		config.Web.Oauth.RedirectURI = uri
+		if got := newWebServer(config, nil, nil, nil, nil).store.secure; got != want {
+			t.Errorf("%q: secure = %v, want %v", uri, got, want)
+		}
+	}
+}
+
+func TestCompleteLogin_ClearsStateAndStoresNoToken(t *testing.T) {
+	ws := &webServer{store: newSessionStore("secret", false), now: time.Now}
+	session := &sessionData{State: "pending-state"}
+	ws.completeLogin(session, &discordgo.User{ID: "42", Username: "someone"})
+	if session.State != "" {
+		t.Errorf("State = %q, want it cleared", session.State)
+	}
+	raw, err := json.Marshal(session)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if strings.Contains(strings.ToLower(string(raw)), "accesstoken") {
+		t.Errorf("session JSON carries an access token: %s", raw)
+	}
+
+	// An old cookie that still carries the key decodes fine.
+	old := &sessionData{}
+	if err := json.Unmarshal([]byte(`{"discordUserID":"1","accessToken":"x"}`), old); err != nil || old.DiscordUserID != "1" {
+		t.Errorf("old cookie decode: %+v, %v", old, err)
+	}
+}
+
+func TestValidSession(t *testing.T) {
+	now := time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC)
+	ws := &webServer{now: func() time.Time { return now }}
+	at := func(age time.Duration) int64 { return now.Add(-age).Unix() }
+	cases := []struct {
+		name    string
+		session *sessionData
+		want    bool
+	}{
+		{"nil", nil, false},
+		{"no user", &sessionData{IssuedAt: at(time.Minute)}, false},
+		{"no issued at", &sessionData{DiscordUserID: "1"}, false},
+		{"fresh", &sessionData{DiscordUserID: "1", IssuedAt: at(time.Minute)}, true},
+		{"7d edge", &sessionData{DiscordUserID: "1", IssuedAt: at(sessionMaxAge)}, true},
+		{"7d+1s", &sessionData{DiscordUserID: "1", IssuedAt: at(sessionMaxAge + time.Second)}, false},
+		{"future", &sessionData{DiscordUserID: "1", IssuedAt: at(-time.Minute)}, false},
+	}
+	for _, tc := range cases {
+		if got := ws.validSession(tc.session); got != tc.want {
+			t.Errorf("%s: validSession = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}
+
+func TestHandleMain_ExpiredSessionIsLoggedOut(t *testing.T) {
+	t.Chdir("../..")
+	now := time.Now()
+	ws := newAdminTestServer(&stubConfigAdmin{}, testOwnerID, "", now)
+	ws.loadTemplates()
+	expired := adminSession(testOtherUser, sessionMaxAge+time.Minute, now)
+	w := httptest.NewRecorder()
+	ws.handleMain(w, formRequest(t, ws, expired, http.MethodGet, "/", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d", w.Code)
+	}
+	if strings.Contains(w.Body.String(), "sound-search") {
+		t.Error("an expired session still sees the sound board")
+	}
+
+	w = httptest.NewRecorder()
+	ws.handleMain(w, formRequest(t, ws, adminSession(testOtherUser, sessionMaxAge-time.Minute, now), http.MethodGet, "/", nil))
+	if !strings.Contains(w.Body.String(), "sound-search") {
+		t.Error("a valid session does not see the sound board")
 	}
 }
