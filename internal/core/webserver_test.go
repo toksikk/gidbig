@@ -703,26 +703,19 @@ func TestNewHTTPServer_Timeouts(t *testing.T) {
 }
 
 func TestFinishDiscordLogin_UserLookupFailure(t *testing.T) {
-	cases := map[string]func(string) (*discordgo.User, error){
-		"error": func(string) (*discordgo.User, error) { return nil, errors.New("boom") },
+	ws := newWebServer(&cfg.Config{}, nil, nil, nil, nil)
+	ws.fetchDiscordUser = func(string) (*discordgo.User, error) { return nil, errors.New("boom") }
+	sess := &sessionData{}
+	rec := httptest.NewRecorder()
+	ws.finishDiscordLogin(rec, httptest.NewRequest(http.MethodGet, "/discordCallback", nil), sess, "token")
+	if rec.Code != http.StatusBadGateway {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusBadGateway)
 	}
-	for name, fetch := range cases {
-		t.Run(name, func(t *testing.T) {
-			ws := newWebServer(&cfg.Config{}, nil, nil, nil, nil)
-			ws.fetchDiscordUser = fetch
-			sess := &sessionData{}
-			rec := httptest.NewRecorder()
-			ws.finishDiscordLogin(rec, httptest.NewRequest(http.MethodGet, "/discordCallback", nil), sess, "token")
-			if rec.Code != http.StatusBadGateway {
-				t.Errorf("status = %d, want %d", rec.Code, http.StatusBadGateway)
-			}
-			if sess.DiscordUserID != "" || sess.AccessToken != "" {
-				t.Errorf("session populated on failure: %+v", sess)
-			}
-			if rec.Header().Get("Set-Cookie") != "" {
-				t.Error("session cookie written on failure")
-			}
-		})
+	if sess.DiscordUserID != "" || sess.AccessToken != "" {
+		t.Errorf("session populated on failure: %+v", sess)
+	}
+	if rec.Header().Get("Set-Cookie") != "" {
+		t.Error("session cookie written on failure")
 	}
 }
 
