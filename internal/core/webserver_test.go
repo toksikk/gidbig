@@ -992,3 +992,59 @@ func TestHandlePlaySound_ExpiredSession(t *testing.T) {
 		t.Errorf("status = %d, enqueued = %v", w.Code, sb.enqueued)
 	}
 }
+
+func TestHandleAPIQueue_OnlyCallersVoiceGuild(t *testing.T) {
+	sb := &fakeSoundboard{queue: []soundboard.QueueStatus{
+		{GuildID: "g1", NowPlaying: "mine", QueueLength: 1},
+		{GuildID: "g2", NowPlaying: "theirs", QueueLength: 2},
+	}}
+	ws := playSoundServer(sb)
+
+	query := func(voice map[string]bool) []guildQueueStatus {
+		t.Helper()
+		var gotUser string
+		ws.voiceGuilds = func(userID string) map[string]bool { gotUser = userID; return voice }
+		w := httptest.NewRecorder()
+		ws.handleAPIQueue(w, formRequest(t, ws, adminSession("u", time.Minute, time.Now()), http.MethodGet, "/api/queue", nil))
+		if w.Code != http.StatusOK || gotUser != "u" {
+			t.Fatalf("status = %d, user = %q", w.Code, gotUser)
+		}
+		var body struct {
+			Guilds []guildQueueStatus `json:"guilds"`
+		}
+		if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		if body.Guilds == nil {
+			t.Fatal("guilds is null, want an array")
+		}
+		return body.Guilds
+	}
+
+	if got := query(map[string]bool{"g1": true}); len(got) != 1 || got[0].GuildID != "g1" {
+		t.Errorf("in voice on g1: guilds = %+v", got)
+	}
+	if got := query(map[string]bool{}); len(got) != 0 {
+		t.Errorf("not in voice: guilds = %+v", got)
+	}
+}
+
+func TestStateVoiceGuilds(t *testing.T) {
+	state := discordgo.NewState()
+	for _, g := range []*discordgo.Guild{
+		{ID: "g1", VoiceStates: []*discordgo.VoiceState{{UserID: "u", GuildID: "g1"}}},
+		{ID: "g2", VoiceStates: []*discordgo.VoiceState{{UserID: "other", GuildID: "g2"}}},
+	} {
+		if err := state.GuildAdd(g); err != nil {
+			t.Fatalf("GuildAdd: %v", err)
+		}
+	}
+	ws := &webServer{session: &discordgo.Session{State: state}}
+	got := ws.stateVoiceGuilds("u")
+	if len(got) != 1 || !got["g1"] {
+		t.Errorf("voice guilds = %v, want only g1", got)
+	}
+	if got := (&webServer{}).stateVoiceGuilds("u"); len(got) != 0 {
+		t.Errorf("no session: %v", got)
+	}
+}

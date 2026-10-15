@@ -20,6 +20,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -218,6 +219,9 @@ type webServer struct {
 	// fetchDiscordUser resolves the user behind an OAuth access token;
 	// injectable for tests.
 	fetchDiscordUser func(accessToken string) (*discordgo.User, error)
+	// voiceGuilds returns the IDs of the guilds where the user is in a voice
+	// channel the bot can see; injectable for tests.
+	voiceGuilds func(userID string) map[string]bool
 }
 
 // newWebServer builds a web server around the injected session and modules. A
@@ -246,6 +250,7 @@ func newWebServer(config *cfg.Config, session *discordgo.Session, sb *soundboard
 		},
 	}
 	ws.fetchDiscordUser = fetchDiscordUserWithToken
+	ws.voiceGuilds = ws.stateVoiceGuilds
 	if sb != nil {
 		ws.soundboard = sb
 	}
@@ -407,12 +412,13 @@ func (ws *webServer) handlePlaySound(w http.ResponseWriter, r *http.Request) {
 	var user *discordgo.User
 	if ws.session != nil {
 		user, _ = ws.session.User(userID)
-		for _, g := range ws.session.State.Guilds {
-			for _, vs := range g.VoiceStates {
-				if vs.UserID == userID {
-					guild = g
-				}
-			}
+		ids := make([]string, 0, 1)
+		for id := range ws.userVoiceGuilds(userID) {
+			ids = append(ids, id)
+		}
+		sort.Strings(ids)
+		if len(ids) > 0 && ws.session.State != nil {
+			guild, _ = ws.session.State.Guild(ids[0])
 		}
 	}
 	if ws.soundboard != nil && ws.soundboard.Enqueue(user, guild, r.PostFormValue("command"), r.PostFormValue("soundname")) {
@@ -420,6 +426,33 @@ func (ws *webServer) handlePlaySound(w http.ResponseWriter, r *http.Request) {
 	} else {
 		http.Error(w, http.StatusText(500), 500)
 	}
+}
+
+// userVoiceGuilds returns the guilds where userID currently has a voice state.
+func (ws *webServer) userVoiceGuilds(userID string) map[string]bool {
+	if ws.voiceGuilds == nil {
+		return ws.stateVoiceGuilds(userID)
+	}
+	return ws.voiceGuilds(userID)
+}
+
+// stateVoiceGuilds reads the voice states from the bot's state cache under its
+// read lock.
+func (ws *webServer) stateVoiceGuilds(userID string) map[string]bool {
+	guilds := map[string]bool{}
+	if ws.session == nil || ws.session.State == nil {
+		return guilds
+	}
+	ws.session.State.RLock()
+	defer ws.session.State.RUnlock()
+	for _, g := range ws.session.State.Guilds {
+		for _, vs := range g.VoiceStates {
+			if vs.UserID == userID {
+				guilds[g.ID] = true
+			}
+		}
+	}
+	return guilds
 }
 
 type guildQueueStatus struct {
@@ -435,9 +468,15 @@ func (ws *webServer) handleAPIQueue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Only the guilds the caller is in voice on: other guilds' queues are not
+	// theirs to see.
 	var guilds []guildQueueStatus
 	if ws.soundboard != nil {
+		mine := ws.userVoiceGuilds(session.DiscordUserID)
 		for _, qs := range ws.soundboard.QueueStatus() {
+			if !mine[qs.GuildID] {
+				continue
+			}
 			guilds = append(guilds, guildQueueStatus{
 				GuildID:     qs.GuildID,
 				NowPlaying:  qs.NowPlaying,
