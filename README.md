@@ -14,6 +14,7 @@ Gidbig is a Discord bot written in Go — soundboard playback in voice channels,
   - `/list` — list all available sound collections
   - Files live in `audio/` as `{prefix}_{soundname}.dca`; an optional matching `.txt` file supplies the Web UI description
 - 🌐 **Web UI** — browser interface to trigger sounds; requires Discord OAuth2 credentials in config
+  - `/admin` — owner-only panel for the runtime settings, the same keys and rules as `/admin config`; a non-owner gets a 404, and the login must be less than 12h old
 - 📊 **`/status`** — owner-only ephemeral command showing versions, uptime, memory/runtime statistics, and guild/user counts
 - ⏱️ **`/uptime`** — owner-only uptime command
 - 🛡️ **`/admin`** — owner-only administrative commands
