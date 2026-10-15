@@ -401,13 +401,25 @@ func TestSearchChatHistoryHandler_ScopeClampedToEnv(t *testing.T) {
 		t.Errorf("channel scope matches = %d, want 1: %q", n, out)
 	}
 
-	// Guild scope without a guild in Env yields no scope.
-	out, err = m.searchChatHistoryHandler(context.Background(), tool.Env{ChannelID: "channel-1"}, json.RawMessage(`{"query":"find me","scope":"guild"}`))
+	// A legacy guild scope argument is ignored: still only the caller's channel.
+	out, err = m.searchChatHistoryHandler(context.Background(), tool.Env{GuildID: "allowed-guild", ChannelID: "channel-1"}, json.RawMessage(`{"query":"find me","scope":"guild"}`))
 	if err != nil {
 		t.Fatalf("searchChatHistoryHandler: %v", err)
 	}
-	if out != "no scope available" {
-		t.Errorf("guild scope without guild = %q, want %q", out, "no scope available")
+	if n := strings.Count(out, "find me"); n != 1 {
+		t.Errorf("guild scope matches = %d, want 1 (channel only): %q", n, out)
+	}
+}
+
+func TestSearchChatHistoryParameters_NoScope(t *testing.T) {
+	var schema struct {
+		Properties map[string]json.RawMessage `json:"properties"`
+	}
+	if err := json.Unmarshal(searchChatHistoryParameters, &schema); err != nil {
+		t.Fatalf("unmarshal schema: %v", err)
+	}
+	if _, ok := schema.Properties["scope"]; ok {
+		t.Error("search_chat_history schema still exposes a scope property")
 	}
 }
 
