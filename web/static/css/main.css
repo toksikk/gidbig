@@ -579,3 +579,68 @@ body {
 
 /* Bootstrap dark-mode override for d-none compat */
 .d-none { display: none !important; }
+
+/* --- Admin panel --------------------------------------------- */
+
+.admin-panel { max-width: 1080px; margin: 0 auto; }
+.admin-title { font-size: 1.1rem; letter-spacing: .16em; text-transform: uppercase; color: var(--text-0); }
+.admin-sub { color: var(--text-1); font-size: .72rem; margin-bottom: 1.25rem; }
+.admin-sub code { color: var(--accent); }
+
+.admin-banner {
+  border: 1px solid var(--border-1);
+  border-radius: var(--r);
+  padding: 10px 14px;
+  margin-bottom: 1rem;
+  font-size: .72rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.admin-banner.is-error { border-color: rgba(255,61,92,.45); color: var(--error); }
+.admin-banner.is-success { border-color: var(--accent-d); color: var(--accent); }
+
+.admin-table { width: 100%; border-collapse: collapse; font-size: .72rem; }
+.admin-table th {
+  text-align: left;
+  font-weight: 400;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--text-2);
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border-0);
+}
+.admin-table td { padding: 8px 10px; border-bottom: 1px solid var(--border-0); vertical-align: middle; }
+.admin-key { color: var(--accent); white-space: nowrap; }
+.admin-value { color: var(--text-0); word-break: break-all; }
+.admin-source { color: var(--text-1); }
+
+.admin-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.admin-form { display: flex; gap: 6px; }
+.admin-input {
+  background: var(--bg-2);
+  border: 1px solid var(--border-0);
+  border-radius: 4px;
+  color: var(--text-0);
+  font-family: inherit;
+  font-size: .72rem;
+  padding: 5px 8px;
+  min-width: 8rem;
+}
+.admin-input:focus { outline: none; border-color: var(--accent-d); }
+
+.admin-btn {
+  background: rgba(0,200,240,.12);
+  border: 1px solid var(--accent-d);
+  border-radius: 4px;
+  color: var(--accent);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: .62rem;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  padding: 5px 12px;
+  transition: background .15s, color .15s;
+}
+.admin-btn:hover { background: rgba(0,200,240,.24); }
+.admin-btn.is-secondary { background: transparent; border-color: var(--border-1); color: var(--text-1); }
+.admin-btn.is-secondary:hover { border-color: var(--error); color: var(--error); }

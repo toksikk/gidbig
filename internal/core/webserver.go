@@ -17,6 +17,7 @@ import (
 	"mime"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"time"
@@ -25,6 +26,7 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/simplesurance/go-ip-anonymizer/ipanonymizer"
 	"github.com/toksikk/gidbig/internal/cfg"
+	"github.com/toksikk/gidbig/internal/configcmd"
 	"github.com/toksikk/gidbig/internal/eso"
 	"github.com/toksikk/gidbig/internal/soundboard"
 	"golang.org/x/oauth2"
@@ -43,6 +45,14 @@ type sessionData struct {
 	DiscordUsername  string `json:"discordUsername,omitempty"`
 	DiscordAvatarURL string `json:"discordAvatarURL,omitempty"`
 	AccessToken      string `json:"accessToken,omitempty"`
+	// IssuedAt is when the login completed, as a Unix timestamp. The admin
+	// panel requires a recent one; other pages ignore it.
+	IssuedAt int64 `json:"issuedAt,omitempty"`
+	// AdminCSRF is the token the admin panel's forms carry, and Flash is the
+	// outcome of the previous submission, shown once.
+	AdminCSRF string `json:"adminCSRF,omitempty"`
+	Flash     string `json:"flash,omitempty"`
+	FlashOK   bool   `json:"flashOK,omitempty"`
 }
 
 type sessionStore struct {
@@ -174,6 +184,17 @@ type webServer struct {
 	session    *discordgo.Session
 	soundboard soundboardAPI
 	eso        esoGenerator
+	// config is the runtime settings store behind the /admin panel, and ownerID
+	// is the caller it gates on. Neither is set when the panel is unavailable.
+	config configAdmin
+	// ownerID is the Discord user allowed into /admin; empty denies everyone,
+	// which mirrors the bot-side gate.
+	ownerID string
+	// adminOrigin is the scheme and host the UI is served from, compared against
+	// the Origin header of an admin submission.
+	adminOrigin string
+	// now is the process clock, injectable for tests.
+	now func() time.Time
 
 	// esoLimiter and esoConcurrency keep the unauthenticated, token-billed
 	// /api/eso endpoint from being weaponised for cost or DoS; esoTimeout
@@ -191,13 +212,15 @@ type webServer struct {
 // newWebServer builds a web server around the injected session and modules. A
 // nil module is stored as a nil interface so the handlers' nil checks (for
 // example the /api/eso 503) still work for a nil *Module.
-func newWebServer(config *cfg.Config, session *discordgo.Session, sb *soundboard.Module, esoMod *eso.Module) *webServer {
+func newWebServer(config *cfg.Config, session *discordgo.Session, sb *soundboard.Module, esoMod *eso.Module, configMod *configcmd.Module) *webServer {
 	esoBurst, esoRefillPerSecond, esoMaxConcurrent, esoTimeout := resolveEsoLimits(config.Web.Eso)
 
 	ws := &webServer{
 		session: session,
 		store:   newSessionStore(config.Web.SessionSecret),
 		tmpls:   map[string]*template.Template{},
+		now:     time.Now,
+		ownerID: config.Discord.OwnerID,
 
 		esoLimiter:     newIPRateLimiter(esoBurst, esoRefillPerSecond),
 		esoConcurrency: newConcurrencyLimiter(esoMaxConcurrent),
@@ -217,6 +240,12 @@ func newWebServer(config *cfg.Config, session *discordgo.Session, sb *soundboard
 	if esoMod != nil {
 		ws.eso = esoMod
 	}
+	if configMod != nil {
+		ws.config = configMod
+	}
+	if u, err := url.Parse(config.Web.Oauth.RedirectURI); err == nil && u.Scheme != "" && u.Host != "" {
+		ws.adminOrigin = u.Scheme + "://" + u.Host
+	}
 	return ws
 }
 
@@ -224,6 +253,7 @@ func newWebServer(config *cfg.Config, session *discordgo.Session, sb *soundboard
 func (ws *webServer) loadTemplates() {
 	ws.tmpls["home.html"] = template.Must(template.ParseFiles(templateDir+"home.html", header, footer))
 	ws.tmpls["internal.html"] = template.Must(template.ParseFiles(templateDir+"internal.html", header, footer))
+	ws.tmpls["admin.html"] = template.Must(template.ParseFiles(templateDir+"admin.html", header, footer))
 	ws.tmpls["item.html"] = template.Must(template.ParseFiles(templateDir + "item.html"))
 	ws.tmpls["itemrowstart.html"] = template.Must(template.ParseFiles(templateDir + "itemrowstart.html"))
 	ws.tmpls["itemrowend.html"] = template.Must(template.ParseFiles(templateDir + "itemrowend.html"))
@@ -232,12 +262,13 @@ func (ws *webServer) loadTemplates() {
 }
 
 // startWebServer starts the HTTP UI around the injected session and modules.
-func startWebServer(config *cfg.Config, session *discordgo.Session, sb *soundboard.Module, esoMod *eso.Module) {
-	ws := newWebServer(config, session, sb, esoMod)
+func startWebServer(config *cfg.Config, session *discordgo.Session, sb *soundboard.Module, esoMod *eso.Module, configMod *configcmd.Module) {
+	ws := newWebServer(config, session, sb, esoMod, configMod)
 	ws.loadTemplates()
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", ws.handleMain)
+	mux.HandleFunc("/admin", ws.handleAdmin)
 	mux.HandleFunc("/logout", ws.handleLogout)
 	mux.HandleFunc("/discordLogin", ws.handleDiscordLogin)
 	mux.HandleFunc("/discordCallback", ws.handleDiscordCallback)
@@ -471,6 +502,7 @@ func (ws *webServer) handleMain(w http.ResponseWriter, r *http.Request) {
 			Prefixes:  prefixes,
 			Username:  username,
 			AvatarURL: avatarURL,
+			IsOwner:   ws.isOwner(session),
 		}
 
 		err := ws.tmpls["internal.html"].ExecuteTemplate(w, "header", td)
@@ -633,6 +665,10 @@ func (ws *webServer) handleDiscordCallback(w http.ResponseWriter, r *http.Reques
 	session.DiscordUsername = user.Username
 	session.DiscordAvatarURL = avatarURL
 	session.AccessToken = token.AccessToken
+	// Stamp the login: the admin panel only trusts a recent one. A new login
+	// also drops the previous session's admin form token.
+	session.IssuedAt = ws.currentTime().Unix()
+	session.AdminCSRF = ""
 	err = ws.store.Save(w, session)
 	if err != nil {
 		slog.Error("unable to Save", "error", err)
