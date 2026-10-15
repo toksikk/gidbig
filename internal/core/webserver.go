@@ -46,9 +46,9 @@ type sessionData struct {
 	DiscordUserID    string `json:"discordUserID,omitempty"`
 	DiscordUsername  string `json:"discordUsername,omitempty"`
 	DiscordAvatarURL string `json:"discordAvatarURL,omitempty"`
-	AccessToken      string `json:"accessToken,omitempty"`
-	// IssuedAt is when the login completed, as a Unix timestamp. The admin
-	// panel requires a recent one; other pages ignore it.
+	// IssuedAt is when the login completed, as a Unix timestamp. Every session
+	// route requires it within sessionMaxAge; the admin panel within
+	// adminMaxSessionAge.
 	IssuedAt int64 `json:"issuedAt,omitempty"`
 	// AdminCSRF is the token the admin panel's forms carry, and Flash is the
 	// outcome of the previous submission, shown once.
@@ -59,11 +59,13 @@ type sessionData struct {
 
 type sessionStore struct {
 	secret []byte
+	// secure marks the cookie Secure; set when the UI is served over https.
+	secure bool
 }
 
-func newSessionStore(secret string) *sessionStore {
+func newSessionStore(secret string, secure bool) *sessionStore {
 	key := sha256.Sum256([]byte(secret))
-	return &sessionStore{secret: key[:]}
+	return &sessionStore{secret: key[:], secure: secure}
 }
 
 func (s *sessionStore) Get(r *http.Request) *sessionData {
@@ -87,7 +89,9 @@ func (s *sessionStore) Save(w http.ResponseWriter, data *sessionData) error {
 		Name:     sessionCookieName,
 		Value:    encoded,
 		Path:     "/",
+		MaxAge:   int(sessionMaxAge.Seconds()),
 		HttpOnly: true,
+		Secure:   s.secure,
 		SameSite: http.SameSiteLaxMode,
 	})
 	return nil
@@ -100,6 +104,7 @@ func (s *sessionStore) Clear(w http.ResponseWriter) {
 		Path:     "/",
 		MaxAge:   -1,
 		HttpOnly: true,
+		Secure:   s.secure,
 		SameSite: http.SameSiteLaxMode,
 	})
 }
@@ -221,7 +226,7 @@ func newWebServer(config *cfg.Config, session *discordgo.Session, sb *soundboard
 
 	ws := &webServer{
 		session: session,
-		store:   newSessionStore(config.Web.SessionSecret),
+		store:   newSessionStore(config.Web.SessionSecret, false),
 		tmpls:   map[string]*template.Template{},
 		now:     time.Now,
 		ownerID: config.Discord.OwnerID,
@@ -250,6 +255,7 @@ func newWebServer(config *cfg.Config, session *discordgo.Session, sb *soundboard
 	}
 	if u, err := url.Parse(config.Web.Oauth.RedirectURI); err == nil && u.Scheme != "" && u.Host != "" {
 		ws.adminOrigin = u.Scheme + "://" + u.Host
+		ws.store.secure = u.Scheme == "https"
 	}
 	return ws
 }
@@ -380,7 +386,7 @@ func (ws *webServer) handlePlaySound(w http.ResponseWriter, r *http.Request) {
 	}
 	session := ws.store.Get(r)
 	userID := session.DiscordUserID
-	if userID == "" {
+	if !ws.validSession(session) {
 		http.Error(w, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
 		return
 	}
@@ -411,7 +417,7 @@ type guildQueueStatus struct {
 
 func (ws *webServer) handleAPIQueue(w http.ResponseWriter, r *http.Request) {
 	session := ws.store.Get(r)
-	if session.DiscordUserID == "" {
+	if !ws.validSession(session) {
 		http.Error(w, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
 		return
 	}
@@ -532,7 +538,7 @@ func (ws *webServer) handleMain(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	session := ws.store.Get(r)
-	if session.DiscordUsername != "" {
+	if ws.validSession(session) {
 		username := session.DiscordUsername
 		avatarURL := session.DiscordAvatarURL
 
@@ -739,7 +745,7 @@ func (ws *webServer) finishDiscordLogin(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 
-	ws.completeLogin(session, user, accessToken)
+	ws.completeLogin(session, user)
 	err = ws.store.Save(w, session)
 	if err != nil {
 		slog.Error("unable to Save", "error", err)
@@ -754,7 +760,8 @@ func (ws *webServer) finishDiscordLogin(w http.ResponseWriter, r *http.Request, 
 // IssuedAt, so this is what makes the panel reachable for the owner; a new login
 // also drops the previous session's admin form token and any flash it left, so
 // nothing from an earlier login is carried over.
-func (ws *webServer) completeLogin(session *sessionData, user *discordgo.User, accessToken string) {
+// The OAuth access token is used once to resolve the user and never stored.
+func (ws *webServer) completeLogin(session *sessionData, user *discordgo.User) {
 	avatarURL := ""
 	if user.Avatar != "" {
 		avatarURL = fmt.Sprintf("https://cdn.discordapp.com/avatars/%s/%s.png", user.ID, user.Avatar)
@@ -762,7 +769,6 @@ func (ws *webServer) completeLogin(session *sessionData, user *discordgo.User, a
 	session.DiscordUserID = user.ID
 	session.DiscordUsername = user.Username
 	session.DiscordAvatarURL = avatarURL
-	session.AccessToken = accessToken
 	session.IssuedAt = ws.currentTime().Unix()
 	session.State = ""
 	session.AdminCSRF = ""
