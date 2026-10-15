@@ -327,15 +327,10 @@ func (m *Module) pruneCounters(now time.Time) {
 }
 
 func pruneStale(counts map[string]int, lastReset map[string]time.Time, now time.Time) {
-	for id := range counts {
-		if reset, ok := lastReset[id]; !ok || now.Sub(reset) >= time.Hour {
-			delete(counts, id)
-			delete(lastReset, id)
-		}
-	}
 	for id, reset := range lastReset {
 		if now.Sub(reset) >= time.Hour {
 			delete(lastReset, id)
+			delete(counts, id)
 		}
 	}
 }
