@@ -474,3 +474,56 @@ func TestHandleAdminSubcommand_EmptyClassifierModelShowsTheTextModel(t *testing.
 		t.Errorf("set reply = %q, want the explicit model", set)
 	}
 }
+
+const toolsOnYAML = `
+discord:
+  token: "test-token"
+gippity:
+  allowed_guilds: ["guild"]
+  tools:
+    enabled: true
+    max_iterations: 3
+`
+
+// TestRenderList_WarnsWhenTheEffectiveConfigurationIsInvalid covers the state a
+// config.yaml edit can create for a row written earlier: list must say so,
+// because every write is rejected until it is fixed.
+func TestRenderList_WarnsWhenTheEffectiveConfigurationIsInvalid(t *testing.T) {
+	_, _, db := newTestModuleWithDB(t)
+	if err := db.Exec(
+		"INSERT INTO settings (key, value, updated_by) VALUES (?, ?, ?)",
+		settings.KeyGippityToolsMaxIterations, "0", "owner",
+	).Error; err != nil {
+		t.Fatalf("insert row: %v", err)
+	}
+
+	// A deployment whose config.yaml now enables tools.
+	base, err := cfg.Decode(strings.NewReader(toolsOnYAML))
+	if err != nil {
+		t.Fatalf("decode base config: %v", err)
+	}
+	store, err := settings.New(db, base)
+	if err != nil {
+		t.Fatalf("settings.New: %v", err)
+	}
+	client, err := llm.New(llm.Options{APIKey: "test-key", Model: "boot-model"})
+	if err != nil {
+		t.Fatalf("llm.New: %v", err)
+	}
+	m := New()
+	if err := m.Init(bot.Deps{Settings: store, LLM: client}); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+
+	list := m.renderList()
+	if !strings.Contains(list, "INVALID CONFIGURATION") {
+		t.Errorf("list does not warn about the invalid configuration:\n%s", list)
+	}
+	if !strings.Contains(list, "max_iterations") {
+		t.Errorf("list does not name the offending key:\n%s", list)
+	}
+	// The values stay visible so the owner can fix them.
+	if !strings.Contains(list, "gippity.tools.max_iterations") {
+		t.Errorf("list must still show the values in force:\n%s", list)
+	}
+}

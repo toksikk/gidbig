@@ -43,6 +43,11 @@ type Store struct {
 // mutated, so a reader holding a pointer can safely keep using it.
 type snapshot struct {
 	values map[string]string
+	// invalid is non-nil when the configuration these values produce fails
+	// cfg.Validate. A row that was valid when it was written can be invalidated
+	// by a later config.yaml edit, so the combination is checked on every load
+	// and not only when a value is written.
+	invalid error
 }
 
 // New builds the store over the shared database. base is the config loaded at
@@ -70,6 +75,14 @@ func New(db *gorm.DB, base *cfg.Config) (*Store, error) {
 	if err := s.reload(); err != nil {
 		return nil, err
 	}
+	if err := s.EffectiveError(); err != nil {
+		// Start anyway: refusing to boot would leave the owner with no way to
+		// clear the row from Discord. The values stay in force and `/admin
+		// config list` reports the problem, and every write is rejected until a
+		// key involved gets a valid value.
+		slog.Error("settings: the runtime overrides make the effective configuration invalid; fix it with /admin config",
+			"error", err)
+	}
 	return s, nil
 }
 
@@ -89,8 +102,43 @@ func (s *Store) reload() error {
 		}
 		values[row.Key] = row.Value
 	}
-	s.now.Store(&snapshot{values: values})
+	s.now.Store(&snapshot{values: values, invalid: s.combinationError(values)})
 	return nil
+}
+
+// combinationError reports whether the configuration a set of stored values
+// produces would pass cfg.Validate. It exists because a stored row is validated
+// against the config.yaml of the day it was written: a later deployment edit can
+// leave the two jointly invalid (tools enabled in the file, a zero iteration cap
+// in a row), which no single write could have produced.
+func (s *Store) combinationError(values map[string]string) error {
+	merged := *s.base
+	for _, k := range registry {
+		v, ok := values[k.Name]
+		if !ok || !applicable(k, v) {
+			continue
+		}
+		if err := k.Apply(&merged, v); err != nil {
+			continue
+		}
+	}
+	return cfg.Validate(&merged)
+}
+
+// EffectiveError returns non-nil when the overrides in force produce a
+// configuration cfg.Validate rejects. The values are still published in that
+// case — the owner has to be able to see and fix them — so `/admin config list`
+// surfaces this and every write stays rejected until one of the keys involved is
+// given a valid value.
+func (s *Store) EffectiveError() error {
+	if s == nil {
+		return nil
+	}
+	snap := s.now.Load()
+	if snap == nil {
+		return nil
+	}
+	return snap.invalid
 }
 
 // override returns the stored value for a key and whether a row exists.
@@ -334,6 +382,21 @@ func (s *Store) Unset(key, updatedBy string) error {
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	// Removing a row changes the effective configuration, so it gets the same
+	// check a write does. Only an unset that would *introduce* an invalid
+	// combination is refused, so an already-invalid state can always be cleared,
+	// and setting a valid value first always works.
+	remaining := make(map[string]string, len(registry))
+	if snap := s.now.Load(); snap != nil {
+		for stored, v := range snap.values {
+			remaining[stored] = v
+		}
+	}
+	delete(remaining, k.Name)
+	if err := s.combinationError(remaining); err != nil && s.EffectiveError() == nil {
+		return fmt.Errorf("settings: would leave the configuration invalid: %w", err)
+	}
 
 	result := s.db.Where("key = ?", k.Name).Delete(&Setting{})
 	if result.Error != nil {
