@@ -223,7 +223,7 @@ func (m *Module) onMessageCreate(s *discordgo.Session, mc *discordgo.MessageCrea
 	if mc == nil || mc.Message == nil || mc.Author == nil {
 		return
 	}
-	slog.Debug("Message received", "message", mc.Content)
+	slog.Debug("Message received", "channel", mc.ChannelID, "length", len(mc.Content))
 	// While debug logging is on the bot stays quiet outside gippity.debug_channel,
 	// so a debug run does not answer in every channel. Empty disables the
 	// restriction.
@@ -309,7 +309,7 @@ func (m *Module) onMessageCreate(s *discordgo.Session, mc *discordgo.MessageCrea
 			return
 		}
 	}
-	slog.Debug("Generated answer", "answer", generatedAnswer)
+	slog.Debug("Generated answer", "length", len(generatedAnswer))
 
 	if generatedAnswer != "" {
 		if err := m.sendReply(mc, generatedAnswer); err != nil {
@@ -564,11 +564,7 @@ Manche Namen sind Pseudonyme (Benutzer 1, 2, …) für anonyme Teilnehmer. Echte
 		messages = append(messages, openai.ChatCompletionMessageParamUnion(openai.UserMessage(sanitizedString)))
 	}
 
-	if slog.Default().Enabled(context.Background(), slog.LevelDebug) {
-		for _, message := range messages {
-			slog.Debug("Message", "message", message)
-		}
-	}
+	slog.Debug("gippity: prompt built", "messages", len(messages))
 
 	env := tool.Env{GuildID: mc.GuildID, ChannelID: mc.ChannelID}
 	if mc.Author != nil {
