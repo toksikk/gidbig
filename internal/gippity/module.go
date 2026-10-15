@@ -263,7 +263,10 @@ func (m *Module) Commands() []*discordgo.ApplicationCommand {
 
 // Background returns the id/cache reset loop.
 func (m *Module) Background() []bot.BackgroundTask {
-	return []bot.BackgroundTask{{Name: "gippity-id-name-cache-reset", Run: m.idToNameCacheResetLoop}}
+	return []bot.BackgroundTask{
+		{Name: "gippity-id-name-cache-reset", Run: m.idToNameCacheResetLoop},
+		{Name: "gippity-rate-counter-prune", Run: m.rateCounterPruneLoop},
+	}
 }
 
 // Shutdown closes the chat history database when this module opened it.
@@ -294,6 +297,45 @@ func (m *Module) idToNameCacheResetLoop(ctx context.Context) {
 			m.stateMu.Lock()
 			m.idToNameCache = make(map[string]string)
 			m.stateMu.Unlock()
+		}
+	}
+}
+
+// rateCounterPruneLoop drops stale per-user rate counters every hour, so the
+// counter maps do not grow with every user ever seen.
+func (m *Module) rateCounterPruneLoop(ctx context.Context) {
+	ticker := time.NewTicker(time.Hour)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			m.pruneCounters(time.Now())
+		}
+	}
+}
+
+// pruneCounters removes counters whose window started at least an hour ago.
+// Such entries would reset on the next message anyway, so removing them does
+// not change rate-limit behavior.
+func (m *Module) pruneCounters(now time.Time) {
+	m.stateMu.Lock()
+	defer m.stateMu.Unlock()
+	pruneStale(m.userMessageCount, m.userMessageCountLastReset, now)
+	pruneStale(m.classifierCount, m.classifierCountLastReset, now)
+}
+
+func pruneStale(counts map[string]int, lastReset map[string]time.Time, now time.Time) {
+	for id := range counts {
+		if reset, ok := lastReset[id]; !ok || now.Sub(reset) >= time.Hour {
+			delete(counts, id)
+			delete(lastReset, id)
+		}
+	}
+	for id, reset := range lastReset {
+		if now.Sub(reset) >= time.Hour {
+			delete(lastReset, id)
 		}
 	}
 }
