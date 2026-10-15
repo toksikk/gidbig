@@ -214,7 +214,10 @@ that commit again immediately before the merge, so it never lands on `master`.
   tied to an issue — never `feat(scope): ...` conventional prefixes. Each PR is
   one logical, reversible change and carries a version label
   (`major`/`breaking`/`minor`/`patch`); the gate passes with at least one, so
-  flag a missing or wrong label choice.
+  flag a missing or wrong label choice. A PR tied to an issue must carry a
+  closing keyword (`Closes #123`, `Fixes #123`, `Resolves #123`) in its body,
+  or `Part of #123` with the remaining work listed when it only partly delivers
+  the issue; flag a PR that references an issue with neither.
 
 ## Output format
 
