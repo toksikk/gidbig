@@ -130,8 +130,9 @@ func (m *Module) renderList() string {
 	var sb strings.Builder
 	if err := m.settings.EffectiveError(); err != nil {
 		// A config.yaml edit can invalidate a stored row that was fine when it
-		// was written, so the operator has to see it here: every write is
-		// rejected until one of the keys involved gets a valid value.
+		// was written, so the operator has to see it here: every `set` is
+		// rejected until the combination is valid again, and `unset` is the way
+		// out.
 		sb.WriteString("INVALID CONFIGURATION: the stored overrides below disagree with config.yaml, and writes are rejected until it is fixed:\n  ")
 		sb.WriteString(err.Error())
 		sb.WriteString("\n\n")

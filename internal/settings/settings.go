@@ -77,9 +77,9 @@ func New(db *gorm.DB, base *cfg.Config) (*Store, error) {
 	}
 	if err := s.EffectiveError(); err != nil {
 		// Start anyway: refusing to boot would leave the owner with no way to
-		// clear the row from Discord. The values stay in force and `/admin
-		// config list` reports the problem, and every write is rejected until a
-		// key involved gets a valid value.
+		// clear the row from Discord. The values stay in force, `/admin config
+		// list` reports the problem, and every `set` is rejected until the
+		// combination is valid again -- `unset` stays allowed so it can be.
 		slog.Error("settings: the runtime overrides make the effective configuration invalid; fix it with /admin config",
 			"error", err)
 	}
@@ -97,7 +97,7 @@ func (s *Store) reload() error {
 	for _, row := range rows {
 		k, ok := byName[row.Key]
 		if !ok || k.Secret {
-			slog.Warn("settings: ignoring a stored value for an unknown key", "key", row.Key)
+			slog.Warn("settings: ignoring a stored value for an unknown or non-editable key", "key", row.Key)
 			continue
 		}
 		values[row.Key] = row.Value
@@ -128,8 +128,8 @@ func (s *Store) combinationError(values map[string]string) error {
 // EffectiveError returns non-nil when the overrides in force produce a
 // configuration cfg.Validate rejects. The values are still published in that
 // case — the owner has to be able to see and fix them — so `/admin config list`
-// surfaces this and every write stays rejected until one of the keys involved is
-// given a valid value.
+// surfaces this, every `set` is rejected until the combination is valid again,
+// and `unset` stays allowed because removing a row is how it gets fixed.
 func (s *Store) EffectiveError() error {
 	if s == nil {
 		return nil
