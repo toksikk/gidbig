@@ -8,6 +8,7 @@ web:
         client_id: "YOUR_OAUTH_CLIENT_ID"
         client_secret: "YOUR_OAUTH_CLIENT_SECRET"
         redirect_uri: "YOUR_REDIRECT_URI"
+    # At least 32 characters; generate with: openssl rand -base64 32
     session_secret: "base64-encoded-32-random-bytes"
     port: 8080
     # Optional. Guards for the unauthenticated, LLM-billed GET/POST /api/eso

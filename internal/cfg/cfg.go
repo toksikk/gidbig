@@ -218,6 +218,10 @@ func Decode(r io.Reader) (*Config, error) {
 	return &cfg, nil
 }
 
+// minSessionSecretLen is the shortest web.session_secret accepted without a
+// warning; the cookie key is sha256(secret) with no KDF.
+const minSessionSecretLen = 32
+
 // Validate rejects a Config that cannot run: the required fields plus the
 // positive-value and enum rules for the optional tuning fields.
 func Validate(cfg *Config) error {
@@ -229,6 +233,9 @@ func Validate(cfg *Config) error {
 	}
 	if cfg.Web.Port != 0 && cfg.Web.SessionSecret == "" {
 		return errors.New("web.session_secret is required when web.port is set")
+	}
+	if cfg.Web.Port != 0 && len(cfg.Web.SessionSecret) < minSessionSecretLen {
+		slog.Warn("web.session_secret is short and can be brute-forced; generate one with: openssl rand -base64 32", "length", len(cfg.Web.SessionSecret), "minimum", minSessionSecretLen)
 	}
 	if len(cfg.Gippity.AllowedGuilds) == 0 {
 		return errors.New("gippity.allowed_guilds is required and cannot be empty")
