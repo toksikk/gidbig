@@ -296,10 +296,12 @@ func TestModuleLLMStatusReadsRuntimeOverrides(t *testing.T) {
 	}
 }
 
-// TestModuleLLMStatusIgnoresNonPositiveRuntimeValues matches the module, which
-// discards a non-positive stored value rather than enforcing it. Set rejects 0,
-// so the row is written directly, as a hand-edited database row would be.
-func TestModuleLLMStatusIgnoresNonPositiveRuntimeValues(t *testing.T) {
+// TestModuleLLMStatusReportsTheValueInForce covers a hand-edited non-positive row
+// (Set rejects both, so they are written directly). The classifier cap has a
+// registry rule, so such a row is unusable and the config value applies; the tool
+// cap has none, because a stored 0 is legal while tools are off and the module
+// honours it, so /status must report it rather than a floored value.
+func TestModuleLLMStatusReportsTheValueInForce(t *testing.T) {
 	db, err := shareddb.Open(filepath.Join(t.TempDir(), shareddb.Filename))
 	if err != nil {
 		t.Fatalf("open test database: %v", err)
@@ -314,29 +316,33 @@ func TestModuleLLMStatusIgnoresNonPositiveRuntimeValues(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decode base config: %v", err)
 	}
+	// Create the table first, then write the rows by hand, then build the store:
+	// a store loaded before the rows would not see them.
+	if _, err := settings.New(db, base); err != nil {
+		t.Fatalf("settings.New: %v", err)
+	}
+	for _, row := range []struct{ key, value string }{
+		{settings.KeyGippityToolsMaxIterations, "0"},
+		{settings.KeyGippityClassifierRateLimit, "0"},
+	} {
+		if err := db.Exec(
+			"INSERT INTO settings (key, value, updated_by) VALUES (?, ?, ?)",
+			row.key, row.value, "manual",
+		).Error; err != nil {
+			t.Fatalf("insert row %s: %v", row.key, err)
+		}
+	}
 	store, err := settings.New(db, base)
 	if err != nil {
 		t.Fatalf("settings.New: %v", err)
-	}
-	if err := db.Exec(
-		"INSERT INTO settings (key, value, updated_by) VALUES (?, ?, ?)",
-		settings.KeyGippityToolsMaxIterations, "0", "manual",
-	).Error; err != nil {
-		t.Fatalf("insert row: %v", err)
-	}
-	if err := db.Exec(
-		"INSERT INTO settings (key, value, updated_by) VALUES (?, ?, ?)",
-		settings.KeyGippityClassifierRateLimit, "0", "manual",
-	).Error; err != nil {
-		t.Fatalf("insert row: %v", err)
 	}
 
 	conf := &cfg.Config{}
 	conf.Gippity.Tools.MaxIterations = 3
 	st := (&Module{conf: conf, settings: store}).llmStatus()
 
-	if st.ToolsMaxIterations != 3 {
-		t.Errorf("ToolsMaxIterations = %d, want the boot 3 rather than the stored 0", st.ToolsMaxIterations)
+	if st.ToolsMaxIterations != 0 {
+		t.Errorf("ToolsMaxIterations = %d, want the stored 0 that the module honours", st.ToolsMaxIterations)
 	}
 	if st.ClassifierRateLimit != defaultClassifierRateLimit {
 		t.Errorf("ClassifierRateLimit = %d, want the fallback %d", st.ClassifierRateLimit, defaultClassifierRateLimit)

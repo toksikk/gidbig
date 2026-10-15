@@ -197,10 +197,9 @@ func (m *Module) llmStatus() llmStatus {
 	st.ToolsEnabled = m.settingBool(settings.KeyGippityToolsEnabled, g.Tools.Enabled)
 	// The module ignores a non-positive stored cap, so reporting one here would
 	// disagree with the loop that actually runs.
+	// No floor: gippity honours a non-positive cap (it just makes no rounds), so
+	// flooring it here would report a value the loop does not use.
 	st.ToolsMaxIterations = m.settingInt(settings.KeyGippityToolsMaxIterations, g.Tools.MaxIterations)
-	if st.ToolsMaxIterations <= 0 {
-		st.ToolsMaxIterations = g.Tools.MaxIterations
-	}
 	st.ToolsAllowed = m.settingStringList(settings.KeyGippityToolsAllowed, g.Tools.Allowed)
 	st.DebugChannel = m.settingString(settings.KeyGippityDebugChannel, g.DebugChannel)
 	if m.settingBool(settings.KeyGippityRespondToAllMessages, g.RespondToAllMessages) {

@@ -96,13 +96,13 @@ func (m *Module) toolsEnabledNow() bool {
 	return m.toolsEnabled
 }
 
-// toolMaxIterationsNow keeps the Init-time fallback for a non-positive value,
-// matching the "must be greater than zero" rule the config applies.
+// toolMaxIterationsNow returns the effective tool-round cap. A non-positive value
+// is honoured rather than floored: cfg.Validate forbids it while tools are
+// enabled, and with tools off the loop makes no rounds and forces a final answer,
+// so the value reported as in force is the value used.
 func (m *Module) toolMaxIterationsNow() int {
 	if m.settings != nil {
-		if n := m.settings.Int(settings.KeyGippityToolsMaxIterations); n > 0 {
-			return n
-		}
+		return m.settings.Int(settings.KeyGippityToolsMaxIterations)
 	}
 	return m.toolMaxIterations
 }
