@@ -90,6 +90,17 @@ the key's own rule — so a row advertised with source `db` is always the value 
 consumer receives. One unusable row also cannot block writes to other keys: `Set`
 logs and skips it while validating, and `unset` clears it.
 
+The combination is checked as well as each row. A row is validated against the
+`config.yaml` of the day it was written, so a later deployment edit can leave the
+two jointly invalid — tools enabled in the file, a zero iteration cap in a row —
+without any single write being able to produce it. `New` therefore reports the
+combination on every load, `/admin config list` prints it, and every write stays
+rejected until one of the keys involved gets a valid value. The values are still
+published in that state, so the owner can see and fix them from Discord rather
+than needing to stop the bot. `Unset` applies the same check and refuses a
+removal that would *introduce* an invalid combination, so an already-invalid
+state can always be cleared.
+
 ## Key flow
 
 ```mermaid

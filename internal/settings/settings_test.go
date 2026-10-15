@@ -649,3 +649,61 @@ func TestEffective_EveryRegisteredKeyIsJudged(t *testing.T) {
 		})
 	}
 }
+
+const baseToolsOnYAML = `
+discord:
+  token: "test-token"
+gippity:
+  allowed_guilds: ["guild"]
+  tools:
+    enabled: true
+    max_iterations: 3
+`
+
+// TestNew_ReportsAnInvalidCombinedConfiguration covers the deferral window: a row
+// valid when it was written can be invalidated by a later config.yaml edit.
+func TestNew_ReportsAnInvalidCombinedConfiguration(t *testing.T) {
+	db := openTestDB(t)
+	store := newTestStore(t, db, baseYAML)
+	if err := store.Set(KeyGippityToolsMaxIterations, "0", "owner"); err != nil {
+		t.Fatalf("Set with tools off: %v", err)
+	}
+
+	restarted := newTestStore(t, db, baseToolsOnYAML)
+	err := restarted.EffectiveError()
+	if err == nil {
+		t.Fatal("New published a configuration cfg.Validate rejects without reporting it")
+	}
+	if !strings.Contains(err.Error(), "max_iterations") {
+		t.Errorf("EffectiveError = %v, want it to name the offending key", err)
+	}
+}
+
+func TestUnset_RejectsRemovalThatInvalidatesTheConfiguration(t *testing.T) {
+	store := newTestStore(t, openTestDB(t), baseToolsOnYAML)
+	if err := store.Set(KeyGippityToolsEnabled, "false", "owner"); err != nil {
+		t.Fatalf("Set tools.enabled: %v", err)
+	}
+	if err := store.Set(KeyGippityToolsMaxIterations, "0", "owner"); err != nil {
+		t.Fatalf("Set max_iterations: %v", err)
+	}
+
+	err := store.Unset(KeyGippityToolsEnabled, "owner")
+	if err == nil {
+		t.Fatal("Unset accepted a removal that leaves tools enabled with zero iterations")
+	}
+	if !strings.Contains(err.Error(), "max_iterations") {
+		t.Errorf("Unset error = %v, want it to name the conflicting key", err)
+	}
+	if v, ok := store.Override(KeyGippityToolsEnabled); !ok || v != "false" {
+		t.Errorf("the rejected Unset changed the stored row: %q (present %v)", v, ok)
+	}
+
+	// There must always be a way out: set a valid cap, then remove the override.
+	if err := store.Set(KeyGippityToolsMaxIterations, "3", "owner"); err != nil {
+		t.Fatalf("Set a valid cap: %v", err)
+	}
+	if err := store.Unset(KeyGippityToolsEnabled, "owner"); err != nil {
+		t.Fatalf("Unset after fixing the cap: %v", err)
+	}
+}
