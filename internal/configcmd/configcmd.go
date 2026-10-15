@@ -29,6 +29,29 @@ const groupName = "config"
 // limit, with room for the surrounding formatting.
 const maxMessageRunes = 1900
 
+// ErrUnavailable reports that no settings store is wired, so nothing can be
+// read or written.
+var ErrUnavailable = errors.New("no settings store is wired")
+
+// UnavailableMessage is the reply a caller shows for ErrUnavailable. It lives
+// here so the /admin config command and the web admin panel cannot word the same
+// state differently.
+const UnavailableMessage = "Runtime settings are unavailable: no settings store is wired"
+
+// Entry is one runtime-editable setting with the value in force and where that
+// value came from. The Discord `list` reply and the web admin panel both render
+// this, so they cannot drift apart.
+type Entry struct {
+	// Name is the dotted key the owner types.
+	Name string
+	// Kind is the value type of the setting, for input hints and rendering.
+	Kind settings.Kind
+	// Value is the effective value.
+	Value string
+	// Source names where Value came from.
+	Source settings.Source
+}
+
 // Module implements bot.Module and bot.AdminProvider.
 type Module struct {
 	settings *settings.Store
@@ -115,20 +138,43 @@ func (m *Module) HandleAdminSubcommand(s *discordgo.Session, i *discordgo.Intera
 	case "get":
 		reply(s, i, m.renderGet(optionString(sub.Options, "key")))
 	case "set":
-		reply(s, i, m.applySet(optionString(sub.Options, "key"), optionString(sub.Options, "value"), actorID(i)))
+		msg, _ := m.ApplySet(optionString(sub.Options, "key"), optionString(sub.Options, "value"), actorID(i))
+		reply(s, i, msg)
 	case "unset":
-		reply(s, i, m.applyUnset(optionString(sub.Options, "key"), actorID(i)))
+		msg, _ := m.ApplyUnset(optionString(sub.Options, "key"), actorID(i))
+		reply(s, i, msg)
 	}
+}
+
+// Entries returns every runtime-editable key with its effective value and
+// source, in registry order. The error is ErrUnavailable when no store is wired,
+// and the store's own error when the stored overrides disagree with config.yaml;
+// in the latter case the entries are still returned, because the values in force
+// are exactly what the operator needs to see to fix it.
+func (m *Module) Entries() ([]Entry, error) {
+	if m.settings == nil {
+		return nil, ErrUnavailable
+	}
+	entries := make([]Entry, 0, len(settings.Keys()))
+	for _, k := range settings.Keys() {
+		value, source, ok := m.effective(k.Name)
+		if !ok {
+			continue
+		}
+		entries = append(entries, Entry{Name: k.Name, Kind: k.Kind, Value: value, Source: source})
+	}
+	return entries, m.settings.EffectiveError()
 }
 
 // renderList shows every runtime-editable key with its effective value and the
 // source that value came from.
 func (m *Module) renderList() string {
-	if m.settings == nil {
-		return "Runtime settings are unavailable: no settings store is wired."
+	entries, err := m.Entries()
+	if err != nil && errors.Is(err, ErrUnavailable) {
+		return UnavailableMessage
 	}
 	var sb strings.Builder
-	if err := m.settings.EffectiveError(); err != nil {
+	if err != nil {
 		// A config.yaml edit can invalidate a stored row that was fine when it
 		// was written, so the operator has to see it here: every `set` is
 		// rejected until the combination is valid again, and `unset` is the way
@@ -139,12 +185,8 @@ func (m *Module) renderList() string {
 	}
 	sb.WriteString("Runtime settings. Hot keys apply to the next message; no restart is needed.\n")
 	sb.WriteString("source: default = built-in, yaml = config.yaml, db = runtime override\n")
-	for _, k := range settings.Keys() {
-		value, source, ok := m.effective(k.Name)
-		if !ok {
-			continue
-		}
-		fmt.Fprintf(&sb, "%-42s %-8s %s\n", k.Name, source, value)
+	for _, e := range entries {
+		fmt.Fprintf(&sb, "%-42s %-8s %s\n", e.Name, e.Source, e.Value)
 	}
 	return "```\n" + sb.String() + "```"
 }
@@ -152,7 +194,7 @@ func (m *Module) renderList() string {
 // renderGet shows one key with its effective value, source and when it applies.
 func (m *Module) renderGet(key string) string {
 	if m.settings == nil {
-		return "Runtime settings are unavailable: no settings store is wired."
+		return UnavailableMessage
 	}
 	k, ok := settings.Lookup(key)
 	if !ok {
@@ -165,49 +207,51 @@ func (m *Module) renderGet(key string) string {
 	return fmt.Sprintf("`%s`\neffective: `%s`\nsource: `%s`\napplies: to the next message; no restart needed", k.Name, value, source)
 }
 
-// applySet validates and stores an override. A rejected value leaves the
+// ApplySet validates and stores an override. A rejected value leaves the
 // previous effective value untouched, and the reply repeats it so the owner can
-// see nothing changed.
-func (m *Module) applySet(key, value, updatedBy string) string {
+// see nothing changed. The bool is false when the write did not happen, which
+// lets the web panel mark the outcome without parsing the message.
+func (m *Module) ApplySet(key, value, updatedBy string) (string, bool) {
 	if m.settings == nil {
-		return "Runtime settings are unavailable: no settings store is wired."
+		return UnavailableMessage, false
 	}
 	k, ok := settings.Lookup(key)
 	if !ok {
-		return unknownKeyMessage(key)
+		return unknownKeyMessage(key), false
 	}
 	if err := m.settings.Set(key, value, updatedBy); err != nil {
 		if errors.Is(err, settings.ErrUnknownKey) {
-			return unknownKeyMessage(key)
+			return unknownKeyMessage(key), false
 		}
 		current, source, _ := m.effective(k.Name)
-		return fmt.Sprintf("Rejected `%s=%s`.\nreason: %v\nunchanged: `%s` (source: `%s`)", k.Name, value, err, current, source)
+		return fmt.Sprintf("Rejected `%s=%s`.\nreason: %v\nunchanged: `%s` (source: `%s`)", k.Name, value, err, current, source), false
 	}
 	effective, source, _ := m.effective(k.Name)
-	return fmt.Sprintf("Set `%s=%s`.\neffective: `%s` (source: `%s`)\nTakes effect on the next message; no restart needed.", k.Name, value, effective, source)
+	return fmt.Sprintf("Set `%s=%s`.\neffective: `%s` (source: `%s`)\nTakes effect on the next message; no restart needed.", k.Name, value, effective, source), true
 }
 
-// applyUnset removes an override so the config.yaml value applies again.
-func (m *Module) applyUnset(key, updatedBy string) string {
+// ApplyUnset removes an override so the config.yaml value applies again. The
+// bool reports whether an override was actually removed.
+func (m *Module) ApplyUnset(key, updatedBy string) (string, bool) {
 	if m.settings == nil {
-		return "Runtime settings are unavailable: no settings store is wired."
+		return UnavailableMessage, false
 	}
 	k, ok := settings.Lookup(key)
 	if !ok {
-		return unknownKeyMessage(key)
+		return unknownKeyMessage(key), false
 	}
 	_, had := m.settings.Override(k.Name)
 	if err := m.settings.Unset(key, updatedBy); err != nil {
 		if errors.Is(err, settings.ErrUnknownKey) {
-			return unknownKeyMessage(key)
+			return unknownKeyMessage(key), false
 		}
-		return fmt.Sprintf("Could not remove the override for `%s`: %v", k.Name, err)
+		return fmt.Sprintf("Could not remove the override for `%s`: %v", k.Name, err), false
 	}
 	effective, source, _ := m.effective(k.Name)
 	if !had {
-		return fmt.Sprintf("No runtime override is set for `%s`; nothing to remove.\neffective: `%s` (source: `%s`)", k.Name, effective, source)
+		return fmt.Sprintf("No runtime override is set for `%s`; nothing to remove.\neffective: `%s` (source: `%s`)", k.Name, effective, source), false
 	}
-	return fmt.Sprintf("Removed the runtime override for `%s`.\neffective: `%s` (source: `%s`)", k.Name, effective, source)
+	return fmt.Sprintf("Removed the runtime override for `%s`.\neffective: `%s` (source: `%s`)", k.Name, effective, source), true
 }
 
 // effective returns the value to display for a key. The two llm.* model keys
