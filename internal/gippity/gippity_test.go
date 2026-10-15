@@ -1708,3 +1708,35 @@ func TestCommands_IncludeNonmentionSubcommand(t *testing.T) {
 		}
 	}
 }
+
+func TestDebugLogs_OmitMessageContent(t *testing.T) {
+	previous := slog.Default()
+	var logs strings.Builder
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	t.Cleanup(func() { slog.SetDefault(previous) })
+
+	m, session := setupGippityTest(t)
+	m.generateAnswerFunc = func(_ *discordgo.MessageCreate, _ []string) (string, error) {
+		return "secret-answer-text", nil
+	}
+	m.messageSendFunc = func(_ *discordgo.Session, _, _ string) (*discordgo.Message, error) {
+		return &discordgo.Message{}, nil
+	}
+	m.onMessageCreate(session, gippityTestMessage("secret-user-text <@bot-user>", &discordgo.User{ID: "bot-user"}))
+
+	insertHistoryMessage(m, t, "hist-secret", "secret-history-text")
+	captureChatCompletion(m, t)
+	if _, err := m.generateAnswer(testGenerateMessage("current-secret"), nil); err != nil {
+		t.Fatalf("generateAnswer: %v", err)
+	}
+
+	out := logs.String()
+	if !strings.Contains(out, "Message received") || !strings.Contains(out, "Generated answer") || !strings.Contains(out, "prompt built") {
+		t.Fatalf("expected debug logs were not emitted: %s", out)
+	}
+	for _, secret := range []string{"secret-user-text", "secret-answer-text", "secret-history-text", "hello <@bot-user>"} {
+		if strings.Contains(out, secret) {
+			t.Errorf("debug log leaks %q: %s", secret, out)
+		}
+	}
+}
