@@ -112,3 +112,27 @@ func TestRegisterToolsNilRegistryIsSafe(t *testing.T) {
 	m := New()
 	m.registerTools()
 }
+
+func TestWeatherToolHandlerLocationTooLong(t *testing.T) {
+	m := weatherToolModule(t)
+	called := false
+	m.getWeatherFn = func(string) (wttrinResponse, error) {
+		called = true
+		return wttrinResponse{}, nil
+	}
+	args, _ := json.Marshal(map[string]any{"location": strings.Repeat("ä", maxLocationLen+1)})
+	if _, err := m.weatherToolHandler(context.Background(), tool.Env{}, args); err == nil {
+		t.Fatal("expected error for overlong location")
+	}
+	if called {
+		t.Error("weather fetched for overlong location")
+	}
+}
+
+func TestWeatherToolHandlerLocationAtLimit(t *testing.T) {
+	m := weatherToolModule(t)
+	args, _ := json.Marshal(map[string]any{"location": strings.Repeat("ä", maxLocationLen)})
+	if _, err := m.weatherToolHandler(context.Background(), tool.Env{}, args); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
