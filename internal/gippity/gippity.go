@@ -218,6 +218,11 @@ func (m *Module) sendReply(mc *discordgo.MessageCreate, content string) error {
 }
 
 func (m *Module) onMessageCreate(s *discordgo.Session, mc *discordgo.MessageCreate) {
+	// Every message is stored regardless of eligibility; privacy is enforced
+	// when history is read. Only malformed events without an author are dropped.
+	if mc == nil || mc.Message == nil || mc.Author == nil {
+		return
+	}
 	slog.Debug("Message received", "message", mc.Content)
 	// While debug logging is on the bot stays quiet outside gippity.debug_channel,
 	// so a debug run does not answer in every channel. Empty disables the
@@ -400,6 +405,9 @@ func (m *Module) onGippityInteractionCreate(s *discordgo.Session, i *discordgo.I
 }
 
 func (m *Module) isMentioned(mc *discordgo.MessageCreate) bool {
+	if m.session == nil || m.session.State == nil || m.session.State.User == nil {
+		return false
+	}
 	botUserID := m.session.State.User.ID
 
 	for _, user := range mc.Mentions {

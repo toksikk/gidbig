@@ -184,6 +184,36 @@ func gippityTestMessage(content string, mentions ...*discordgo.User) *discordgo.
 	}
 }
 
+func TestOnMessageCreate_NilAuthor_NoPanic(t *testing.T) {
+	m, session := setupGippityTest(t)
+	m.generateAnswerFunc = func(_ *discordgo.MessageCreate, _ []string) (string, error) {
+		t.Fatal("generateAnswerFunc should not be called for malformed events")
+		return "", nil
+	}
+
+	noAuthor := gippityTestMessage("no author")
+	noAuthor.Author = nil
+	for _, mc := range []*discordgo.MessageCreate{nil, {}, noAuthor} {
+		m.onMessageCreate(session, mc)
+	}
+
+	var count int
+	if err := queryRow(t, m.db, "SELECT COUNT(*) FROM gippity_chat_history").Scan(&count); err != nil {
+		t.Fatalf("count history: %v", err)
+	}
+	if count != 0 {
+		t.Errorf("stored %d malformed messages, want 0", count)
+	}
+}
+
+func TestIsMentioned_NilBotUser(t *testing.T) {
+	m, session := setupGippityTest(t)
+	session.State.User = nil
+	if m.isMentioned(gippityTestMessage("hi", &discordgo.User{ID: "bot-user"})) {
+		t.Error("isMentioned = true without a bot user, want false")
+	}
+}
+
 func TestOnMessageCreate_StoresNonMentionedMessageWithoutGeneratingAnswer(t *testing.T) {
 	m, session := setupGippityTest(t)
 	m.generateAnswerFunc = func(_ *discordgo.MessageCreate, _ []string) (string, error) {
