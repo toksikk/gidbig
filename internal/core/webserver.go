@@ -671,7 +671,8 @@ func (ws *webServer) handleDiscordCallback(w http.ResponseWriter, r *http.Reques
 // completeLogin records the freshly authenticated user in the session and stamps
 // when the login happened. The admin panel refuses a session without a recent
 // IssuedAt, so this is what makes the panel reachable for the owner; a new login
-// also drops the previous session's admin form token.
+// also drops the previous session's admin form token and any flash it left, so
+// nothing from an earlier login is carried over.
 func (ws *webServer) completeLogin(session *sessionData, user *discordgo.User, accessToken string) {
 	avatarURL := ""
 	if user.Avatar != "" {
@@ -683,6 +684,8 @@ func (ws *webServer) completeLogin(session *sessionData, user *discordgo.User, a
 	session.AccessToken = accessToken
 	session.IssuedAt = ws.currentTime().Unix()
 	session.AdminCSRF = ""
+	session.Flash = ""
+	session.FlashOK = false
 }
 
 func parseIPPort(s string) (ip net.IP, port, space string, err error) {
