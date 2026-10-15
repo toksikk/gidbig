@@ -32,12 +32,13 @@ const (
 // model, honouring the optional allowlist.
 func (m *Module) enabledToolDefs() []tool.Def {
 	all := m.tools.All()
-	if len(m.toolAllowed) == 0 {
+	allowed := m.toolAllowedNow()
+	if len(allowed) == 0 {
 		return all
 	}
 	out := make([]tool.Def, 0, len(all))
 	for _, d := range all {
-		if m.toolAllowed[d.Name] {
+		if allowed[d.Name] {
 			out = append(out, d)
 		}
 	}
@@ -74,7 +75,7 @@ func (m *Module) completeWithTools(ctx context.Context, env tool.Env, messages [
 		MaxCompletionTokens: openai.Int(300),
 	}
 
-	if !m.toolsEnabled || m.tools == nil {
+	if !m.toolsEnabledNow() || m.tools == nil {
 		return m.singleCompletion(ctx, params)
 	}
 
@@ -93,12 +94,13 @@ func (m *Module) completeWithTools(ctx context.Context, env tool.Env, messages [
 	}
 	// Some providers forbid tools together with reasoning. Apply the configured
 	// effort (if any) only on requests that carry tools.
-	params.ReasoningEffort = shared.ReasoningEffort(m.toolReasoningEffort)
+	params.ReasoningEffort = shared.ReasoningEffort(m.toolReasoningEffortNow())
 
 	ctx, cancel := context.WithTimeout(ctx, toolLoopTimeout)
 	defer cancel()
 
-	for i := 0; i < m.toolMaxIterations; i++ {
+	iterations := m.toolMaxIterationsNow()
+	for i := 0; i < iterations; i++ {
 		completion, err := m.chatCompletionFunc(ctx, params)
 		if err != nil {
 			logCompletionError(err)
@@ -120,7 +122,7 @@ func (m *Module) completeWithTools(ctx context.Context, env tool.Env, messages [
 
 	// Iteration cap reached: ask for a final answer without offering tools. The
 	// reasoning effort is cleared so this tool-free call may reason normally.
-	slog.Info("gippity: tool iteration cap reached, forcing final answer", "iterations", m.toolMaxIterations)
+	slog.Info("gippity: tool iteration cap reached, forcing final answer", "iterations", iterations)
 	params.Tools = nil
 	params.ToolChoice = openai.ChatCompletionToolChoiceOptionUnionParam{}
 	params.ReasoningEffort = ""

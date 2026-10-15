@@ -2,7 +2,7 @@
 
 Directory `internal/admin`. Implements `bot.Module`; constructed with `admin.New(providers ...bot.AdminProvider)`.
 
-Owner-only `/admin` command. The command tree is built from the injected `bot.AdminProvider` modules (coffee, gippity) plus the built-in `info` subcommand.
+Owner-only `/admin` command. The command tree is built from the injected `bot.AdminProvider` modules (coffee, gippity, configcmd) plus the built-in `info` subcommand.
 
 - Providers are passed to `admin.New` by the composition root (`internal/core/cmd.go`), including only modules whose `Init` succeeded.
 - Adding a provider means passing it to `admin.New`; no edits inside `internal/admin` are required.
@@ -17,7 +17,7 @@ sequenceDiagram
     participant O as Owner
     participant D as Discord
     participant A as admin
-    participant P as AdminProvider (coffee, gippity)
+    participant P as AdminProvider (coffee, gippity, configcmd)
 
     O->>D: /admin <group> <sub>
     D->>A: onAdminInteractionCreate

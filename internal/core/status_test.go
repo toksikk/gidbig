@@ -14,6 +14,8 @@ import (
 	"github.com/toksikk/gidbig/internal/bot"
 	"github.com/toksikk/gidbig/internal/cfg"
 	"github.com/toksikk/gidbig/internal/llm"
+	"github.com/toksikk/gidbig/internal/settings"
+	"github.com/toksikk/gidbig/internal/shareddb"
 )
 
 func sampleSnapshot() statusSnapshot {
@@ -204,6 +206,122 @@ func TestModuleLLMStatusEffectiveConfig(t *testing.T) {
 	}
 	if len(st.ToolsAllowed) != 1 || st.ToolsAllowed[0] != "bot_status" || st.DebugChannel != "42" {
 		t.Errorf("allowed/debug = %v/%q", st.ToolsAllowed, st.DebugChannel)
+	}
+}
+
+// TestModuleLLMStatusReadsRuntimeOverrides keeps /status honest once the owner
+// changes a knob: the LLM section must report the same values the gippity module
+// enforces, not the boot config.
+func TestModuleLLMStatusReadsRuntimeOverrides(t *testing.T) {
+	db, err := shareddb.Open(filepath.Join(t.TempDir(), shareddb.Filename))
+	if err != nil {
+		t.Fatalf("open test database: %v", err)
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("db.DB: %v", err)
+	}
+	t.Cleanup(func() { _ = sqlDB.Close() })
+
+	base, err := cfg.Decode(strings.NewReader("discord:\n  token: t\ngippity:\n  allowed_guilds: [guild]\n"))
+	if err != nil {
+		t.Fatalf("decode base config: %v", err)
+	}
+	store, err := settings.New(db, base)
+	if err != nil {
+		t.Fatalf("settings.New: %v", err)
+	}
+	for key, value := range map[string]string{
+		settings.KeyGippityRateLimitMessagesPerHour: "7",
+		settings.KeyGippityClassifierRateLimit:      "9",
+		settings.KeyGippityClassifierModel:          "runtime-classifier",
+		settings.KeyGippityToolsEnabled:             "true",
+		settings.KeyGippityToolsMaxIterations:       "5",
+		settings.KeyGippityToolsAllowed:             "bot_status,weather",
+		settings.KeyGippityToolsReasoningEffort:     "low",
+		settings.KeyGippityRespondToAllMessages:     "true",
+		settings.KeyGippityDebugChannel:             "runtime-channel",
+	} {
+		if err := store.Set(key, value, "owner"); err != nil {
+			t.Fatalf("Set(%s=%s): %v", key, value, err)
+		}
+	}
+
+	conf := &cfg.Config{}
+	conf.Gippity.RateLimitMessagesPerHour = 40
+	conf.Gippity.Tools.MaxIterations = 3
+
+	st := (&Module{conf: conf, settings: store}).llmStatus()
+	if st.MessageRateLimit != 7 {
+		t.Errorf("MessageRateLimit = %d, want the runtime 7", st.MessageRateLimit)
+	}
+	if st.ClassifierRateLimit != 9 {
+		t.Errorf("ClassifierRateLimit = %d, want the runtime 9", st.ClassifierRateLimit)
+	}
+	if st.ClassifierModel != "runtime-classifier" {
+		t.Errorf("ClassifierModel = %q, want the runtime model", st.ClassifierModel)
+	}
+	if !st.ToolsEnabled || st.ToolsMaxIterations != 5 {
+		t.Errorf("tools = %+v, want the runtime enabled + 5 iterations", st)
+	}
+	if len(st.ToolsAllowed) != 2 || st.ToolsAllowed[0] != "bot_status" || st.ToolsAllowed[1] != "weather" {
+		t.Errorf("ToolsAllowed = %v, want the runtime allowlist", st.ToolsAllowed)
+	}
+	if st.ToolsReasoningEffort != "low" {
+		t.Errorf("ToolsReasoningEffort = %q, want the runtime low", st.ToolsReasoningEffort)
+	}
+	if st.AnswerMode != "all messages (classified)" {
+		t.Errorf("AnswerMode = %q, want the runtime classification mode", st.AnswerMode)
+	}
+	if st.DebugChannel != "runtime-channel" {
+		t.Errorf("DebugChannel = %q, want the runtime channel", st.DebugChannel)
+	}
+}
+
+// TestModuleLLMStatusIgnoresNonPositiveRuntimeValues matches the module, which
+// discards a non-positive stored value rather than enforcing it. Set rejects 0,
+// so the row is written directly, as a hand-edited database row would be.
+func TestModuleLLMStatusIgnoresNonPositiveRuntimeValues(t *testing.T) {
+	db, err := shareddb.Open(filepath.Join(t.TempDir(), shareddb.Filename))
+	if err != nil {
+		t.Fatalf("open test database: %v", err)
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("db.DB: %v", err)
+	}
+	t.Cleanup(func() { _ = sqlDB.Close() })
+
+	base, err := cfg.Decode(strings.NewReader("discord:\n  token: t\ngippity:\n  allowed_guilds: [guild]\n"))
+	if err != nil {
+		t.Fatalf("decode base config: %v", err)
+	}
+	store, err := settings.New(db, base)
+	if err != nil {
+		t.Fatalf("settings.New: %v", err)
+	}
+	if err := db.Exec(
+		"INSERT INTO settings (key, value, updated_by) VALUES (?, ?, ?)",
+		settings.KeyGippityToolsMaxIterations, "0", "manual",
+	).Error; err != nil {
+		t.Fatalf("insert row: %v", err)
+	}
+	if err := db.Exec(
+		"INSERT INTO settings (key, value, updated_by) VALUES (?, ?, ?)",
+		settings.KeyGippityClassifierRateLimit, "0", "manual",
+	).Error; err != nil {
+		t.Fatalf("insert row: %v", err)
+	}
+
+	conf := &cfg.Config{}
+	conf.Gippity.Tools.MaxIterations = 3
+	st := (&Module{conf: conf, settings: store}).llmStatus()
+
+	if st.ToolsMaxIterations != 3 {
+		t.Errorf("ToolsMaxIterations = %d, want the boot 3 rather than the stored 0", st.ToolsMaxIterations)
+	}
+	if st.ClassifierRateLimit != defaultClassifierRateLimit {
+		t.Errorf("ClassifierRateLimit = %d, want the fallback %d", st.ClassifierRateLimit, defaultClassifierRateLimit)
 	}
 }
 

@@ -114,7 +114,7 @@ func TestInit_OwnerIDFromConfig(t *testing.T) {
 }
 
 func TestCommands_Structure(t *testing.T) {
-	cmd := newTestModule(stubCoffeeProvider(), stubGippityProvider()).command()
+	cmd := newTestModule(stubCoffeeProvider(), stubGippityProvider(), stubConfigProvider()).command()
 	if cmd.Name != "admin" {
 		t.Errorf("Name = %q, want %q", cmd.Name, "admin")
 	}
@@ -123,7 +123,7 @@ func TestCommands_Structure(t *testing.T) {
 	for _, opt := range cmd.Options {
 		names[opt.Name] = true
 	}
-	for _, want := range []string{"coffee", "gippity", "info"} {
+	for _, want := range []string{"coffee", "gippity", "config", "info"} {
 		if !names[want] {
 			t.Errorf("missing top-level option %q", want)
 		}
@@ -418,5 +418,80 @@ func awaitRequest(t *testing.T, requests <-chan discordRequest) discordRequest {
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for a Discord request")
 		return discordRequest{}
+	}
+}
+
+// stubConfigProvider mirrors configcmd.(*Module).AdminSubcommandGroup. Keep it
+// in sync with internal/configcmd when the config schema changes.
+func stubConfigProvider() *recordingProvider {
+	keyOption := func(description string) *discordgo.ApplicationCommandOption {
+		return &discordgo.ApplicationCommandOption{
+			Type:        discordgo.ApplicationCommandOptionString,
+			Name:        "key",
+			Description: description,
+			Required:    true,
+		}
+	}
+	return &recordingProvider{
+		group: &discordgo.ApplicationCommandOption{
+			Type:        discordgo.ApplicationCommandOptionSubCommandGroup,
+			Name:        "config",
+			Description: "Runtime settings (hot keys apply without a restart)",
+			Options: []*discordgo.ApplicationCommandOption{
+				{
+					Type:        discordgo.ApplicationCommandOptionSubCommand,
+					Name:        "list",
+					Description: "List every runtime-editable setting with its effective value and source",
+				},
+				{
+					Type:        discordgo.ApplicationCommandOptionSubCommand,
+					Name:        "get",
+					Description: "Show one setting, its source and when it applies",
+					Options:     []*discordgo.ApplicationCommandOption{keyOption("Setting key, for example gippity.tools.enabled")},
+				},
+				{
+					Type:        discordgo.ApplicationCommandOptionSubCommand,
+					Name:        "set",
+					Description: "Set a runtime override; an invalid value is rejected",
+					Options: []*discordgo.ApplicationCommandOption{
+						keyOption("Setting key, for example gippity.tools.enabled"),
+						{
+							Type:        discordgo.ApplicationCommandOptionString,
+							Name:        "value",
+							Description: "New value; lists are comma-separated",
+							Required:    true,
+						},
+					},
+				},
+				{
+					Type:        discordgo.ApplicationCommandOptionSubCommand,
+					Name:        "unset",
+					Description: "Remove the runtime override, falling back to config.yaml",
+					Options:     []*discordgo.ApplicationCommandOption{keyOption("Setting key to reset")},
+				},
+			},
+		},
+	}
+}
+
+func TestCommands_ConfigSubcommands(t *testing.T) {
+	cmd := newTestModule(stubConfigProvider()).command()
+	group := findOption(cmd.Options, "config")
+	if group == nil {
+		t.Fatal("no config subcommand group")
+		return
+	}
+	if group.Type != discordgo.ApplicationCommandOptionSubCommandGroup {
+		t.Errorf("config Type = %v, want SubCommandGroup", group.Type)
+	}
+
+	subNames := make(map[string]bool)
+	for _, o := range group.Options {
+		subNames[o.Name] = true
+	}
+	for _, want := range []string{"list", "get", "set", "unset"} {
+		if !subNames[want] {
+			t.Errorf("missing config subcommand %q", want)
+		}
 	}
 }

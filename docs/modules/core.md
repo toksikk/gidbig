@@ -2,7 +2,7 @@
 
 Package `gidbig`, directory `internal/core`. Composition root and core module.
 
-- `cmd.go` – `StartGidbig`: builds session, wires modules through `bot.Bot`, waits for signal, shuts down.
+- `cmd.go` – `StartGidbig`: opens the shared database, builds the runtime settings store, builds the session and the `*llm.Client`, wires modules through `bot.Bot`, waits for signal, shuts down.
 - `module.go` – the core `bot.Module`: lifecycle logging (`onReady`/`onConnect`/`onDisconnect`/`onResumed`), ping/pong, `/status`, `/uptime`.
 - `tools.go` – registers the `bot_status` LLM tool, which reports the process runtime line (heap, sys, stack, goroutines, GC cycles, uptime) plus aggregated `StatsProvider` counters for the answer path.
 - `slashcmd.go` – `/uptime` rendering helpers.
@@ -35,8 +35,9 @@ sequenceDiagram
 
     main->>core: StartGidbig()
     core->>cfg: GetConfig()
+    core->>core: shareddb.Open → settings.New(db, conf)
     core->>dg: New("Bot token")
-    core->>llm: New(Options) → *llm.Client
+    core->>llm: New(Options + ModelOverride) → *llm.Client
     core->>bot: New(Deps) — installs single session handlers
     core->>bot: RegisterModule(core) before Open
     core->>dg: Open()

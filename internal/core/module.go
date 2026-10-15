@@ -9,6 +9,7 @@ import (
 	"github.com/toksikk/gidbig/internal/bot"
 	"github.com/toksikk/gidbig/internal/cfg"
 	"github.com/toksikk/gidbig/internal/llm"
+	"github.com/toksikk/gidbig/internal/settings"
 	"github.com/toksikk/gidbig/internal/shareddb"
 	"github.com/toksikk/gidbig/internal/tool"
 )
@@ -23,6 +24,7 @@ type Module struct {
 	llm       *llm.Client
 	stats     *bot.StatsRegistry
 	tools     *tool.Registry
+	settings  *settings.Store
 	dbPaths   []string
 	startTime time.Time
 }
@@ -41,6 +43,7 @@ func (m *Module) Init(d bot.Deps) error {
 	m.llm = d.LLM
 	m.stats = d.Stats
 	m.tools = d.Tools
+	m.settings = d.Settings
 	m.dbPaths = []string{shareddb.Filename}
 	m.registerTools()
 	m.registerHandlers(d.Router)
@@ -171,8 +174,10 @@ func (m *Module) collectSnapshot(s *discordgo.Session) statusSnapshot {
 
 // llmStatus resolves the non-secret LLM configuration for /status. It reads the
 // effective client settings from the shared llm.Client and the gippity knobs
-// from config, applying the same fallback the gippity module uses so the report
-// matches runtime behaviour. It never copies the API key or the persona text.
+// through the runtime settings store, so the report matches runtime behaviour —
+// including a value changed with /admin config — and agrees with the gippity
+// module line in the same message. Without a store the boot config applies. It
+// never copies the API key or the persona text.
 func (m *Module) llmStatus() llmStatus {
 	st := llmStatus{AnswerMode: "mention only", ClassifierRateLimit: defaultClassifierRateLimit}
 	if m.llm != nil {
@@ -183,18 +188,54 @@ func (m *Module) llmStatus() llmStatus {
 	}
 
 	g := m.conf.Gippity
-	st.ClassifierModel = g.ClassifierModel
-	if g.ClassifierRateLimitPerHour > 0 {
-		st.ClassifierRateLimit = g.ClassifierRateLimitPerHour
+	st.ClassifierModel = m.settingString(settings.KeyGippityClassifierModel, g.ClassifierModel)
+	if limit := m.settingInt(settings.KeyGippityClassifierRateLimit, g.ClassifierRateLimitPerHour); limit > 0 {
+		st.ClassifierRateLimit = limit
 	}
-	st.MessageRateLimit = g.RateLimitMessagesPerHour
-	st.ToolsReasoningEffort = g.Tools.ReasoningEffort
-	st.ToolsEnabled = g.Tools.Enabled
-	st.ToolsMaxIterations = g.Tools.MaxIterations
-	st.ToolsAllowed = g.Tools.Allowed
-	st.DebugChannel = g.DebugChannel
-	if g.RespondToAllMessages {
+	st.MessageRateLimit = m.settingInt(settings.KeyGippityRateLimitMessagesPerHour, g.RateLimitMessagesPerHour)
+	st.ToolsReasoningEffort = m.settingString(settings.KeyGippityToolsReasoningEffort, g.Tools.ReasoningEffort)
+	st.ToolsEnabled = m.settingBool(settings.KeyGippityToolsEnabled, g.Tools.Enabled)
+	// The module ignores a non-positive stored cap, so reporting one here would
+	// disagree with the loop that actually runs.
+	st.ToolsMaxIterations = m.settingInt(settings.KeyGippityToolsMaxIterations, g.Tools.MaxIterations)
+	if st.ToolsMaxIterations <= 0 {
+		st.ToolsMaxIterations = g.Tools.MaxIterations
+	}
+	st.ToolsAllowed = m.settingStringList(settings.KeyGippityToolsAllowed, g.Tools.Allowed)
+	st.DebugChannel = m.settingString(settings.KeyGippityDebugChannel, g.DebugChannel)
+	if m.settingBool(settings.KeyGippityRespondToAllMessages, g.RespondToAllMessages) {
 		st.AnswerMode = "all messages (classified)"
 	}
 	return st
+}
+
+// The four helpers below read a knob through the runtime settings store and fall
+// back to the boot value when no store is wired (tests build Deps by hand).
+
+func (m *Module) settingBool(key string, fallback bool) bool {
+	if m.settings != nil {
+		return m.settings.Bool(key)
+	}
+	return fallback
+}
+
+func (m *Module) settingInt(key string, fallback int) int {
+	if m.settings != nil {
+		return m.settings.Int(key)
+	}
+	return fallback
+}
+
+func (m *Module) settingString(key, fallback string) string {
+	if m.settings != nil {
+		return m.settings.String(key)
+	}
+	return fallback
+}
+
+func (m *Module) settingStringList(key string, fallback []string) []string {
+	if m.settings != nil {
+		return m.settings.StringList(key)
+	}
+	return fallback
 }

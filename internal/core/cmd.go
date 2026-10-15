@@ -14,11 +14,13 @@ import (
 	"github.com/toksikk/gidbig/internal/bot"
 	"github.com/toksikk/gidbig/internal/cfg"
 	"github.com/toksikk/gidbig/internal/coffee"
+	"github.com/toksikk/gidbig/internal/configcmd"
 	"github.com/toksikk/gidbig/internal/eso"
 	"github.com/toksikk/gidbig/internal/gamerstatus"
 	"github.com/toksikk/gidbig/internal/gippity"
 	"github.com/toksikk/gidbig/internal/leetoclock"
 	"github.com/toksikk/gidbig/internal/llm"
+	"github.com/toksikk/gidbig/internal/settings"
 	"github.com/toksikk/gidbig/internal/shareddb"
 	"github.com/toksikk/gidbig/internal/soundboard"
 	"github.com/toksikk/gidbig/internal/stoll"
@@ -126,6 +128,16 @@ func StartGidbig() {
 	slog.Info("Using shared database", "path", shareddb.Filename)
 	warnLegacyDatabases(sharedDB)
 
+	// The runtime settings store layers /admin config overrides on top of the
+	// loaded config. It is built before the llm client so the client can resolve
+	// llm.model per request and pick up a runtime change without a restart.
+	settingsStore, err := settings.New(sharedDB, conf)
+	if err != nil {
+		slog.Error("Failed to open runtime settings store", "error", err)
+		os.Exit(1)
+		return
+	}
+
 	// Create a discord session
 	slog.Info("Starting discord session...")
 	session, err := newDiscordSession(conf)
@@ -145,6 +157,10 @@ func StartGidbig() {
 		APIKey:      conf.LLM.APIKey,
 		Personality: conf.LLM.Personality,
 		Preset:      conf.LLM.Preset,
+		// The model is resolved per request so /admin config set llm.model
+		// applies to the next answer instead of needing a restart.
+		ModelOverride:       func() (string, bool) { return settingsStore.Override(settings.KeyLLMModel) },
+		VisionModelOverride: func() (string, bool) { return settingsStore.Override(settings.KeyLLMVisionModel) },
 	})
 	if err != nil {
 		slog.Error("llm: init failed", "error", err)
@@ -153,14 +169,15 @@ func StartGidbig() {
 	}
 
 	deps := bot.Deps{
-		Session: session,
-		Config:  conf,
-		LLM:     llmClient,
-		Logger:  slog.Default(),
-		OwnerID: conf.Discord.OwnerID,
-		DB:      sharedDB,
-		Stats:   bot.NewStatsRegistry(),
-		Tools:   tool.NewRegistry(),
+		Session:  session,
+		Config:   conf,
+		LLM:      llmClient,
+		Logger:   slog.Default(),
+		OwnerID:  conf.Discord.OwnerID,
+		DB:       sharedDB,
+		Stats:    bot.NewStatsRegistry(),
+		Tools:    tool.NewRegistry(),
+		Settings: settingsStore,
 	}
 
 	b := bot.New(deps)
@@ -195,6 +212,12 @@ func StartGidbig() {
 	gippityMod := gippity.New()
 	gippityReady := registerOrLog(b, gippityMod)
 
+	// configcmd owns the /admin config group. It is registered as a module so
+	// its Init runs, and passed to admin.New below so the group appears; without
+	// both it would be dead code.
+	configMod := configcmd.New()
+	configReady := registerOrLog(b, configMod)
+
 	// Admin aggregates the provider modules under /admin. Adding a new
 	// AdminProvider module needs no edits inside internal/admin.
 	var adminProviders []bot.AdminProvider
@@ -203,6 +226,9 @@ func StartGidbig() {
 	}
 	if gippityReady {
 		adminProviders = append(adminProviders, gippityMod)
+	}
+	if configReady {
+		adminProviders = append(adminProviders, configMod)
 	}
 	adminMod := admin.New(adminProviders...)
 	adminMod.SetInfoText(coreMod.statsMessage)

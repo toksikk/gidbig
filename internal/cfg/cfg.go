@@ -15,6 +15,11 @@ const (
 	defaultSoundboardQueueMaxDepth  = 6
 	defaultGippityRateLimitPerHour  = 30
 	defaultGippityToolMaxIterations = 3
+	// defaultGippityClassifierRateLimit mirrors the gippity module's own
+	// fallback. Applying it here keeps a merged settings validation, the module
+	// and /status agreeing on the effective limit instead of each having its own
+	// "unset means 30" rule.
+	defaultGippityClassifierRateLimit = 30
 )
 
 // validReasoningEfforts are the reasoning_effort values accepted from config.
@@ -186,35 +191,61 @@ func loadFile() *Config {
 	return initializedConfig
 }
 
-// decodeConfig decodes YAML from r into a Config and validates required fields.
-func decodeConfig(r io.Reader) (*Config, error) {
+// Decode reads YAML from r into a Config and applies the optional-field
+// defaults. It deliberately does not validate: call Validate on the result.
+// Keeping decode and validate separate lets a runtime settings write re-check a
+// merged config with exactly the rules the boot path uses, instead of growing a
+// second set of rules.
+func Decode(r io.Reader) (*Config, error) {
 	cfg := Config{}
 	cfg.Gippity.RateLimitMessagesPerHour = defaultGippityRateLimitPerHour
+	cfg.Gippity.ClassifierRateLimitPerHour = defaultGippityClassifierRateLimit
 	cfg.Gippity.Tools.MaxIterations = defaultGippityToolMaxIterations
 	cfg.Soundboard.QueueMaxDepth = defaultSoundboardQueueMaxDepth
 	if err := yaml.NewDecoder(r).Decode(&cfg); err != nil {
 		return nil, errors.New("could not decode config: " + err.Error())
 	}
+	return &cfg, nil
+}
+
+// Validate rejects a Config that cannot run: the required fields plus the
+// positive-value and enum rules for the optional tuning fields.
+func Validate(cfg *Config) error {
+	if cfg == nil {
+		return errors.New("config is nil")
+	}
 	if cfg.Discord.Token == "" {
-		return nil, errors.New("discord.token is required but not set in config.yaml")
+		return errors.New("discord.token is required but not set in config.yaml")
 	}
 	if cfg.Web.Port != 0 && cfg.Web.SessionSecret == "" {
-		return nil, errors.New("web.session_secret is required when web.port is set")
+		return errors.New("web.session_secret is required when web.port is set")
 	}
 	if len(cfg.Gippity.AllowedGuilds) == 0 {
-		return nil, errors.New("gippity.allowed_guilds is required and cannot be empty")
+		return errors.New("gippity.allowed_guilds is required and cannot be empty")
 	}
 	if cfg.Gippity.RateLimitMessagesPerHour <= 0 {
-		return nil, errors.New("gippity.rate_limit_messages_per_hour must be greater than zero")
+		return errors.New("gippity.rate_limit_messages_per_hour must be greater than zero")
 	}
 	if cfg.Gippity.Tools.Enabled && cfg.Gippity.Tools.MaxIterations <= 0 {
-		return nil, errors.New("gippity.tools.max_iterations must be greater than zero when gippity.tools.enabled is true")
+		return errors.New("gippity.tools.max_iterations must be greater than zero when gippity.tools.enabled is true")
 	}
 	if !validReasoningEfforts[cfg.Gippity.Tools.ReasoningEffort] {
-		return nil, errors.New("gippity.tools.reasoning_effort must be one of: none, minimal, low, medium, high, xhigh, max (or empty to omit)")
+		return errors.New("gippity.tools.reasoning_effort must be one of: none, minimal, low, medium, high, xhigh, max (or empty to omit)")
 	}
 	if cfg.Soundboard.QueueMaxDepth <= 0 {
-		return nil, errors.New("soundboard.queue_max_depth must be greater than zero")
+		return errors.New("soundboard.queue_max_depth must be greater than zero")
 	}
-	return &cfg, nil
+	return nil
+}
+
+// decodeConfig decodes YAML from r into a Config and validates required fields.
+func decodeConfig(r io.Reader) (*Config, error) {
+	cfg, err := Decode(r)
+	if err != nil {
+		return nil, err
+	}
+	if err := Validate(cfg); err != nil {
+		return nil, err
+	}
+	return cfg, nil
 }

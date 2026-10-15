@@ -6,6 +6,7 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/toksikk/gidbig/internal/cfg"
 	"github.com/toksikk/gidbig/internal/llm"
+	"github.com/toksikk/gidbig/internal/settings"
 	"github.com/toksikk/gidbig/internal/tool"
 	"gorm.io/gorm"
 )
@@ -29,6 +30,12 @@ type Deps struct {
 	// Stats collects StatsProviders from modules registered with the Bot. The
 	// core module reads it for /status and /admin info.
 	Stats *StatsRegistry
+
+	// Settings is the runtime settings store backed by the shared database. A
+	// module reads its hot keys through it so the owner can change them with
+	// /admin config without a restart. It is nil in tests that build Deps by
+	// hand, so modules must fall back to their Init-time values.
+	Settings *settings.Store
 
 	// Tools collects the LLM tool definitions modules register during Init.
 	// The gippity answer loop reads it while composing an answer. A module
