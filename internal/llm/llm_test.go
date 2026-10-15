@@ -295,7 +295,7 @@ func TestNewOpenAIDefaultModels(t *testing.T) {
 	if info.BaseURL != "https://api.example/v1" || info.KeySource != "OPENAI_API_KEY" {
 		t.Errorf("Info base URL/credential = %q/%q", info.BaseURL, info.KeySource)
 	}
-	if info.PersonalitySource != "default" || info.Timeout != llmTimeout || info.MaxTokens != llmMaxTokens {
+	if info.PersonalitySource != "default" || info.Timeout != llmTimeout || info.MaxTokens != DefaultMaxTokens {
 		t.Errorf("Info personality/timeout/tokens = %q/%s/%d", info.PersonalitySource, info.Timeout, info.MaxTokens)
 	}
 }

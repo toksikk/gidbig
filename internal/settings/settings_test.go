@@ -437,3 +437,46 @@ func TestConcurrentReadsAndWrites(t *testing.T) {
 	close(stop)
 	wg.Wait()
 }
+
+func TestOverrideInt(t *testing.T) {
+	store := newTestStore(t, openTestDB(t), baseYAML)
+
+	if _, ok := store.OverrideInt(KeyLLMMaxTokens); ok {
+		t.Error("OverrideInt reported a value before anything was set")
+	}
+	if err := store.Set(KeyLLMMaxTokens, "700", "owner"); err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+	if got, ok := store.OverrideInt(KeyLLMMaxTokens); !ok || got != 700 {
+		t.Errorf("OverrideInt = (%d, %v), want (700, true)", got, ok)
+	}
+
+	// A row written outside the command must not disable the caller's fallback.
+	if err := store.db.Exec(
+		"UPDATE settings SET value = ? WHERE key = ?", "not-a-number", KeyLLMMaxTokens,
+	).Error; err != nil {
+		t.Fatalf("corrupt row: %v", err)
+	}
+	if err := store.reload(); err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	if _, ok := store.OverrideInt(KeyLLMMaxTokens); ok {
+		t.Error("OverrideInt accepted a malformed row")
+	}
+	if _, ok := store.OverrideInt("discord.token"); ok {
+		t.Error("OverrideInt reported a value for a non-registered key")
+	}
+}
+
+// TestEffective_LLMMaxTokensDefault pins that the completion cap reports the
+// shared 300 rather than zero, which would look like a disabled completion.
+func TestEffective_LLMMaxTokensDefault(t *testing.T) {
+	store := newTestStore(t, openTestDB(t), baseYAML)
+	value, source, ok := store.Effective(KeyLLMMaxTokens)
+	if !ok {
+		t.Fatal("llm.max_tokens is not a known key")
+	}
+	if value != "300" || source != SourceDefault {
+		t.Errorf("Effective(llm.max_tokens) = (%q, %q), want (\"300\", %q)", value, source, SourceDefault)
+	}
+}

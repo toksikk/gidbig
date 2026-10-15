@@ -8,7 +8,12 @@ a `*llm.Client` through `bot.Deps.LLM`. Not user-facing.
   `llm.api_key` when the environment variable is unset, sets base URL, timeout,
   models and resolves the persona. Returns an error on a bad provider, missing
   key or invalid base URL.
-- `Client.GenerateMessage` – single-turn completion, 30s timeout, 150 max tokens.
+- `Client.GenerateMessage` – single-turn completion, 30s timeout, capped by
+  `Client.MaxTokens` (default `DefaultMaxTokens` = 300).
+- `Client.MaxTokens` – effective cap for one completion: `llm.max_tokens` plus any
+  runtime `ModelOverride`-style override, resolved per request. gippity's answer
+  and vision paths read the same value, so one key governs every completion except
+  the non-mention classifier.
 - `Client.DetectChannelLanguage` – LLM language detect over last 20 channel
   messages, 1h cache held on the client.
 - `Client.Personality` – custom string > preset (`hal`, `schemer`, `dry`,

@@ -157,10 +157,13 @@ func StartGidbig() {
 		APIKey:      conf.LLM.APIKey,
 		Personality: conf.LLM.Personality,
 		Preset:      conf.LLM.Preset,
-		// The model is resolved per request so /admin config set llm.model
-		// applies to the next answer instead of needing a restart.
+		MaxTokens:   int64(conf.LLM.MaxTokens),
+		// The model and the completion cap are resolved per request so
+		// /admin config set llm.model / llm.max_tokens applies to the next
+		// answer instead of needing a restart.
 		ModelOverride:       func() (string, bool) { return settingsStore.Override(settings.KeyLLMModel) },
 		VisionModelOverride: func() (string, bool) { return settingsStore.Override(settings.KeyLLMVisionModel) },
+		MaxTokensOverride:   func() (int, bool) { return settingsStore.OverrideInt(settings.KeyLLMMaxTokens) },
 	})
 	if err != nil {
 		slog.Error("llm: init failed", "error", err)

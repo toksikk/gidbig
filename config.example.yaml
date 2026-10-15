@@ -95,6 +95,10 @@ llm:
     model: "gpt-4o-mini"
     # Optional separate model for image descriptions; defaults to model.
     vision_model: ""
+    # Optional. Caps one completion: the shared client calls, the gippity answer
+    # path and the image descriptions. Defaults to 300. The non-mention
+    # classifier keeps its own much smaller bound and does not follow this.
+    max_tokens: 300
     # Optional OpenAI-compatible endpoint override. Normally leave empty.
     base_url: ""
     # Optional OpenRouter app attribution headers.
@@ -136,6 +140,7 @@ dev_mode: true
 #   gippity.classifier_names               soundboard.queue_max_depth
 #   gippity.classifier_rate_limit_per_hour llm.model
 #   gippity.debug_channel                  llm.vision_model
+#                                          llm.max_tokens
 #
 # Everything else (discord.*, web.*, dev_mode, gippity.allowed_guilds,
 # llm.provider, llm.api_key, leetoclock.*) is boot-time only and is not listed

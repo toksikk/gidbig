@@ -20,6 +20,10 @@ const (
 	// and /status agreeing on the effective limit instead of each having its own
 	// "unset means 30" rule.
 	defaultGippityClassifierRateLimit = 30
+	// defaultLLMMaxTokens caps one LLM completion. It mirrors llm.DefaultMaxTokens;
+	// cfg is a leaf package and does not import llm, so the two constants are kept
+	// equal by TestDefaultLLMMaxTokensMatchesLLM.
+	defaultLLMMaxTokens = 300
 )
 
 // validReasoningEfforts are the reasoning_effort values accepted from config.
@@ -160,6 +164,10 @@ type Config struct {
 		// Preset selects one of the predefined personas (see llm.PersonalityPresets).
 		// Used only when Personality is empty. Unknown values fall back to the default.
 		Preset string `yaml:"personality_preset,omitempty"`
+		// MaxTokens caps one completion. It applies to the shared client, the
+		// gippity answer path and the vision descriptions; the non-mention
+		// classifier keeps its own much smaller bound. Defaults to 300.
+		MaxTokens int `yaml:"max_tokens,omitempty"`
 	} `yaml:"llm,omitempty"`
 	DevMode bool `yaml:"dev_mode,omitempty" default:"false"`
 }
@@ -201,6 +209,7 @@ func Decode(r io.Reader) (*Config, error) {
 	cfg.Gippity.RateLimitMessagesPerHour = defaultGippityRateLimitPerHour
 	cfg.Gippity.ClassifierRateLimitPerHour = defaultGippityClassifierRateLimit
 	cfg.Gippity.Tools.MaxIterations = defaultGippityToolMaxIterations
+	cfg.LLM.MaxTokens = defaultLLMMaxTokens
 	cfg.Soundboard.QueueMaxDepth = defaultSoundboardQueueMaxDepth
 	if err := yaml.NewDecoder(r).Decode(&cfg); err != nil {
 		return nil, errors.New("could not decode config: " + err.Error())
@@ -234,6 +243,9 @@ func Validate(cfg *Config) error {
 	}
 	if cfg.Soundboard.QueueMaxDepth <= 0 {
 		return errors.New("soundboard.queue_max_depth must be greater than zero")
+	}
+	if cfg.LLM.MaxTokens <= 0 {
+		return errors.New("llm.max_tokens must be greater than zero")
 	}
 	return nil
 }

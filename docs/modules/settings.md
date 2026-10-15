@@ -56,7 +56,7 @@ new value, and runs `cfg.Validate` on the result. Applying all overrides first
 matters — two values that are individually valid can be invalid together (tools
 enabled plus a zero iteration cap), and the file alone would not catch that.
 
-Only two keys carry a registry-local rule:
+Three keys carry a registry-local rule:
 
 - `llm.model` must not be empty; an empty model would mean the built-in default
   (or be invalid for openrouter), so `unset` is the way back.
@@ -64,6 +64,9 @@ Only two keys carry a registry-local rule:
   applies the 30/h default for this key (matching the module's own fallback), so
   the owner sees the effective limit rather than a zero that would reject every
   classifier call.
+- `llm.max_tokens` must be greater than zero. `cfg.Decode` applies the 300
+  default, matching `llm.DefaultMaxTokens`, so the cap cannot be driven to zero
+  (which would disable completions) from Discord.
 
 ## Cache
 

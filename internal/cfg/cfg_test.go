@@ -5,6 +5,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/toksikk/gidbig/internal/llm"
 )
 
 func TestDecodeConfig_validConfig(t *testing.T) {
@@ -683,6 +685,7 @@ func TestValidate_RejectsInvalidConfigs(t *testing.T) {
 		c.Gippity.RateLimitMessagesPerHour = 30
 		c.Gippity.Tools.MaxIterations = 3
 		c.Soundboard.QueueMaxDepth = 6
+		c.LLM.MaxTokens = defaultLLMMaxTokens
 		return c
 	}
 
@@ -701,6 +704,7 @@ func TestValidate_RejectsInvalidConfigs(t *testing.T) {
 		}, "max_iterations"},
 		{"invalid reasoning effort", func(c *Config) { c.Gippity.Tools.ReasoningEffort = "bogus" }, "reasoning_effort"},
 		{"non-positive queue depth", func(c *Config) { c.Soundboard.QueueMaxDepth = 0 }, "queue_max_depth"},
+		{"non-positive max tokens", func(c *Config) { c.LLM.MaxTokens = 0 }, "llm.max_tokens"},
 	}
 
 	if err := Validate(valid()); err != nil {
@@ -719,5 +723,32 @@ func TestValidate_RejectsInvalidConfigs(t *testing.T) {
 				t.Fatalf("Validate() error = %v, want error containing %q", err, tt.wantError)
 			}
 		})
+	}
+}
+
+// TestDefaultLLMMaxTokensMatchesLLM keeps the duplicated constant honest: cfg is
+// a leaf package and does not import llm, so nothing else ties them together.
+func TestDefaultLLMMaxTokensMatchesLLM(t *testing.T) {
+	if int64(defaultLLMMaxTokens) != llm.DefaultMaxTokens {
+		t.Errorf("cfg defaultLLMMaxTokens = %d, llm.DefaultMaxTokens = %d; keep them equal",
+			defaultLLMMaxTokens, llm.DefaultMaxTokens)
+	}
+}
+
+func TestDecode_LLMMaxTokensDefault(t *testing.T) {
+	decoded, err := Decode(strings.NewReader("llm:\n  model: vendor/model\n"))
+	if err != nil {
+		t.Fatalf("Decode() error = %v", err)
+	}
+	if decoded.LLM.MaxTokens != defaultLLMMaxTokens {
+		t.Errorf("llm.max_tokens = %d, want the default %d", decoded.LLM.MaxTokens, defaultLLMMaxTokens)
+	}
+
+	explicit, err := Decode(strings.NewReader("llm:\n  max_tokens: 700\n"))
+	if err != nil {
+		t.Fatalf("Decode() error = %v", err)
+	}
+	if explicit.LLM.MaxTokens != 700 {
+		t.Errorf("llm.max_tokens = %d, want the explicit 700", explicit.LLM.MaxTokens)
 	}
 }

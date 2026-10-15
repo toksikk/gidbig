@@ -218,6 +218,36 @@ func TestHandleAdminSubcommand_EmptyVisionModelFollowsTextModel(t *testing.T) {
 	}
 }
 
+// TestHandleAdminSubcommand_IntKeyRoundTrip covers the integer key kind through
+// the command, including the rejection of a non-positive value.
+func TestHandleAdminSubcommand_IntKeyRoundTrip(t *testing.T) {
+	m, _ := newTestModule(t)
+
+	get := handle(t, m, subcommand("get", keyValue("key", settings.KeyLLMMaxTokens)))
+	if !strings.Contains(get, "effective: `300`") || !strings.Contains(get, "source: `default`") {
+		t.Errorf("get reply = %q, want the boot default", get)
+	}
+
+	set := handle(t, m, subcommand("set",
+		keyValue("key", settings.KeyLLMMaxTokens),
+		keyValue("value", "700")))
+	if !strings.Contains(set, "effective: `700`") || !strings.Contains(set, "source: `db`") {
+		t.Errorf("set reply = %q", set)
+	}
+
+	rejected := handle(t, m, subcommand("set",
+		keyValue("key", settings.KeyLLMMaxTokens),
+		keyValue("value", "0")))
+	if !strings.Contains(rejected, "Rejected") || !strings.Contains(rejected, "unchanged: `700`") {
+		t.Errorf("rejection reply = %q, want the unchanged 700", rejected)
+	}
+
+	unset := handle(t, m, subcommand("unset", keyValue("key", settings.KeyLLMMaxTokens)))
+	if !strings.Contains(unset, "effective: `300`") {
+		t.Errorf("unset reply = %q, want the boot default back", unset)
+	}
+}
+
 func TestHandleAdminSubcommand_RequiresAStore(t *testing.T) {
 	m := New()
 	if reply := m.renderList(); !strings.Contains(reply, "unavailable") {
