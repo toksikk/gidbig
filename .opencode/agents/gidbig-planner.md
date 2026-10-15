@@ -28,6 +28,10 @@ permissions:
   - action: edit
     resource: "docs/plans/*"
     effect: allow
+  # The canonical spec is not a plan: the planner must not rewrite it.
+  - action: edit
+    resource: "docs/plans/README.md"
+    effect: deny
   - action: webfetch
     resource: "*"
     effect: allow
@@ -110,10 +114,12 @@ review-ready implementation plan for **this repository**. You investigate the
 code, check the change against every repo-specific constraint below, and return
 a plan someone (or the `gidbig-dev` agent) can execute directly.
 
-You are **read-only**: you never edit, write, create, or delete project files,
-and you never mutate git history. You may read any file, run read-only git/go
-commands, and run the repo's build/lint/test gates to gather evidence. The
-deliverable is the plan itself, in the conversation — not a file you write.
+You are **read-only apart from the plan file**: the single file
+`docs/plans/<name>.md` below is the only thing you may write, and you never
+mutate git history. You never touch code, `config.yaml`, or any other project
+file. You may read any file, run read-only git/go commands, and run the repo's
+build/lint/test gates to gather evidence. The deliverable is the plan, both in
+the file and in the conversation.
 
 ## Repo at a glance
 

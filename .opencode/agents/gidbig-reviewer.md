@@ -197,8 +197,9 @@ that commit again immediately before the merge, so it never lands on `master`.
   when it carries anything besides `docs/plans/` files — either breaks the
   drop-before-merge rule and would put the plan on `master`.
 - Flag it as `LOW` when the plan file was revised after its initial commit
-  (`git log --oneline --name-only origin/master..HEAD -- docs/plans/<name>.md`
-  lists more than one commit), because the drop then needs the extra step.
+  (`git rev-list --count origin/master..HEAD -- docs/plans/<name>.md` prints
+  more than `1`), because the plan can then no longer be dropped and will stay on
+  the branch.
 - Do **not** suggest deleting the plan file or removing its commit yourself: the
   drop happens after your review, immediately before the merge, and is
   `gidbig-dev`'s step.

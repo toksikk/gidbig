@@ -142,13 +142,13 @@ scaffolding, not documentation, so it must not survive the merge.
   that commit — not a stray formatting fix, not a doc tweak. If something else
   needs to change first, that is a separate commit after the plan.
 - **Leave it in place.** Keep the file untouched afterwards so the drop below
-  stays valid. If the plan genuinely changes, revise it in its own follow-up
-  commit and expect the drop to need the extra step.
+  stays valid. If the plan genuinely changes, revise it in a follow-up commit —
+  the drop then becomes invalid (see below) and the plan stays on the branch.
 - **Drop it right before the merge**, and only when *both* hold: the first commit
   touches nothing outside `docs/plans/`, and the plan file appears in exactly one
-  commit on the branch (`git log --oneline --name-only origin/master..HEAD --
-  docs/plans/<name>.md`). Then drop that commit in an interactive rebase so the
-  file disappears with it.
+  commit on the branch (`git rev-list --count origin/master..HEAD --
+  docs/plans/<name>.md` prints `1`). Then drop that commit in an interactive
+  rebase so the file disappears with it.
 - **If either check fails, drop nothing.** Report which check failed and why
   (a plan mixed into a code commit, or revised across commits) and ask how to
   proceed — otherwise the plan lands on `master`.
