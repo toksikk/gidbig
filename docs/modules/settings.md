@@ -60,13 +60,18 @@ Six keys carry a registry-local rule. Five of them restate a `cfg.Validate` rule
 
 - `llm.model` must not be empty; an empty model would mean the built-in default
   (or be invalid for openrouter), so `unset` is the way back.
-- `gippity.classifier_rate_limit_per_hour` must be greater than zero. `cfg.Decode`
-  applies the 30/h default for this key (matching the module's own fallback), so
-  the owner sees the effective limit rather than a zero that would reject every
-  classifier call.
+- `gippity.rate_limit_messages_per_hour`, `gippity.classifier_rate_limit_per_hour`
+  and `soundboard.queue_max_depth` must be greater than zero, mirroring the limit
+  each consumer floors.
 - `llm.max_tokens` must be greater than zero. `cfg.Decode` applies the 300
   default, matching `llm.DefaultMaxTokens`, so the cap cannot be driven to zero
   (which would disable completions) from Discord.
+- `gippity.tools.reasoning_effort` must be one of the accepted enum values;
+  the registry reuses `cfg.ValidateReasoningEffort` rather than copying the list.
+
+`gippity.tools.max_iterations` deliberately has no rule: a non-positive cap is
+legal while tools are off, and the loop then makes no rounds and forces a final
+answer, so such a value is honoured and reported as in force.
 
 ## Cache
 

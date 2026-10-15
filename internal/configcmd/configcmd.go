@@ -222,6 +222,12 @@ func (m *Module) effective(key string) (string, settings.Source, bool) {
 		// The client is the authority on the cap: it floors a value the store
 		// would reject as unusable, and it is what the answer path calls.
 		value = strconv.FormatInt(m.llm.MaxTokens(), 10)
+	case settings.KeyGippityClassifierModel:
+		// An empty classifier model means "use the text model", which is what the
+		// classifier does; show the model it will actually ask.
+		if strings.TrimSpace(value) == "" {
+			value = m.llm.Model()
+		}
 	}
 	return value, source, true
 }
