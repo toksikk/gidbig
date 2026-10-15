@@ -182,7 +182,7 @@ func (ws *webServer) applyAdminPost(w http.ResponseWriter, r *http.Request, sess
 		http.Error(w, "invalid form submission", http.StatusBadRequest)
 		return
 	}
-	if !ws.validAdminOrigin(r) {
+	if !ws.validOrigin(r) {
 		slog.Warn("web admin: rejected a submission from a foreign origin", "origin", r.Header.Get("Origin"))
 		http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
 		return
@@ -221,16 +221,16 @@ func (ws *webServer) applyAdminPost(w http.ResponseWriter, r *http.Request, sess
 	http.Redirect(w, r, "/admin", http.StatusSeeOther)
 }
 
-// validAdminOrigin checks the browser's Origin header against the address the UI
-// is served from. A missing Origin is accepted: a non-browser client cannot be
-// driven by a hostile page, and the token is the primary defence.
-func (ws *webServer) validAdminOrigin(r *http.Request) bool {
+// validOrigin checks the browser's Origin header against the address the UI
+// is served from; /admin and /playsound share it. A missing Origin is accepted:
+// a non-browser client cannot be driven by a hostile page.
+func (ws *webServer) validOrigin(r *http.Request) bool {
 	origin := r.Header.Get("Origin")
 	if origin == "" {
 		return true
 	}
-	if ws.adminOrigin != "" {
-		return origin == ws.adminOrigin
+	if ws.uiOrigin != "" {
+		return origin == ws.uiOrigin
 	}
 	return origin == "http://"+r.Host || origin == "https://"+r.Host
 }

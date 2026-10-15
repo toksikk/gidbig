@@ -61,12 +61,12 @@ func (s *stubConfigAdmin) ApplyUnset(key, actor string) (string, bool) {
 // a session without sleeping.
 func newAdminTestServer(admin configAdmin, ownerID, origin string, now time.Time) *webServer {
 	return &webServer{
-		store:       newSessionStore("test-secret", false),
-		config:      admin,
-		ownerID:     ownerID,
-		adminOrigin: origin,
-		now:         func() time.Time { return now },
-		tmpls:       map[string]*template.Template{},
+		store:    newSessionStore("test-secret", false),
+		config:   admin,
+		ownerID:  ownerID,
+		uiOrigin: origin,
+		now:      func() time.Time { return now },
+		tmpls:    map[string]*template.Template{},
 	}
 }
 
