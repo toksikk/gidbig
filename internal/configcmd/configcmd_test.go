@@ -2,6 +2,8 @@ package configcmd
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -525,5 +527,155 @@ func TestRenderList_WarnsWhenTheEffectiveConfigurationIsInvalid(t *testing.T) {
 	// The values stay visible so the owner can fix them.
 	if !strings.Contains(list, "gippity.tools.max_iterations") {
 		t.Errorf("list must still show the values in force:\n%s", list)
+	}
+}
+
+// TestEntries_CarryWhatTheListRenders keeps the web panel and the Discord reply
+// on one definition: every key the table shows is one the list prints with the
+// same value and source.
+func TestEntries_CarryWhatTheListRenders(t *testing.T) {
+	m, store := newTestModule(t)
+	if err := store.Set(settings.KeyLLMModel, "runtime-model", "owner"); err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+
+	entries, err := m.Entries()
+	if err != nil {
+		t.Fatalf("Entries: %v", err)
+	}
+	if len(entries) == 0 {
+		t.Fatal("Entries returned nothing")
+	}
+
+	list := m.renderList()
+	for _, e := range entries {
+		if !strings.Contains(list, e.Name) {
+			t.Errorf("entry %q is not in the list reply", e.Name)
+		}
+		if !strings.Contains(list, e.Value) {
+			t.Errorf("entry %q value %q is not in the list reply", e.Name, e.Value)
+		}
+		// The columns the list prints are the ones the panel renders.
+		if !strings.Contains(list, fmt.Sprintf("%-42s %-8s %s", e.Name, e.Source, e.Value)) {
+			t.Errorf("list does not render entry %q with source %q\n%s", e.Name, e.Source, list)
+		}
+	}
+
+	for _, e := range entries {
+		if e.Name == settings.KeyLLMModel {
+			if e.Value != "runtime-model" || e.Source != settings.SourceDB {
+				t.Errorf("llm.model entry = %+v, want the override and source db", e)
+			}
+			return
+		}
+	}
+	t.Error("llm.model is missing from Entries")
+}
+
+// TestEntries_ReturnsTheEntriesWithAnInvalidCombination matches the list reply:
+// the values in force are exactly what the operator needs to see to fix it.
+func TestEntries_ReturnsTheEntriesWithAnInvalidCombination(t *testing.T) {
+	_, _, db := newTestModuleWithDB(t)
+	if err := db.Exec(
+		"INSERT INTO settings (key, value, updated_by) VALUES (?, ?, ?)",
+		settings.KeyGippityToolsMaxIterations, "0", "owner",
+	).Error; err != nil {
+		t.Fatalf("insert row: %v", err)
+	}
+
+	base, err := cfg.Decode(strings.NewReader(toolsOnYAML))
+	if err != nil {
+		t.Fatalf("decode base config: %v", err)
+	}
+	store, err := settings.New(db, base)
+	if err != nil {
+		t.Fatalf("settings.New: %v", err)
+	}
+	m := New()
+	if err := m.Init(bot.Deps{Settings: store}); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+
+	entries, err := m.Entries()
+	if err == nil {
+		t.Fatal("Entries did not report the invalid combination")
+	}
+	if len(entries) == 0 {
+		t.Fatal("Entries returned no entries to repair the configuration with")
+	}
+}
+
+func TestEntries_RequiresAStore(t *testing.T) {
+	entries, err := New().Entries()
+	if !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("err = %v, want ErrUnavailable", err)
+	}
+	if entries != nil {
+		t.Errorf("entries = %v, want none", entries)
+	}
+}
+
+// TestApplySet_ReportsWhetherItApplied is what the web panel marks the outcome
+// with, so it must be false for every refused write.
+func TestApplySet_ReportsWhetherItApplied(t *testing.T) {
+	m, _ := newTestModule(t)
+
+	message, ok := m.ApplySet(settings.KeyGippityToolsEnabled, "true", "owner")
+	if !ok {
+		t.Errorf("ok = false for a valid write: %q", message)
+	}
+	if !strings.Contains(message, "Set `gippity.tools.enabled=true`") {
+		t.Errorf("message = %q", message)
+	}
+
+	message, ok = m.ApplySet(settings.KeyGippityToolsReasoningEffort, "bogus", "owner")
+	if ok {
+		t.Errorf("ok = true for a rejected value: %q", message)
+	}
+	if !strings.Contains(message, "Rejected") {
+		t.Errorf("message = %q, want a rejection", message)
+	}
+
+	message, ok = m.ApplySet("nope", "1", "owner")
+	if ok {
+		t.Errorf("ok = true for an unknown key: %q", message)
+	}
+	if !strings.Contains(message, "Unknown or non-editable") {
+		t.Errorf("message = %q", message)
+	}
+
+	message, ok = New().ApplySet(settings.KeyGippityToolsEnabled, "true", "owner")
+	if ok || !strings.Contains(message, "unavailable") {
+		t.Errorf("unwired module: ok = %v, message = %q", ok, message)
+	}
+}
+
+// TestApplyUnset_ReportsWhetherItRemovedSomething distinguishes "removed" from
+// "there was nothing to remove", which the panel shows as a failure.
+func TestApplyUnset_ReportsWhetherItRemovedSomething(t *testing.T) {
+	m, _ := newTestModule(t)
+
+	message, ok := m.ApplyUnset(settings.KeyGippityToolsEnabled, "owner")
+	if ok {
+		t.Errorf("ok = true with no override stored: %q", message)
+	}
+	if !strings.Contains(message, "No runtime override is set") {
+		t.Errorf("message = %q", message)
+	}
+
+	if _, ok := m.ApplySet(settings.KeyGippityToolsEnabled, "true", "owner"); !ok {
+		t.Fatal("could not set the override for the unset test")
+	}
+	message, ok = m.ApplyUnset(settings.KeyGippityToolsEnabled, "owner")
+	if !ok {
+		t.Errorf("ok = false after removing an override: %q", message)
+	}
+	if !strings.Contains(message, "Removed the runtime override") {
+		t.Errorf("message = %q", message)
+	}
+
+	message, ok = New().ApplyUnset(settings.KeyGippityToolsEnabled, "owner")
+	if ok || !strings.Contains(message, "unavailable") {
+		t.Errorf("unwired module: ok = %v, message = %q", ok, message)
 	}
 }
