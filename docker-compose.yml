@@ -7,9 +7,10 @@ services:
             context: .
             dockerfile: Dockerfile
         ports:
-            - "8080:8080"
+            # Localhost only: terminate TLS in a reverse proxy in front of the bot.
+            - "127.0.0.1:8080:8080"
         volumes:
-            - ./config.yaml:/gidbig/config.yaml
+            - ./config.yaml:/gidbig/config.yaml:ro
             - ./audio:/gidbig/audio
         healthcheck:
             test: ["CMD", "wget", "-qO-", "http://localhost:8080/health"]

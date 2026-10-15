@@ -1,0 +1,10 @@
+.git
+.github
+.opencode
+bin
+audio
+docs
+config.yaml
+*.db
+*.db-*
+*.sqlite
