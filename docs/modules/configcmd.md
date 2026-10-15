@@ -30,6 +30,14 @@ by the client.
 An unknown key and a secret key produce the same reply, so the command cannot be
 used to probe for the existence of a credential.
 
+The module also exposes that work as `Entries`, `ApplySet` and `ApplyUnset`, and
+the web admin panel (`/admin`, see `core`) calls these instead of duplicating the
+validation, the secret-key hiding or the llm display special cases. `Entries`
+returns the store's invalid-combination error alongside the entries, which is
+what both surfaces report as `INVALID CONFIGURATION`; `UnavailableMessage` is the
+one wording used for a missing store. `ApplySet` and `ApplyUnset` also report
+whether the write happened, which the panel turns into the outcome banner.
+
 ## Dispatch flow
 
 ```mermaid
@@ -60,4 +68,28 @@ sequenceDiagram
         end
         C-->>O: edit ephemeral (+ follow-ups when long)
     end
+```
+
+The web admin panel reaches the same methods, with its own access control: the
+session must belong to `discord.owner_id` and be fresh (12h), every refusal is a
+404, and a change is a POST carrying a per-session form token.
+
+```mermaid
+sequenceDiagram
+    participant O as Owner browser
+    participant W as webServer.handleAdmin
+    participant C as configcmd
+    participant S as settings.Store
+
+    O->>W: GET /admin
+    W->>W: owner + fresh session? else 404
+    W->>C: Entries()
+    C->>S: Effective(key) per key
+    S-->>C: value + source
+    C-->>W: entries (+ invalid-combination error)
+    W-->>O: table with a set and an unset form per key
+    O->>W: POST action=set|unset (csrf token, same-origin)
+    W->>C: ApplySet / ApplyUnset
+    C->>S: Set / Unset
+    W-->>O: 303 to /admin, outcome shown once
 ```
