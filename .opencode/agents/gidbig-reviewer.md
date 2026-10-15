@@ -2,9 +2,10 @@
 description: >-
   Reviews newly added or changed gidbig code against this repo's conventions:
   module/router wiring, shared-DB safety, slash-command and middleware rules,
-  required tests, CGO lint/test gates, scoped-commit and version-label flow,
-  and the pinned discordgo/DAVE constraint. Read-only; use for "review this
-  change", "review my diff", "review this PR" before opening it.
+  required tests, CGO lint/test gates, scoped-commit and version-label flow, the
+  docs/plans/ plan-file lifecycle, and the pinned discordgo/DAVE constraint.
+  Read-only; use for "review this change", "review my diff", "review this PR"
+  before opening it.
 mode: all
 color: "#4a9eff"
 steps: 40
@@ -182,6 +183,26 @@ Never assert a finding you have not verified. Before reporting:
 - A fix without a test is not done. Report missing coverage with the specific
   untested branch or error path.
 
+### Plan files
+
+`gidbig-planner` writes its plan to an untracked `docs/plans/<name>.md`;
+`gidbig-dev` commits that file alone as the branch's **first** commit and drops
+that commit again immediately before the merge, so it never lands on `master`.
+`docs/plans/README.md` is the canonical lifecycle.
+
+- A plan file in the diff is **expected context, not a finding**. Read it: the
+  change should implement the plan, and a step the plan requires but the diff
+  omits is worth a `MEDIUM`.
+- Flag it as `MEDIUM` when the plan commit is not the branch's first commit, or
+  when it carries anything besides `docs/plans/` files — either breaks the
+  drop-before-merge rule and would put the plan on `master`.
+- Flag it as `LOW` when the plan file was revised after its initial commit
+  (`git log --oneline --name-only origin/master..HEAD -- docs/plans/<name>.md`
+  lists more than one commit), because the drop then needs the extra step.
+- Do **not** suggest deleting the plan file or removing its commit yourself: the
+  drop happens after your review, immediately before the merge, and is
+  `gidbig-dev`'s step.
+
 ### Docs and hygiene
 
 - A behaviour change to an internal package updates `docs/modules/<pkg>.md`
@@ -216,4 +237,21 @@ Severity:
 
 Each finding: location, concrete problem, concrete fix. Cite evidence
 (command + result) for anything you ran. End with the `VERIFY:` line. Zero
-findings → `No issues.` followed by the `VERIFY:` line.
+findings → `No issues.` followed by the `VERIFY:` line. If you found only `LOW`
+and/or `QUESTION` items, say so explicitly ("no HIGH or MEDIUM findings") so the
+caller does not treat the round as blocking.
+
+The caller loops you until a round reports zero `HIGH` and zero `MEDIUM`
+findings, so:
+
+- Assign severity as if every `HIGH`/`MEDIUM` will be fixed: do not pad the
+  report with speculative or stylistic items at those severities.
+- Make each `HIGH`/`MEDIUM` independently actionable — exact location, the
+  concrete problem, and the concrete fix — so the fix needs no follow-up round
+  to interpret.
+- When a finding needs a human decision rather than an edit, mark it
+  `QUESTION` and state the decision, not a `HIGH`/`MEDIUM` you know cannot be
+  resolved mechanically.
+- Re-report an unfixed `HIGH`/`MEDIUM` on the next round. Never silently drop a
+  finding because it was raised before: the caller relies on the count reaching
+  zero.
