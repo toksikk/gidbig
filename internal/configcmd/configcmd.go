@@ -36,7 +36,7 @@ var ErrUnavailable = errors.New("no settings store is wired")
 // UnavailableMessage is the reply a caller shows for ErrUnavailable. It lives
 // here so the /admin config command and the web admin panel cannot word the same
 // state differently.
-const UnavailableMessage = "Runtime settings are unavailable: no settings store is wired"
+const UnavailableMessage = "Runtime settings are unavailable: no settings store is wired."
 
 // Entry is one runtime-editable setting with the value in force and where that
 // value came from. The Discord `list` reply and the web admin panel both render
