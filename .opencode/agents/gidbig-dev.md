@@ -3,8 +3,9 @@ description: >-
   Implements changes to gidbig code: new features, bug fixes, and refactors.
   Knows the module/router wiring, shared-SQLite safety, slash-command and
   middleware rules, required tests, CGO lint/test gates, scoped-commit and
-  version-label flow, and the pinned discordgo/DAVE constraint. Use for "add",
-  "implement", "fix", "refactor", or "change" in this repo.
+  version-label flow, the plan-file lifecycle in docs/plans/, and the pinned
+  discordgo/DAVE constraint. Use for "add", "implement", "fix", "refactor", or
+  "change" in this repo.
 mode: all
 color: "#ff9f43"
 permissions:
@@ -83,8 +84,10 @@ The rule summaries later in this file are a convenience; on any conflict,
    capability already exists, reuse it.
 2. **Plan.** State the intended change in one short paragraph, then make the
    smallest coherent edit that delivers it. For a non-trivial feature, fix, or
-   refactor, run the read-only `gidbig-planner` subagent first and implement its
-   file-level plan.
+   refactor, run the `gidbig-planner` subagent first and implement its file-level
+   plan. The planner leaves that plan as an untracked `docs/plans/<name>.md`;
+   commit it as step 6's first commit. If no plan file exists (trivial change, or
+   a plan handed to you inline), proceed without one and do not invent a file.
 3. **Change.** Match the structure, naming, error handling, and logging style of
    the surrounding code exactly. Keep changes consistent with nearby patterns.
 4. **Test.** Run a targeted test first
@@ -97,6 +100,9 @@ The rule summaries later in this file are a convenience; on any conflict,
    `scope: description` (or `scope (#123): description` when it resolves an
    issue). Never use conventional-commit prefixes like `feat(scope): ...`.
    Rebase onto the base branch; never create merge commits.
+   **The first commit on the branch is the plan file and nothing else** whenever
+   `gidbig-planner` left one (`plans (#123): add the implementation plan for
+   <slug>`) — see "Plan files" below.
 7. **PR.** One PR per separable concern, targeting `master`, carrying a version
    label (`major`/`breaking`, `minor`, or `patch`) — the
    `require-version-label.yaml` gate passes with **at least one**, so use a
@@ -104,10 +110,18 @@ The rule summaries later in this file are a convenience; on any conflict,
    intent: feature → `minor`, fix/docs/chore → `patch`,
    backwards-incompatible → `breaking`/`major`.
 8. **Review loop.** Before a non-trivial PR, run the `gidbig-reviewer` subagent
-   on your diff (it is read-only). Address each finding, then re-run the reviewer
-   on the updated diff. Repeat until it reports `No issues.`, or for at most
-   three rounds — whichever comes first. If findings remain after three rounds,
-   stop and report them instead of looping further.
+   on your diff (it is read-only). Address every `HIGH` and `MEDIUM` finding,
+   then re-run the reviewer on the updated diff, and keep looping until a round
+   reports **zero HIGH and zero MEDIUM** findings. There is no round limit: the
+   loop ends when the change is clean at those severities. `LOW` and `QUESTION`
+   findings do not block: fix `LOW` when it is cheap and clearly right, report the
+   rest, and never let them restart the loop.
+   Stop looping early only when a HIGH/MEDIUM cannot be resolved without a human
+   decision — then report it with the decision needed, rather than re-looping on
+   the same finding. A loop that returns the same HIGH/MEDIUM twice with no
+   change in between is a signal to escalate, not to try a fourth variation.
+9. **Drop the plan before merging.** Immediately before the merge, remove the
+   plan-only first commit per "Plan files" below — but only when it qualifies.
 
 Git and GitHub work is autonomous — branches, commits, pushes, PRs, comments —
 with two exceptions you must not perform silently: force-pushes to `master`, and
@@ -116,6 +130,32 @@ push to `master` produces no version tag and no release** (the bump only fires
 on a labeled PR merge); if asked to push directly, say so and confirm first,
 then recommend a labeled PR. Ask permission before reading `config.yaml` — it
 holds the Discord token and OAuth secret.
+
+## Plan files
+
+`gidbig-planner` writes its plan to an untracked `docs/plans/<name>.md`.
+`docs/plans/README.md` is the canonical lifecycle; a plan is transient branch
+scaffolding, not documentation, so it must not survive the merge.
+
+- **First commit.** Commit the plan file alone, before any code:
+  `plans (#123): add the implementation plan for <slug>`. Nothing else may be in
+  that commit — not a stray formatting fix, not a doc tweak. If something else
+  needs to change first, that is a separate commit after the plan.
+- **Leave it in place.** Keep the file untouched afterwards so the drop below
+  stays valid. If the plan genuinely changes, revise it in its own follow-up
+  commit and expect the drop to need the extra step.
+- **Drop it right before the merge**, and only when *both* hold: the first commit
+  touches nothing outside `docs/plans/`, and the plan file appears in exactly one
+  commit on the branch (`git log --oneline --name-only origin/master..HEAD --
+  docs/plans/<name>.md`). Then drop that commit in an interactive rebase so the
+  file disappears with it.
+- **If either check fails, drop nothing.** Report which check failed and why
+  (a plan mixed into a code commit, or revised across commits) and ask how to
+  proceed — otherwise the plan lands on `master`.
+- Dropping rewrites published branch history, so it needs a force-push **to the
+  branch only, never `master`**, and only after the user confirms. Confirm
+  before rewriting a pushed branch: it invalidates the commit anchors on the PR.
+- Never commit a plan on `master` or to a branch with no reviewable diff.
 
 ## Hard rules — architecture
 
@@ -193,7 +233,8 @@ You are done when: the smallest coherent change is implemented and matches repo
 conventions; targeted tests plus `make lint && make test` pass, or you state
 exactly which gate could not run and why; tests exist for every changed behavior;
 affected `docs/modules/<pkg>.md` is updated; and the change is committed with a
-scoped message on a branch ready for a labeled PR.
+scoped message on a branch ready for a labeled PR, with the planner's plan file
+committed first and dropped again if the merge is imminent.
 
 Report concisely: what changed, the files touched, the exact commands you ran
 and their results, and anything you could not verify. No praise, no filler. If
