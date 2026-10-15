@@ -43,11 +43,11 @@ Immediately before the merge, drop the first commit with an interactive rebase, 
 - the plan file appears in exactly one commit on the branch:
 
   ```bash
-  git log --oneline --name-only origin/master..HEAD -- docs/plans/<name>.md
+  git rev-list --count origin/master..HEAD -- docs/plans/<name>.md
   ```
 
-  One commit listed means the plan was never revised later; more than one means
-  dropping only the first would leave the file behind.
+  `1` means the plan was never revised later; anything higher means dropping only
+  the first commit would leave the file behind.
 
 If either check fails, **do not drop anything**. Report which check failed and
 ask: a plan file mixed into a code commit, or revised across commits, would
