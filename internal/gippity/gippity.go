@@ -539,7 +539,7 @@ Manche Namen sind Pseudonyme (Benutzer 1, 2, …) für anonyme Teilnehmer. Echte
 	}
 
 	for _, imageURL := range imageURLs {
-		slog.Debug("Adding image to messages", "imageURL", imageURL)
+		slog.Debug("Adding image to messages")
 		imageParam := openai.ChatCompletionContentPartImageImageURLParam{
 			URL: imageURL,
 		}
