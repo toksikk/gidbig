@@ -600,27 +600,52 @@ func TestEffective_EnumRowIsNotInForce(t *testing.T) {
 }
 
 // TestEffective_EveryRegisteredKeyIsJudged pins the invariant for the whole
-// registry: a row that Set would reject must never be reported as source db. A
-// key whose rule exists only in cfg.Validate would fail here.
+// registry: a row that Set would reject must never be reported as source db, and
+// one Set accepts must be. A key whose rule exists only in cfg.Validate, or that
+// loses its registry rule, fails here.
+//
+// The probe value is per-kind on purpose: a value that does not parse at all is
+// rejected before any key rule is consulted, so it would never exercise the
+// positive-value caps. "0" parses for an integer and is exactly what those rules
+// exist to reject.
 func TestEffective_EveryRegisteredKeyIsJudged(t *testing.T) {
+	probe := map[Kind]string{
+		KindInt:        "0",
+		KindBool:       "not-a-bool",
+		KindString:     "not-a-valid-value",
+		KindStringList: "not-a-valid-value",
+	}
+
 	for _, k := range registry {
-		store := newTestStore(t, openTestDB(t), baseYAML)
-		// A value deliberately invalid for every kind and every key rule.
-		if err := store.db.Create(&Setting{Key: k.Name, Value: "not-a-valid-value", UpdatedBy: "manual"}).Error; err != nil {
-			t.Fatalf("insert row: %v", err)
-		}
-		if err := store.reload(); err != nil {
-			t.Fatalf("reload: %v", err)
-		}
-		if err := store.Set(k.Name, "not-a-valid-value", "owner"); err == nil {
-			// The value is acceptable for this key, so it must be in force.
-			if _, source, _ := store.Effective(k.Name); source != SourceDB {
-				t.Errorf("%s: Set accepted the value but Effective reports source %q", k.Name, source)
+		t.Run(k.Name, func(t *testing.T) {
+			value, ok := probe[k.Kind]
+			if !ok {
+				t.Fatalf("no probe value for kind %q", k.Kind)
 			}
-			continue
-		}
-		if _, source, _ := store.Effective(k.Name); source == SourceDB {
-			t.Errorf("%s: Set rejects the value but Effective reports it as source db", k.Name)
-		}
+
+			store := newTestStore(t, openTestDB(t), baseYAML)
+			if err := store.db.Create(&Setting{Key: k.Name, Value: value, UpdatedBy: "manual"}).Error; err != nil {
+				t.Fatalf("insert row: %v", err)
+			}
+			if err := store.reload(); err != nil {
+				t.Fatalf("reload: %v", err)
+			}
+
+			_, source, ok := store.Effective(k.Name)
+			if !ok {
+				t.Fatalf("Effective(%s) reported an unknown key", k.Name)
+			}
+			if err := store.Set(k.Name, value, "owner"); err == nil {
+				// Set accepts the probe, so the row is a real value and must be
+				// reported as in force.
+				if source != SourceDB {
+					t.Errorf("Set accepted %q but Effective reports source %q", value, source)
+				}
+				return
+			}
+			if source == SourceDB {
+				t.Errorf("Set rejects %q but Effective reports it as source db", value)
+			}
+		})
 	}
 }

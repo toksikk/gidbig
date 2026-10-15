@@ -454,3 +454,23 @@ func TestEffective_MalformedMaxTokensRowReportsTheCapInForce(t *testing.T) {
 		t.Errorf("reply echoes the malformed row: %q", reply)
 	}
 }
+
+// TestHandleAdminSubcommand_EmptyClassifierModelShowsTheTextModel covers the one
+// key whose empty value means "use another configured value": the classifier
+// falls back to llm.model, so the command must not report an empty effective
+// model that nothing uses.
+func TestHandleAdminSubcommand_EmptyClassifierModelShowsTheTextModel(t *testing.T) {
+	m, _ := newTestModule(t)
+
+	get := handle(t, m, subcommand("get", keyValue("key", settings.KeyGippityClassifierModel)))
+	if !strings.Contains(get, "effective: `boot-model`") {
+		t.Errorf("get reply = %q, want the text model the classifier falls back to", get)
+	}
+
+	set := handle(t, m, subcommand("set",
+		keyValue("key", settings.KeyGippityClassifierModel),
+		keyValue("value", "vendor/classifier")))
+	if !strings.Contains(set, "effective: `vendor/classifier`") {
+		t.Errorf("set reply = %q, want the explicit model", set)
+	}
+}
