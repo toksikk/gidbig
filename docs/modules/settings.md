@@ -56,7 +56,7 @@ new value, and runs `cfg.Validate` on the result. Applying all overrides first
 matters — two values that are individually valid can be invalid together (tools
 enabled plus a zero iteration cap), and the file alone would not catch that.
 
-Five keys carry a registry-local rule. Two of them (`gippity.rate_limit_messages_per_hour` and `soundboard.queue_max_depth`) repeat a `cfg.Validate` rule so the store can judge a single stored row on its own:
+Six keys carry a registry-local rule. Five of them restate a `cfg.Validate` rule — the four positive-value caps and the `reasoning_effort` enum — so the store can judge a single stored row on its own without building a merged config on every read:
 
 - `llm.model` must not be empty; an empty model would mean the built-in default
   (or be invalid for openrouter), so `unset` is the way back.
@@ -78,8 +78,8 @@ almost nothing) and a writer swaps the whole snapshot rather than mutating it.
 The mutex is held across the validation, the SQLite write and the cache reload, so two concurrent writes cannot each validate the pre-change state. It is never held across a Discord or other network call.
 
 A stored value that does not parse (for example a row edited by hand with
-`sqlite3`) is logged and falls back to the built-in default, so a bad row cannot
-break an answer path. `Effective` and the typed getters share one rule: a stored
+`sqlite3`) is logged and falls back to the `config.yaml` value, so a bad row
+cannot break an answer path. `Effective` and the typed getters share one rule: a stored
 row is used only when it is *applicable* — it parses for the key's kind and passes
 the key's own rule — so a row advertised with source `db` is always the value a
 consumer receives. One unusable row also cannot block writes to other keys: `Set`
