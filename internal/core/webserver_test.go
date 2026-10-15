@@ -1048,3 +1048,13 @@ func TestStateVoiceGuilds(t *testing.T) {
 		t.Errorf("no session: %v", got)
 	}
 }
+
+func TestInternalTemplate_NoInnerHTML(t *testing.T) {
+	raw, err := os.ReadFile("../../web/templates/internal.html")
+	if err != nil {
+		t.Fatalf("read template: %v", err)
+	}
+	if strings.Contains(string(raw), "innerHTML") {
+		t.Error("internal.html uses innerHTML; build the DOM with textContent")
+	}
+}
