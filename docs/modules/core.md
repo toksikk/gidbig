@@ -68,6 +68,13 @@ writer of its own.
 The session cookie carries the login time (`IssuedAt`, stamped in the OAuth
 callback), the panel's form token and one flash message.
 
+Each key is rendered with a control that fits its kind: a checkbox for a boolean
+(Go's `PostFormValue` returns the first value of a repeated name, so the checkbox
+comes before a hidden `false` fallback that covers the unticked case, which
+submits nothing), a number field for an integer, a text field otherwise. The
+checkbox is ticked from the effective value through the `isTrue` template helper,
+so a row stored as `1` or `TRUE` shows as ticked too.
+
 ```mermaid
 sequenceDiagram
     participant O as Owner browser

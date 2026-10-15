@@ -29,7 +29,18 @@
               <input type="hidden" name="csrf" value="{{ $.Admin.CSRF }}">
               <input type="hidden" name="action" value="set">
               <input type="hidden" name="key" value="{{ .Name }}">
+              {{ if eq .Kind "bool" }}
+              {{/* Go's PostFormValue returns the first value of a repeated name, so
+                   the checkbox comes before the hidden fallback: ticked sends
+                   value=true&value=false (first wins) and unticked sends the
+                   fallback alone. An unticked box submits nothing by itself. */}}
+              <input type="checkbox" name="value" value="true" class="admin-check"{{ if isTrue .Value }} checked{{ end }} aria-label="New value for {{ .Name }} (ticked means true)">
+              <input type="hidden" name="value" value="false">
+              {{ else if eq .Kind "int" }}
+              <input type="number" step="1" name="value" value="{{ .Value }}" class="admin-input is-number" aria-label="New value for {{ .Name }}">
+              {{ else }}
               <input type="text" name="value" value="{{ .Value }}" class="admin-input" aria-label="New value for {{ .Name }}">
+              {{ end }}
               <button type="submit" class="admin-btn">Set</button>
             </form>
             <form method="post" action="/admin" class="admin-form">
