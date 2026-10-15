@@ -151,6 +151,9 @@ var registry = []Key{
 		Apply:   applyBool(func(c *cfg.Config) *bool { return &c.Gippity.Tools.Enabled }),
 	},
 	{
+		// Deliberately no Validate: cfg.Validate only forbids a non-positive cap
+		// while tools are enabled, and with tools off the loop makes no rounds, so
+		// a stored 0 is a real, honoured value rather than an unusable row.
 		Name:    KeyGippityToolsMaxIterations,
 		Kind:    KindInt,
 		Hot:     true,

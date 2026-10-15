@@ -431,3 +431,26 @@ func TestUserMessageLimitNow_IgnoresNonPositiveStoredValue(t *testing.T) {
 		t.Errorf("userMessageLimitNow() = %d, want the Init-time fallback %d", got, m.userMessageLimit)
 	}
 }
+
+// TestToolMaxIterationsNow_HonoursAStoredZero pins that this key has no floor: a
+// stored 0 is legal while tools are off, the loop then makes no rounds, and the
+// value reported as in force must be the value used.
+func TestToolMaxIterationsNow_HonoursAStoredZero(t *testing.T) {
+	m, _ := setupGippityTest(t)
+	m.settings = newRuntimeSettingsStore(t, m.db)
+
+	mustSet(t, m.settings, settings.KeyGippityToolsMaxIterations, "4")
+	if got := m.toolMaxIterationsNow(); got != 4 {
+		t.Errorf("toolMaxIterationsNow() = %d, want 4", got)
+	}
+
+	if err := m.db.Exec(
+		"UPDATE settings SET value = ? WHERE key = ?", "0", settings.KeyGippityToolsMaxIterations,
+	).Error; err != nil {
+		t.Fatalf("corrupt row: %v", err)
+	}
+	m.settings = newRuntimeSettingsStoreFor(t, m.db)
+	if got := m.toolMaxIterationsNow(); got != 0 {
+		t.Errorf("toolMaxIterationsNow() = %d, want the stored 0 rather than a floored value", got)
+	}
+}

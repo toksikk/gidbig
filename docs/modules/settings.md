@@ -56,7 +56,7 @@ new value, and runs `cfg.Validate` on the result. Applying all overrides first
 matters — two values that are individually valid can be invalid together (tools
 enabled plus a zero iteration cap), and the file alone would not catch that.
 
-Three keys carry a registry-local rule:
+Five keys carry a registry-local rule. Two of them (`gippity.rate_limit_messages_per_hour` and `soundboard.queue_max_depth`) repeat a `cfg.Validate` rule so the store can judge a single stored row on its own:
 
 - `llm.model` must not be empty; an empty model would mean the built-in default
   (or be invalid for openrouter), so `unset` is the way back.

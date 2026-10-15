@@ -289,6 +289,13 @@ func (s *Store) Set(key, value, updatedBy string) error {
 		if !ok {
 			continue
 		}
+		if !applicable(other, v) {
+			// The read path ignores this row as well, so it must not decide
+			// whether an unrelated key may be written.
+			slog.Warn("settings: ignoring a stored override that is not usable while validating",
+				"key", other.Name, "value", v)
+			continue
+		}
 		if err := other.Apply(&merged, v); err != nil {
 			// The read path ignores a row it cannot parse, so skipping it here
 			// keeps the merged config equal to the effective one instead of

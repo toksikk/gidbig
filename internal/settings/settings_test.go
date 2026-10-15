@@ -550,3 +550,27 @@ func TestSet_SkipsAnUnusableRowInsteadOfBlocking(t *testing.T) {
 		t.Errorf("llm.model = %q, want the written value", got)
 	}
 }
+
+// TestSet_SkipsARowThatFailsItsOwnRule pins the second half of the skip: a row
+// that parses but would never be applied must not decide whether an unrelated key
+// can be written. The combined-validation property still holds, because the row in
+// TestSet_ValidatesCombinedOverrides is applicable at the time it is set.
+func TestSet_SkipsARowThatFailsItsOwnRule(t *testing.T) {
+	store := newTestStore(t, openTestDB(t), baseYAML)
+	if err := store.db.Create(&Setting{Key: KeySoundboardQueueMaxDepth, Value: "-2", UpdatedBy: "manual"}).Error; err != nil {
+		t.Fatalf("insert row: %v", err)
+	}
+	if err := store.reload(); err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	if _, source, _ := store.Effective(KeySoundboardQueueMaxDepth); source == SourceDB {
+		t.Fatal("an unusable row was reported as in force")
+	}
+
+	if err := store.Set(KeyLLMModel, "runtime-model", "owner"); err != nil {
+		t.Fatalf("Set on an unrelated key: %v", err)
+	}
+	if got := store.String(KeyLLMModel); got != "runtime-model" {
+		t.Errorf("llm.model = %q, want the written value", got)
+	}
+}
