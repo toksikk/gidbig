@@ -57,6 +57,31 @@ func TestRecordsHandlerPlayerDefaultsToCaller(t *testing.T) {
 	}
 }
 
+func TestRecordsHandlerGlobalPlayerOnlyForCaller(t *testing.T) {
+	m := registerRecordTools(t)
+	addRecord(t, m, "guild-1", "chan-1", "111111111111111111", "m1", time.Now(), 137)
+	addRecord(t, m, "guild-1", "chan-1", "222222222222222222", "m2", time.Now(), 200)
+	def, _ := m.tools.Get("leetoclock_records")
+	env := tool.Env{GuildID: "guild-1", UserID: "111111111111111111"}
+
+	for _, tc := range []struct {
+		args, want string
+	}{
+		{`{"subcommand":"player","user":"222222222222222222","scope":"global"}`, "global scope is only available for your own records"},
+		{`{"subcommand":"player","scope":"global"}`, "<@111111111111111111>"},
+		{`{"subcommand":"player","user":"111111111111111111","scope":"global"}`, "<@111111111111111111>"},
+		{`{"subcommand":"player","user":"222222222222222222","scope":"server"}`, "<@222222222222222222>"},
+	} {
+		out, err := def.Handler(context.Background(), env, json.RawMessage(tc.args))
+		if err != nil {
+			t.Fatalf("handler %s: %v", tc.args, err)
+		}
+		if !strings.Contains(out, tc.want) {
+			t.Errorf("%s: output = %q, want %q", tc.args, out, tc.want)
+		}
+	}
+}
+
 func TestRecordsHandlerRejectsUnknownSubcommand(t *testing.T) {
 	m := registerRecordTools(t)
 
