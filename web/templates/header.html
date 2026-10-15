@@ -23,6 +23,9 @@
           {{ range .Prefixes }}
           <li class="nav-item"><a class="nav-link" href="#{{ . }}">{{ . }}</a></li>
           {{ end }}
+          {{ if .IsOwner }}
+          <li class="nav-item"><a class="nav-link" href="/admin">Admin</a></li>
+          {{ end }}
         </ul>
         {{ if .Username }}
         <div class="nav-user">

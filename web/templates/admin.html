@@ -1,0 +1,48 @@
+{{ define "sessionHandler" }}
+<div class="inner-wrap">
+  <div class="admin-panel">
+    <h1 class="admin-title">Runtime settings</h1>
+    <p class="admin-sub">The same keys and rules as <code>/admin config</code>. A change applies to the next message; no restart is needed.</p>
+
+    {{ if .Admin.Unavailable }}
+    <div class="admin-banner is-error">{{ .Admin.Unavailable }}</div>
+    {{ end }}
+    {{ if .Admin.Invalid }}
+    <div class="admin-banner is-error">INVALID CONFIGURATION: the stored overrides disagree with config.yaml, and every write is rejected until it is fixed: {{ .Admin.Invalid }}</div>
+    {{ end }}
+    {{ if .Admin.Flash }}
+    <div class="admin-banner {{ if .Admin.FlashOK }}is-success{{ else }}is-error{{ end }}">{{ .Admin.Flash }}</div>
+    {{ end }}
+
+    <table class="admin-table">
+      <thead>
+        <tr><th>Key</th><th>Effective value</th><th>Source</th><th>Actions</th></tr>
+      </thead>
+      <tbody>
+      {{ range .Admin.Entries }}
+        <tr>
+          <td class="admin-key">{{ .Name }}</td>
+          <td class="admin-value">{{ .Value }}</td>
+          <td class="admin-source">{{ .Source }}</td>
+          <td class="admin-actions">
+            <form method="post" action="/admin" class="admin-form">
+              <input type="hidden" name="csrf" value="{{ $.Admin.CSRF }}">
+              <input type="hidden" name="action" value="set">
+              <input type="hidden" name="key" value="{{ .Name }}">
+              <input type="text" name="value" value="{{ .Value }}" class="admin-input" aria-label="New value for {{ .Name }}">
+              <button type="submit" class="admin-btn">Set</button>
+            </form>
+            <form method="post" action="/admin" class="admin-form">
+              <input type="hidden" name="csrf" value="{{ $.Admin.CSRF }}">
+              <input type="hidden" name="action" value="unset">
+              <input type="hidden" name="key" value="{{ .Name }}">
+              <button type="submit" class="admin-btn is-secondary">Unset</button>
+            </form>
+          </td>
+        </tr>
+      {{ end }}
+      </tbody>
+    </table>
+  </div>
+</div>
+{{ end }}

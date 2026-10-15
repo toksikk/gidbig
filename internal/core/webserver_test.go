@@ -182,7 +182,7 @@ func TestNewWebServer_NilModulesAreNilInterfaces(t *testing.T) {
 	// A nil *eso.Module / *soundboard.Module must become a nil interface so the
 	// handlers' nil checks still work; a typed nil in an interface would not be
 	// caught by `ws.eso == nil`.
-	ws := newWebServer(&cfg.Config{}, nil, nil, nil)
+	ws := newWebServer(&cfg.Config{}, nil, nil, nil, nil)
 	if ws.soundboard != nil {
 		t.Error("nil soundboard module should be a nil interface")
 	}
@@ -408,7 +408,7 @@ func TestNewWebServer_AppliesEsoConfig(t *testing.T) {
 	config.Web.Eso.MaxConcurrentRequests = 1
 	config.Web.Eso.RequestTimeoutSeconds = 3
 
-	ws := newWebServer(config, nil, nil, nil)
+	ws := newWebServer(config, nil, nil, nil, nil)
 
 	if ws.esoLimiter.burst != 2 {
 		t.Errorf("burst = %v, want 2", ws.esoLimiter.burst)
@@ -444,7 +444,7 @@ func TestNewWebServer_AppliesEsoConfig(t *testing.T) {
 }
 
 func TestNewWebServer_DefaultsEsoLimitsWhenUnset(t *testing.T) {
-	ws := newWebServer(&cfg.Config{}, nil, nil, nil)
+	ws := newWebServer(&cfg.Config{}, nil, nil, nil, nil)
 
 	if ws.esoLimiter.burst != esoRateLimitBurst || ws.esoLimiter.refillRate != esoRateLimitPerSecond {
 		t.Errorf("unset config changed the rate limit: burst=%v refill=%v",

@@ -246,7 +246,9 @@ func StartGidbig() {
 	// Start Webserver if a valid port is provided and if ClientID and ClientSecret are set
 	if conf.Web.Port != 0 && conf.Web.Port >= 1 && conf.Web.Oauth.ClientID != "" && conf.Web.Oauth.ClientSecret != "" && conf.Web.Oauth.RedirectURI != "" {
 		slog.Info("Starting web server", "port", conf.Web.Port)
-		go startWebServer(conf, session, soundboardMod, esoMod)
+		// configMod is passed even when it failed to register: the panel then
+		// reports the missing store instead of hiding the reason behind a 404.
+		go startWebServer(conf, session, soundboardMod, esoMod, configMod)
 	} else {
 		slog.Info("Required web server arguments missing or invalid. Skipping web server start.")
 	}
