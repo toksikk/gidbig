@@ -7,7 +7,7 @@ Package `gidbig`, directory `internal/core`. Composition root and core module.
 - `tools.go` – registers the `bot_status` LLM tool, which reports the process runtime line (heap, sys, stack, goroutines, GC cycles, uptime) plus aggregated `StatsProvider` counters for the answer path.
 - `slashcmd.go` – `/uptime` rendering helpers.
 - `status.go` / `status_users.go` – `/status` snapshot collection and rendering. The snapshot carries an `LLM` section with the effective, non-secret LLM configuration (provider, models, base URL, credential source, persona source, classifier, reasoning effort, tools, rate limits, timeouts), sourced from the shared `*llm.Client` (`Info`) and the gippity config via `Module.llmStatus`.
-- `webserver.go` – optional OAuth session web UI, sound + eso APIs.
+- `webserver.go` – optional OAuth session web UI, sound + eso APIs. Served by an `http.Server` with read/write/idle timeouts and a `securityHeaders` middleware (CSP with `frame-ancestors 'none'`, `X-Frame-Options`, `nosniff`, `Referrer-Policy`); the OAuth callback answers 502 when the Discord user lookup fails.
 - `webadmin.go` – the owner-only `/admin` panel: it renders the same runtime
   settings the `/admin config` command edits, through the `configcmd` module, and
   applies a set or an unset with the same validation. Access needs the session to
