@@ -242,3 +242,15 @@ func TestVisionModel_EmptyOverrideFollowsTheTextModel(t *testing.T) {
 		t.Errorf("VisionModel() with no override = %q, want %q", got, "boot-vision")
 	}
 }
+
+// TestMaxTokens_ZeroValueClientFloorsAtTheDefault guards the case the previous
+// const made impossible: a Client that skipped New must not send
+// max_completion_tokens: 0, which providers reject or treat as "no output".
+func TestMaxTokens_ZeroValueClientFloorsAtTheDefault(t *testing.T) {
+	if got := (&Client{}).MaxTokens(); got != DefaultMaxTokens {
+		t.Errorf("MaxTokens() = %d, want the default %d", got, DefaultMaxTokens)
+	}
+	if got := (&Client{maxTokens: -1}).MaxTokens(); got != DefaultMaxTokens {
+		t.Errorf("MaxTokens() with a negative boot value = %d, want the default %d", got, DefaultMaxTokens)
+	}
+}

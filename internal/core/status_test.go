@@ -90,7 +90,7 @@ func llmSampleSnapshot() statusSnapshot {
 			KeySource:         "OPENROUTER_API_KEY",
 			PersonalitySource: "preset:dry",
 			Timeout:           30 * time.Second,
-			MaxTokens:         150,
+			MaxTokens:         llm.DefaultMaxTokens,
 		},
 		ClassifierModel:      "vendor/classifier",
 		ClassifierRateLimit:  12,
@@ -121,7 +121,7 @@ func TestRenderStatusTextLLMSection(t *testing.T) {
 		"max 3 iterations · bot_status, coffee_status",
 		"answer mode all messages (classified)",
 		"limits", "30 msg/h · 12 classify/h",
-		"30s timeout · 150 max tokens",
+		fmt.Sprintf("30s timeout · %d max tokens", llm.DefaultMaxTokens),
 		"debug channel 42",
 	} {
 		if !strings.Contains(out, want) {

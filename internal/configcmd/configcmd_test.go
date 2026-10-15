@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -16,6 +17,7 @@ import (
 	"github.com/toksikk/gidbig/internal/llm"
 	"github.com/toksikk/gidbig/internal/settings"
 	"github.com/toksikk/gidbig/internal/shareddb"
+	"gorm.io/gorm"
 )
 
 const baseYAML = `
@@ -29,6 +31,14 @@ gippity:
 // real llm client, so the effective-value special cases for llm.model are
 // covered rather than stubbed out.
 func newTestModule(t *testing.T) (*Module, *settings.Store) {
+	t.Helper()
+	m, store, _ := newTestModuleWithDB(t)
+	return m, store
+}
+
+// newTestModuleWithDB also returns the database, for the tests that write a row
+// outside the command the way a hand-edited sqlite3 session would.
+func newTestModuleWithDB(t *testing.T) (*Module, *settings.Store, *gorm.DB) {
 	t.Helper()
 
 	db, err := shareddb.Open(filepath.Join(t.TempDir(), shareddb.Filename))
@@ -50,12 +60,14 @@ func newTestModule(t *testing.T) (*Module, *settings.Store) {
 		t.Fatalf("settings.New: %v", err)
 	}
 	llmClient, err := llm.New(llm.Options{
-		APIKey: "test-key",
-		Model:  "boot-model",
-		// Same wiring as the composition root, so the llm.model special case in
+		APIKey:    "test-key",
+		Model:     "boot-model",
+		MaxTokens: int64(cfgDefaultMaxTokens),
+		// Same wiring as the composition root, so every llm.* special case in
 		// effective() is exercised against a real stored override.
 		ModelOverride:       func() (string, bool) { return store.Override(settings.KeyLLMModel) },
 		VisionModelOverride: func() (string, bool) { return store.Override(settings.KeyLLMVisionModel) },
+		MaxTokensOverride:   func() (int, bool) { return store.OverrideInt(settings.KeyLLMMaxTokens) },
 	})
 	if err != nil {
 		t.Fatalf("llm.New: %v", err)
@@ -65,8 +77,13 @@ func newTestModule(t *testing.T) (*Module, *settings.Store) {
 	if err := m.Init(bot.Deps{Settings: store, LLM: llmClient}); err != nil {
 		t.Fatalf("Init: %v", err)
 	}
-	return m, store
+	return m, store, db
 }
+
+// cfgDefaultMaxTokens mirrors cfg's default for llm.max_tokens. The fixture
+// builds its config by hand rather than through cfg.Decode, so it has to name
+// the value the boot path would apply.
+const cfgDefaultMaxTokens = 300
 
 func TestAdminSubcommandGroup_Structure(t *testing.T) {
 	group := New().AdminSubcommandGroup()
@@ -389,3 +406,51 @@ func adminInteraction(sub *discordgo.ApplicationCommandInteractionDataOption) *d
 
 var _ bot.Module = (*Module)(nil)
 var _ bot.AdminProvider = (*Module)(nil)
+
+// TestEffective_MalformedMaxTokensRowReportsTheCapInForce covers a row written
+// outside the command: the client floors an unparseable value to its default, so
+// the command must not echo the raw row as if it were the cap being used.
+func TestEffective_MalformedMaxTokensRowReportsTheCapInForce(t *testing.T) {
+	_, _, db := newTestModuleWithDB(t)
+	if err := db.Exec(
+		"INSERT INTO settings (key, value, updated_by) VALUES (?, ?, ?)",
+		settings.KeyLLMMaxTokens, "not-a-number", "manual",
+	).Error; err != nil {
+		t.Fatalf("insert row: %v", err)
+	}
+
+	// A fresh store over the same database, as a restart would build.
+	base, err := cfg.Decode(strings.NewReader(baseYAML))
+	if err != nil {
+		t.Fatalf("decode base config: %v", err)
+	}
+	store, err := settings.New(db, base)
+	if err != nil {
+		t.Fatalf("settings.New: %v", err)
+	}
+	client, err := llm.New(llm.Options{
+		APIKey:            "test-key",
+		MaxTokens:         int64(cfgDefaultMaxTokens),
+		MaxTokensOverride: func() (int, bool) { return store.OverrideInt(settings.KeyLLMMaxTokens) },
+	})
+	if err != nil {
+		t.Fatalf("llm.New: %v", err)
+	}
+	m := New()
+	if err := m.Init(bot.Deps{Settings: store, LLM: client}); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+
+	value, _, ok := m.effective(settings.KeyLLMMaxTokens)
+	if !ok {
+		t.Fatal("llm.max_tokens is not a known key")
+	}
+	if value != strconv.Itoa(cfgDefaultMaxTokens) {
+		t.Errorf("effective = %q, want the cap in force (%d)", value, cfgDefaultMaxTokens)
+	}
+
+	reply := handle(t, m, subcommand("get", keyValue("key", settings.KeyLLMMaxTokens)))
+	if strings.Contains(reply, "not-a-number") {
+		t.Errorf("reply echoes the malformed row: %q", reply)
+	}
+}
