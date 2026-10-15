@@ -31,10 +31,13 @@ jobs:
             - name: Check for a version label
               env:
                   GH_TOKEN: ${{ github.token }}
+                  REPO: ${{ github.repository }}
                   PR: ${{ github.event.pull_request.number }}
               run: |
                   set -o pipefail
-                  if ! LABELS="$(gh pr view "$PR" --json labels --jq '.labels[].name' | tr '\n' ' ')"; then
+                  # --repo is required: this job has no checkout, so gh cannot
+                  # resolve the repository from a git remote.
+                  if ! LABELS="$(gh pr view "$PR" --repo "$REPO" --json labels --jq '.labels[].name' | tr '\n' ' ')"; then
                       echo "::error::Could not read the labels of PR #${PR}; re-run this check."
                       exit 1
                   fi
