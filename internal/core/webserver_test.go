@@ -15,7 +15,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bwmarrin/discordgo"
 	"github.com/toksikk/gidbig/internal/cfg"
+	"github.com/toksikk/gidbig/internal/configcmd"
 )
 
 type stubEsoGenerator struct {
@@ -565,5 +567,91 @@ func TestHandleAPIEso_AppliesRequestTimeout(t *testing.T) {
 	}
 	if w.Code != http.StatusOK {
 		t.Errorf("status = %d, want %d", w.Code, http.StatusOK)
+	}
+}
+
+// TestNewWebServer_WiresTheAdminPanel covers the wiring the composition root
+// does: the settings module, the owner the panel gates on, and the origin a
+// submission is checked against.
+func TestNewWebServer_WiresTheAdminPanel(t *testing.T) {
+	config := &cfg.Config{}
+	config.Discord.OwnerID = "owner-9"
+	config.Web.Oauth.RedirectURI = "https://gidbig.example"
+
+	ws := newWebServer(config, nil, nil, nil, configcmd.New())
+
+	if ws.config == nil {
+		t.Error("the settings module was not wired into the panel")
+	}
+	if ws.ownerID != "owner-9" {
+		t.Errorf("ownerID = %q, want the configured owner", ws.ownerID)
+	}
+	if ws.adminOrigin != "https://gidbig.example" {
+		t.Errorf("adminOrigin = %q, want the scheme and host of the redirect URI", ws.adminOrigin)
+	}
+	if ws.currentTime().IsZero() {
+		t.Error("no clock was wired")
+	}
+}
+
+// TestNewWebServer_AdminPanelDefaults keeps a deployment without a settings
+// module, or without a parseable redirect URI, from producing a half-wired
+// panel.
+func TestNewWebServer_AdminPanelDefaults(t *testing.T) {
+	ws := newWebServer(&cfg.Config{}, nil, nil, nil, nil)
+	if ws.config != nil {
+		t.Error("a nil settings module should stay a nil interface")
+	}
+	if ws.ownerID != "" || ws.adminOrigin != "" {
+		t.Errorf("ownerID = %q, adminOrigin = %q, want both empty", ws.ownerID, ws.adminOrigin)
+	}
+
+	config := &cfg.Config{}
+	config.Web.Oauth.RedirectURI = "localhost:8080"
+	ws = newWebServer(config, nil, nil, nil, nil)
+	if ws.adminOrigin != "" {
+		t.Errorf("adminOrigin = %q for a redirect URI without a scheme, want empty", ws.adminOrigin)
+	}
+}
+
+// TestCompleteLogin_StampsTheLoginTime covers the line the panel's freshness gate
+// depends on: an OAuth login must record when it happened and drop the previous
+// session's form token.
+func TestCompleteLogin_StampsTheLoginTime(t *testing.T) {
+	now := time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC)
+	ws := &webServer{now: func() time.Time { return now }}
+	session := &sessionData{AdminCSRF: "token-from-the-previous-login"}
+
+	ws.completeLogin(session, &discordgo.User{ID: "42", Username: "someone", Avatar: "abc"}, "access-token")
+
+	if session.IssuedAt != now.Unix() {
+		t.Errorf("IssuedAt = %d, want %d", session.IssuedAt, now.Unix())
+	}
+	if session.AdminCSRF != "" {
+		t.Errorf("AdminCSRF = %q, want it cleared by the new login", session.AdminCSRF)
+	}
+	if session.DiscordUserID != "42" || session.DiscordUsername != "someone" || session.AccessToken != "access-token" {
+		t.Errorf("session = %+v, want the authenticated user", session)
+	}
+	if want := "https://cdn.discordapp.com/avatars/42/abc.png"; session.DiscordAvatarURL != want {
+		t.Errorf("DiscordAvatarURL = %q, want %q", session.DiscordAvatarURL, want)
+	}
+
+	// The stamped session is exactly what the panel accepts, while one without
+	// the stamp is refused.
+	admin := &webServer{ownerID: "42", now: func() time.Time { return now }}
+	if !admin.isOwner(session) {
+		t.Error("a freshly stamped session is not accepted by the panel")
+	}
+	stale := &sessionData{DiscordUserID: "42"}
+	if admin.isOwner(stale) {
+		t.Error("a session without a login time is accepted by the panel")
+	}
+
+	// A user without an avatar keeps an empty URL.
+	noAvatar := &sessionData{}
+	ws.completeLogin(noAvatar, &discordgo.User{ID: "42", Username: "someone"}, "access-token")
+	if noAvatar.DiscordAvatarURL != "" {
+		t.Errorf("DiscordAvatarURL = %q, want empty without an avatar", noAvatar.DiscordAvatarURL)
 	}
 }

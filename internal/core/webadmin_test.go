@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -549,4 +550,64 @@ func TestHandleMain_ShowsTheAdminLinkOnlyForTheOwner(t *testing.T) {
 			t.Error("a stale owner session still sees the admin link")
 		}
 	})
+}
+
+// csrfFromPage returns the token the rendered forms carry.
+func csrfFromPage(t *testing.T, body string) string {
+	t.Helper()
+	m := regexp.MustCompile(`name="csrf" value="([^"]*)"`).FindStringSubmatch(body)
+	if m == nil {
+		t.Fatal("the page has no csrf field")
+	}
+	return m[1]
+}
+
+// TestHandleAdmin_MintsAFormTokenForAFreshSession covers the token the forms are
+// useless without: a session that has none gets a fresh one, the page carries it,
+// the cookie keeps it, and a submission with it is accepted.
+func TestHandleAdmin_MintsAFormTokenForAFreshSession(t *testing.T) {
+	t.Chdir("../..")
+	now := time.Now()
+	admin := &stubConfigAdmin{
+		entries: []configcmd.Entry{{Name: settings.KeyLLMModel, Kind: settings.KindString, Value: "gpt-5", Source: settings.SourceDefault}},
+		message: "Set `llm.model=x`.",
+		ok:      true,
+	}
+	ws := newAdminTestServer(admin, testOwnerID, "", now)
+	ws.loadTemplates()
+	// A session straight from completeLogin: logged in, no form token yet.
+	session := &sessionData{DiscordUserID: testOwnerID, DiscordUsername: testOwnerID, IssuedAt: now.Unix()}
+
+	w := httptest.NewRecorder()
+	ws.handleAdmin(w, formRequest(t, ws, session, http.MethodGet, "/admin", nil))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
+	}
+	token := csrfFromPage(t, w.Body.String())
+	if token == "" {
+		t.Fatal("the minted token is empty")
+	}
+
+	stored := sessionFromResponse(t, ws, w)
+	if stored.AdminCSRF != token {
+		t.Errorf("session token = %q, page token = %q, want them equal", stored.AdminCSRF, token)
+	}
+
+	// The token the page handed out is the one a submission must carry.
+	form := url.Values{
+		"action": {"set"},
+		"key":    {settings.KeyLLMModel},
+		"value":  {"x"},
+		"csrf":   {token},
+	}
+	w2 := httptest.NewRecorder()
+	ws.handleAdmin(w2, formRequest(t, ws, stored, http.MethodPost, "/admin", form))
+
+	if w2.Code != http.StatusSeeOther {
+		t.Fatalf("status = %d, want %d", w2.Code, http.StatusSeeOther)
+	}
+	if len(admin.setCalls) != 1 {
+		t.Fatalf("ApplySet calls = %v, want one", admin.setCalls)
+	}
 }
