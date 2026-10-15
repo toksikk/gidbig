@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/bwmarrin/discordgo"
@@ -165,5 +166,22 @@ func TestResolveMentionsWithRestore_ResolveThenRestore_RoundTrip(t *testing.T) {
 	restored := restore(resolved)
 	if restored != input {
 		t.Fatalf("round-trip failed: got %q, want %q", restored, input)
+	}
+}
+
+func TestNoMentions(t *testing.T) {
+	got := NoMentions()
+	if got == nil || got.Parse == nil || len(got.Parse) != 0 {
+		t.Fatalf("NoMentions() = %+v, want empty non-nil Parse", got)
+	}
+	raw, err := json.Marshal(got)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if !strings.Contains(string(raw), `"parse":[]`) {
+		t.Errorf("NoMentions() JSON = %s, want \"parse\":[]", raw)
+	}
+	if NoMentions() == got {
+		t.Error("NoMentions() returned a shared pointer")
 	}
 }

@@ -13,6 +13,14 @@ import (
 
 var mentionRe = regexp.MustCompile(`<@!?(\d+)>`)
 
+// NoMentions returns allowed-mentions settings that suppress every ping
+// (@everyone, @here, roles and users) while mentions still render. Parse must
+// be an empty, non-nil slice: discordgo serialises a nil slice as "parse": null,
+// which Discord treats as "use the defaults" and pings anyway.
+func NoMentions() *discordgo.MessageAllowedMentions {
+	return &discordgo.MessageAllowedMentions{Parse: []discordgo.AllowedMentionType{}}
+}
+
 type reactionItem struct {
 	session      *discordgo.Session
 	channelid    string

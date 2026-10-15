@@ -18,6 +18,7 @@ import (
 	"github.com/toksikk/gidbig/internal/bot"
 	"github.com/toksikk/gidbig/internal/llm"
 	"github.com/toksikk/gidbig/internal/tool"
+	"github.com/toksikk/gidbig/internal/util"
 )
 
 const (
@@ -356,7 +357,7 @@ func (m *Module) onInteractionCreate(s *discordgo.Session, i *discordgo.Interact
 			slog.Error("Failed to get weather", "ChannelID", i.ChannelID, "Location", location, "Error", err)
 			body = "Failed to get weather for `" + location + "`"
 		}
-		if _, errEdit := s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: &body}); errEdit != nil {
+		if _, errEdit := s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: &body, AllowedMentions: util.NoMentions()}); errEdit != nil {
 			slog.Error("Failed to edit interaction response", "ChannelID", i.ChannelID, "Error", errEdit)
 		}
 	}()
