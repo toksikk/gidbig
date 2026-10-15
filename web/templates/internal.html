@@ -17,15 +17,23 @@
   </div>
 
   <script>
+  // el builds an element whose text is set via textContent, never parsed as HTML.
+  function el(tag, className, text) {
+    var node = document.createElement(tag);
+    if (className) node.className = className;
+    if (text !== undefined) node.textContent = text;
+    return node;
+  }
+
   function showToast(message, type) {
     var stack = document.getElementById('toast-stack');
-    var item = document.createElement('div');
-    item.className = 'toast-item ' + (type === 'success' ? 'is-success' : 'is-error');
-    item.innerHTML =
-      '<span class="toast-dot"></span>' +
-      '<span class="toast-msg">' + message + '</span>' +
-      '<button class="toast-close" aria-label="Dismiss">&#x2715;</button>';
-    item.querySelector('.toast-close').addEventListener('click', function() { dismissToast(item); });
+    var item = el('div', 'toast-item ' + (type === 'success' ? 'is-success' : 'is-error'));
+    var close = el('button', 'toast-close', '\u2715');
+    close.setAttribute('aria-label', 'Dismiss');
+    close.addEventListener('click', function() { dismissToast(item); });
+    item.appendChild(el('span', 'toast-dot'));
+    item.appendChild(el('span', 'toast-msg', message));
+    item.appendChild(close);
     stack.appendChild(item);
     setTimeout(function() { dismissToast(item); }, 3500);
   }
@@ -61,7 +69,7 @@
           btn.textContent = 'Play';
           if (res.ok) {
             var label = snd ? cmd + ' ' + snd : cmd + ' (random)';
-            showToast('&#9654; ' + label, 'success');
+            showToast('\u25B6 ' + label, 'success');
           } else if (res.status === 401) {
             showToast('Not logged in — please refresh.', 'error');
           } else {
@@ -84,16 +92,22 @@
           var active = data.guilds && data.guilds.some(function(g) { return g.now_playing || g.queue_length > 0; });
           if (active) {
             panel.classList.remove('d-none');
-            var html = '';
+            var rows = [];
             data.guilds.forEach(function(g) {
               if (g.now_playing || g.queue_length > 0) {
-                html += '<div class="queue-row">';
-                if (g.now_playing) html += '<span class="queue-row-name">' + g.now_playing + '</span>';
-                if (g.queue_length > 0) html += '<span class="queue-row-meta">+' + g.queue_length + ' queued</span>';
-                html += '</div>';
+                var row = el('div', 'queue-row');
+                if (g.now_playing) row.appendChild(el('span', 'queue-row-name', String(g.now_playing)));
+                if (g.queue_length > 0) row.appendChild(el('span', 'queue-row-meta', '+' + Number(g.queue_length) + ' queued'));
+                rows.push(row);
               }
             });
-            body.innerHTML = html || '<span style="font-size:.68rem;color:var(--text-2)">Nothing playing</span>';
+            if (rows.length === 0) {
+              var empty = el('span', '', 'Nothing playing');
+              empty.style.fontSize = '.68rem';
+              empty.style.color = 'var(--text-2)';
+              rows.push(empty);
+            }
+            body.replaceChildren.apply(body, rows);
           } else {
             panel.classList.add('d-none');
           }
