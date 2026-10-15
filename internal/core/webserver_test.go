@@ -19,6 +19,7 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/toksikk/gidbig/internal/cfg"
 	"github.com/toksikk/gidbig/internal/configcmd"
+	"github.com/toksikk/gidbig/internal/soundboard"
 )
 
 type stubEsoGenerator struct {
@@ -587,8 +588,8 @@ func TestNewWebServer_WiresTheAdminPanel(t *testing.T) {
 	if ws.ownerID != "owner-9" {
 		t.Errorf("ownerID = %q, want the configured owner", ws.ownerID)
 	}
-	if ws.adminOrigin != "https://gidbig.example" {
-		t.Errorf("adminOrigin = %q, want the scheme and host of the redirect URI", ws.adminOrigin)
+	if ws.uiOrigin != "https://gidbig.example" {
+		t.Errorf("uiOrigin = %q, want the scheme and host of the redirect URI", ws.uiOrigin)
 	}
 	if ws.currentTime().IsZero() {
 		t.Error("no clock was wired")
@@ -603,15 +604,15 @@ func TestNewWebServer_AdminPanelDefaults(t *testing.T) {
 	if ws.config != nil {
 		t.Error("a nil settings module should stay a nil interface")
 	}
-	if ws.ownerID != "" || ws.adminOrigin != "" {
-		t.Errorf("ownerID = %q, adminOrigin = %q, want both empty", ws.ownerID, ws.adminOrigin)
+	if ws.ownerID != "" || ws.uiOrigin != "" {
+		t.Errorf("ownerID = %q, uiOrigin = %q, want both empty", ws.ownerID, ws.uiOrigin)
 	}
 
 	config := &cfg.Config{}
 	config.Web.Oauth.RedirectURI = "localhost:8080"
 	ws = newWebServer(config, nil, nil, nil, nil)
-	if ws.adminOrigin != "" {
-		t.Errorf("adminOrigin = %q for a redirect URI without a scheme, want empty", ws.adminOrigin)
+	if ws.uiOrigin != "" {
+		t.Errorf("uiOrigin = %q for a redirect URI without a scheme, want empty", ws.uiOrigin)
 	}
 }
 
@@ -903,5 +904,91 @@ func TestHandleMain_ExpiredSessionIsLoggedOut(t *testing.T) {
 	ws.handleMain(w, formRequest(t, ws, adminSession(testOtherUser, sessionMaxAge-time.Minute, now), http.MethodGet, "/", nil))
 	if !strings.Contains(w.Body.String(), "sound-search") {
 		t.Error("a valid session does not see the sound board")
+	}
+}
+
+// fakeSoundboard records Enqueue calls and serves a fixed queue snapshot.
+type fakeSoundboard struct {
+	enqueued []string
+	queue    []soundboard.QueueStatus
+}
+
+func (f *fakeSoundboard) Enqueue(_ *discordgo.User, _ *discordgo.Guild, command, soundname string) bool {
+	f.enqueued = append(f.enqueued, command+" "+soundname)
+	return true
+}
+func (f *fakeSoundboard) QueueStatus() []soundboard.QueueStatus { return f.queue }
+func (f *fakeSoundboard) Collections() []soundboard.Collection  { return nil }
+
+func playSoundServer(sb *fakeSoundboard) *webServer {
+	ws := newAdminTestServer(nil, "", "https://gidbig.example", time.Now())
+	ws.soundboard = sb
+	return ws
+}
+
+func playSoundRequest(t *testing.T, ws *webServer, session *sessionData, method, origin string) *http.Request {
+	t.Helper()
+	req := formRequest(t, ws, session, method, "/playsound", url.Values{"command": {"!x"}, "soundname": {"y"}})
+	if origin != "" {
+		req.Header.Set("Origin", origin)
+	}
+	return req
+}
+
+func TestHandlePlaySound_RejectsGet(t *testing.T) {
+	sb := &fakeSoundboard{}
+	ws := playSoundServer(sb)
+	w := httptest.NewRecorder()
+	ws.handlePlaySound(w, playSoundRequest(t, ws, adminSession("u", time.Minute, time.Now()), http.MethodGet, ""))
+	if w.Code != http.StatusMethodNotAllowed || w.Header().Get("Allow") != http.MethodPost {
+		t.Errorf("status = %d, Allow = %q", w.Code, w.Header().Get("Allow"))
+	}
+	if len(sb.enqueued) != 0 {
+		t.Error("GET enqueued a sound")
+	}
+}
+
+func TestHandlePlaySound_RejectsForeignOrigin(t *testing.T) {
+	sb := &fakeSoundboard{}
+	ws := playSoundServer(sb)
+	w := httptest.NewRecorder()
+	ws.handlePlaySound(w, playSoundRequest(t, ws, adminSession("u", time.Minute, time.Now()), http.MethodPost, "https://evil.example"))
+	if w.Code != http.StatusForbidden {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusForbidden)
+	}
+	if len(sb.enqueued) != 0 {
+		t.Error("a foreign origin enqueued a sound")
+	}
+}
+
+func TestHandlePlaySound_AcceptsSameOrigin(t *testing.T) {
+	for _, origin := range []string{"https://gidbig.example", ""} {
+		sb := &fakeSoundboard{}
+		ws := playSoundServer(sb)
+		w := httptest.NewRecorder()
+		ws.handlePlaySound(w, playSoundRequest(t, ws, adminSession("u", time.Minute, time.Now()), http.MethodPost, origin))
+		if w.Code != http.StatusOK || len(sb.enqueued) != 1 || sb.enqueued[0] != "!x y" {
+			t.Errorf("origin %q: status = %d, enqueued = %v", origin, w.Code, sb.enqueued)
+		}
+	}
+}
+
+func TestHandlePlaySound_Unauthorized(t *testing.T) {
+	sb := &fakeSoundboard{}
+	ws := playSoundServer(sb)
+	w := httptest.NewRecorder()
+	ws.handlePlaySound(w, playSoundRequest(t, ws, nil, http.MethodPost, ""))
+	if w.Code != http.StatusUnauthorized || len(sb.enqueued) != 0 {
+		t.Errorf("status = %d, enqueued = %v", w.Code, sb.enqueued)
+	}
+}
+
+func TestHandlePlaySound_ExpiredSession(t *testing.T) {
+	sb := &fakeSoundboard{}
+	ws := playSoundServer(sb)
+	w := httptest.NewRecorder()
+	ws.handlePlaySound(w, playSoundRequest(t, ws, adminSession("u", sessionMaxAge+time.Minute, time.Now()), http.MethodPost, ""))
+	if w.Code != http.StatusUnauthorized || len(sb.enqueued) != 0 {
+		t.Errorf("status = %d, enqueued = %v", w.Code, sb.enqueued)
 	}
 }

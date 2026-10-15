@@ -39,6 +39,8 @@ const (
 	footer            string = "web/templates/footer.html"
 	templateDir       string = "web/templates/"
 	sessionCookieName string = "gidbig-session"
+	// playSoundFormMaxBytes bounds a /playsound form; it carries two short fields.
+	playSoundFormMaxBytes = 4 << 10
 )
 
 type sessionData struct {
@@ -197,9 +199,9 @@ type webServer struct {
 	// ownerID is the Discord user allowed into /admin; empty denies everyone,
 	// which mirrors the bot-side gate.
 	ownerID string
-	// adminOrigin is the scheme and host the UI is served from, compared against
-	// the Origin header of an admin submission.
-	adminOrigin string
+	// uiOrigin is the scheme and host the UI is served from, compared against
+	// the Origin header of an /admin or /playsound submission.
+	uiOrigin string
 	// now is the process clock, injectable for tests.
 	now func() time.Time
 
@@ -254,7 +256,7 @@ func newWebServer(config *cfg.Config, session *discordgo.Session, sb *soundboard
 		ws.config = configMod
 	}
 	if u, err := url.Parse(config.Web.Oauth.RedirectURI); err == nil && u.Scheme != "" && u.Host != "" {
-		ws.adminOrigin = u.Scheme + "://" + u.Host
+		ws.uiOrigin = u.Scheme + "://" + u.Host
 		ws.store.secure = u.Scheme == "https"
 	}
 	return ws
@@ -379,15 +381,26 @@ func readSoundDescription(prefix, name string) (text, shortText string, ok bool)
 
 func (ws *webServer) handlePlaySound(w http.ResponseWriter, r *http.Request) {
 	slog.Info("WebUI /playsound Request", "Requesting IP", r.RemoteAddr)
-	err := r.ParseForm()
-	if err != nil {
-		slog.Error("could not ParseForm", "error", err)
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", http.MethodPost)
+		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
+		return
+	}
+	if !ws.validOrigin(r) {
+		slog.Warn("WebUI /playsound rejected a request from a foreign origin", "origin", r.Header.Get("Origin"))
+		http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
 		return
 	}
 	session := ws.store.Get(r)
 	userID := session.DiscordUserID
 	if !ws.validSession(session) {
 		http.Error(w, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, playSoundFormMaxBytes)
+	if err := r.ParseForm(); err != nil {
+		slog.Error("could not ParseForm", "error", err)
+		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 		return
 	}
 	var guild *discordgo.Guild
@@ -402,7 +415,7 @@ func (ws *webServer) handlePlaySound(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	if ws.soundboard != nil && ws.soundboard.Enqueue(user, guild, r.FormValue("command"), r.FormValue("soundname")) {
+	if ws.soundboard != nil && ws.soundboard.Enqueue(user, guild, r.PostFormValue("command"), r.PostFormValue("soundname")) {
 		http.Error(w, http.StatusText(200), 200)
 	} else {
 		http.Error(w, http.StatusText(500), 500)
