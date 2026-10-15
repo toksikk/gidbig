@@ -620,7 +620,11 @@ func TestNewWebServer_AdminPanelDefaults(t *testing.T) {
 func TestCompleteLogin_StampsTheLoginTime(t *testing.T) {
 	now := time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC)
 	ws := &webServer{now: func() time.Time { return now }}
-	session := &sessionData{AdminCSRF: "token-from-the-previous-login"}
+	session := &sessionData{
+		AdminCSRF: "token-from-the-previous-login",
+		Flash:     "Removed the runtime override for `llm.model`.",
+		FlashOK:   true,
+	}
 
 	ws.completeLogin(session, &discordgo.User{ID: "42", Username: "someone", Avatar: "abc"}, "access-token")
 
@@ -629,6 +633,9 @@ func TestCompleteLogin_StampsTheLoginTime(t *testing.T) {
 	}
 	if session.AdminCSRF != "" {
 		t.Errorf("AdminCSRF = %q, want it cleared by the new login", session.AdminCSRF)
+	}
+	if session.Flash != "" || session.FlashOK {
+		t.Errorf("flash = %q (ok=%v), want it cleared by the new login", session.Flash, session.FlashOK)
 	}
 	if session.DiscordUserID != "42" || session.DiscordUsername != "someone" || session.AccessToken != "access-token" {
 		t.Errorf("session = %+v, want the authenticated user", session)
