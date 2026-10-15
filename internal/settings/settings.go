@@ -201,8 +201,8 @@ func (s *Store) lookup(key string) (Key, string, bool) {
 	return k, k.Extract(s.base), true
 }
 
-// Bool returns the effective value of a boolean key. A stored value that does
-// not parse falls back to the built-in default.
+// Bool returns the effective value of a boolean key. A stored value that is not
+// usable falls back to the config.yaml value.
 func (s *Store) Bool(key string) bool {
 	k, raw, ok := s.lookup(key)
 	if !ok {
@@ -216,8 +216,8 @@ func (s *Store) Bool(key string) bool {
 	return v
 }
 
-// Int returns the effective value of an integer key. A stored value that does
-// not parse falls back to the built-in default.
+// Int returns the effective value of an integer key. A stored value that is not
+// usable falls back to the config.yaml value.
 func (s *Store) Int(key string) int {
 	k, raw, ok := s.lookup(key)
 	if !ok {

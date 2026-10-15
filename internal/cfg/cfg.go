@@ -2,6 +2,7 @@ package cfg
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"os"
@@ -235,11 +236,14 @@ func Validate(cfg *Config) error {
 	if cfg.Gippity.RateLimitMessagesPerHour <= 0 {
 		return errors.New("gippity.rate_limit_messages_per_hour must be greater than zero")
 	}
+	if cfg.Gippity.ClassifierRateLimitPerHour <= 0 {
+		return errors.New("gippity.classifier_rate_limit_per_hour must be greater than zero")
+	}
 	if cfg.Gippity.Tools.Enabled && cfg.Gippity.Tools.MaxIterations <= 0 {
 		return errors.New("gippity.tools.max_iterations must be greater than zero when gippity.tools.enabled is true")
 	}
-	if !validReasoningEfforts[cfg.Gippity.Tools.ReasoningEffort] {
-		return errors.New("gippity.tools.reasoning_effort must be one of: none, minimal, low, medium, high, xhigh, max (or empty to omit)")
+	if err := ValidateReasoningEffort(cfg.Gippity.Tools.ReasoningEffort); err != nil {
+		return fmt.Errorf("gippity.tools.reasoning_effort %w", err)
 	}
 	if cfg.Soundboard.QueueMaxDepth <= 0 {
 		return errors.New("soundboard.queue_max_depth must be greater than zero")
@@ -248,6 +252,16 @@ func Validate(cfg *Config) error {
 		return errors.New("llm.max_tokens must be greater than zero")
 	}
 	return nil
+}
+
+// ValidateReasoningEffort rejects a reasoning_effort value no provider accepts.
+// It is exported so the runtime settings registry can judge a single stored row
+// with the same rule instead of keeping a second copy of the list.
+func ValidateReasoningEffort(value string) error {
+	if validReasoningEfforts[value] {
+		return nil
+	}
+	return errors.New("must be one of: none, minimal, low, medium, high, xhigh, max (or empty to omit)")
 }
 
 // decodeConfig decodes YAML from r into a Config and validates required fields.

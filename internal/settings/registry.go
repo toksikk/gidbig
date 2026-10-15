@@ -168,11 +168,15 @@ var registry = []Key{
 		Apply:   applyList(func(c *cfg.Config) *[]string { return &c.Gippity.Tools.Allowed }),
 	},
 	{
-		Name:    KeyGippityToolsReasoningEffort,
-		Kind:    KindString,
-		Hot:     true,
-		Extract: extractString(func(c *cfg.Config) *string { return &c.Gippity.Tools.ReasoningEffort }),
-		Apply:   applyString(func(c *cfg.Config) *string { return &c.Gippity.Tools.ReasoningEffort }),
+		// cfg.Validate already rejects an unknown enum value; reusing its exported
+		// rule lets the store tell that such a row is not in force, without a
+		// second copy of the accepted list.
+		Name:     KeyGippityToolsReasoningEffort,
+		Kind:     KindString,
+		Hot:      true,
+		Extract:  extractString(func(c *cfg.Config) *string { return &c.Gippity.Tools.ReasoningEffort }),
+		Apply:    applyString(func(c *cfg.Config) *string { return &c.Gippity.Tools.ReasoningEffort }),
+		Validate: cfg.ValidateReasoningEffort,
 	},
 	{
 		// cfg.Validate already rejects a non-positive value; repeating it here

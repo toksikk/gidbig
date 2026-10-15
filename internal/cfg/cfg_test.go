@@ -684,6 +684,7 @@ func TestValidate_RejectsInvalidConfigs(t *testing.T) {
 		c.Gippity.AllowedGuilds = []string{"guild"}
 		c.Gippity.RateLimitMessagesPerHour = 30
 		c.Gippity.Tools.MaxIterations = 3
+		c.Gippity.ClassifierRateLimitPerHour = defaultGippityClassifierRateLimit
 		c.Soundboard.QueueMaxDepth = 6
 		c.LLM.MaxTokens = defaultLLMMaxTokens
 		return c
@@ -697,6 +698,7 @@ func TestValidate_RejectsInvalidConfigs(t *testing.T) {
 		{"missing token", func(c *Config) { c.Discord.Token = "" }, "discord.token"},
 		{"missing allowed guilds", func(c *Config) { c.Gippity.AllowedGuilds = nil }, "gippity.allowed_guilds"},
 		{"non-positive rate limit", func(c *Config) { c.Gippity.RateLimitMessagesPerHour = 0 }, "rate_limit_messages_per_hour"},
+		{"non-positive classifier rate limit", func(c *Config) { c.Gippity.ClassifierRateLimitPerHour = 0 }, "classifier_rate_limit_per_hour"},
 		{"web port without session secret", func(c *Config) { c.Web.Port = 8080 }, "web.session_secret"},
 		{"tools enabled with zero iterations", func(c *Config) {
 			c.Gippity.Tools.Enabled = true

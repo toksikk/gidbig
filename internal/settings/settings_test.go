@@ -574,3 +574,53 @@ func TestSet_SkipsARowThatFailsItsOwnRule(t *testing.T) {
 		t.Errorf("llm.model = %q, want the written value", got)
 	}
 }
+
+// TestEffective_EnumRowIsNotInForce covers the reasoning_effort enum, whose rule
+// lives in cfg: a hand-edited unknown value must be reported as unusable rather
+// than as a value in force, and must not block writes to other keys.
+func TestEffective_EnumRowIsNotInForce(t *testing.T) {
+	store := newTestStore(t, openTestDB(t), baseYAML)
+	if err := store.db.Create(&Setting{Key: KeyGippityToolsReasoningEffort, Value: "bogus", UpdatedBy: "manual"}).Error; err != nil {
+		t.Fatalf("insert row: %v", err)
+	}
+	if err := store.reload(); err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+
+	value, source, ok := store.Effective(KeyGippityToolsReasoningEffort)
+	if !ok {
+		t.Fatal("reasoning_effort is not a known key")
+	}
+	if source == SourceDB {
+		t.Errorf("Effective = (%q, %q): an unusable enum row was reported as in force", value, source)
+	}
+	if err := store.Set(KeyLLMModel, "runtime-model", "owner"); err != nil {
+		t.Fatalf("Set on an unrelated key: %v", err)
+	}
+}
+
+// TestEffective_EveryRegisteredKeyIsJudged pins the invariant for the whole
+// registry: a row that Set would reject must never be reported as source db. A
+// key whose rule exists only in cfg.Validate would fail here.
+func TestEffective_EveryRegisteredKeyIsJudged(t *testing.T) {
+	for _, k := range registry {
+		store := newTestStore(t, openTestDB(t), baseYAML)
+		// A value deliberately invalid for every kind and every key rule.
+		if err := store.db.Create(&Setting{Key: k.Name, Value: "not-a-valid-value", UpdatedBy: "manual"}).Error; err != nil {
+			t.Fatalf("insert row: %v", err)
+		}
+		if err := store.reload(); err != nil {
+			t.Fatalf("reload: %v", err)
+		}
+		if err := store.Set(k.Name, "not-a-valid-value", "owner"); err == nil {
+			// The value is acceptable for this key, so it must be in force.
+			if _, source, _ := store.Effective(k.Name); source != SourceDB {
+				t.Errorf("%s: Set accepted the value but Effective reports source %q", k.Name, source)
+			}
+			continue
+		}
+		if _, source, _ := store.Effective(k.Name); source == SourceDB {
+			t.Errorf("%s: Set rejects the value but Effective reports it as source db", k.Name)
+		}
+	}
+}
