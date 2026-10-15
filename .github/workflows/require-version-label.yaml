@@ -4,12 +4,24 @@ name: Require version label
 # which derives the semver bump (major/minor/breaking → otherwise patch) from the
 # merged PR's labels. Without this gate a mislabelled or unlabelled PR silently
 # bumps as patch on merge.
+#
+# The labels are read back from the API rather than taken from
+# github.event.pull_request. Creating a PR with a label in one step produces two
+# events, so two runs are queued for the same commit; the "opened" run can sit in
+# the queue until after the label exists and would then still judge a payload that
+# never carried it. It fails, and as the newest run of this check it blocks the
+# merge box until someone reopens the PR. Reading the live labels makes every run
+# judge the state at the time it actually runs, whichever event started it.
 
 on:
     pull_request:
         types: [opened, reopened, labeled, unlabeled, synchronize]
         branches:
             - master
+
+permissions:
+    contents: read
+    pull-requests: read
 
 jobs:
     require-label:
@@ -18,8 +30,14 @@ jobs:
         steps:
             - name: Check for a version label
               env:
-                  LABELS: ${{ join(github.event.pull_request.labels.*.name, ' ') }}
+                  GH_TOKEN: ${{ github.token }}
+                  PR: ${{ github.event.pull_request.number }}
               run: |
+                  set -o pipefail
+                  if ! LABELS="$(gh pr view "$PR" --json labels --jq '.labels[].name' | tr '\n' ' ')"; then
+                      echo "::error::Could not read the labels of PR #${PR}; re-run this check."
+                      exit 1
+                  fi
                   echo "PR labels: ${LABELS:-<none>}"
                   for label in $LABELS; do
                       case "$label" in
