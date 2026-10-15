@@ -108,7 +108,12 @@ The rule summaries later in this file are a convenience; on any conflict,
    `require-version-label.yaml` gate passes with **at least one**, so use a
    single one per PR and it fails the PR with none. Pick it by semver
    intent: feature → `minor`, fix/docs/chore → `patch`,
-   backwards-incompatible → `breaking`/`major`.
+   backwards-incompatible → `breaking`/`major`. When the work is tied to an
+   issue, the PR body must contain a closing keyword line (`Closes #123`,
+   `Fixes #123` or `Resolves #123`) so GitHub links the issue and closes it on
+   merge. If the PR only partly delivers the issue, write `Part of #123`
+   instead, list what remains, and after the merge comment on the issue with
+   the current status.
 8. **Review loop.** Before a non-trivial PR, run the `gidbig-reviewer` subagent
    on your diff (it is read-only). Address every `HIGH` and `MEDIUM` finding,
    then re-run the reviewer on the updated diff, and keep looping until a round

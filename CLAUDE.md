@@ -16,6 +16,8 @@ Operate git and GitHub autonomously — create branches, commit, push, open/merg
 
 PRs target `master`. Once CI passes, squash-merge to `master` — this triggers deployment automatically. Approve the PR or comment `LGTM` / `looks good` / `/merge` / `ship it` to merge.
 
+Link every PR to the issue it addresses with a GitHub closing keyword in the PR body (`Closes #123`, `Fixes #123` or `Resolves #123`, one line per issue). This is what links the issue in the PR's Development sidebar and closes it on merge; commit-message references like `(#123)` and phrases like "Implements #123" or "Part of #123" do neither. When a PR only partly delivers an issue, do not use a closing keyword: write `Part of #123`, list what is still open, and after the merge comment on the issue with what landed and what remains.
+
 Prefer a linear, readable history: use `--squash` when merging PRs, rebase feature branches onto their base rather than merging, and never create merge commits.
 
 Each PR should represent one logical, independently reversible change — don't bundle unrelated fixes or features into a single PR just because they're convenient. If a task touches multiple separable concerns, open a PR per concern.
