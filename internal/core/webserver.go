@@ -208,6 +208,9 @@ type webServer struct {
 	tmpls      map[string]*template.Template
 	oauth      *oauth2.Config
 	oauthState string
+	// fetchDiscordUser resolves the user behind an OAuth access token;
+	// injectable for tests.
+	fetchDiscordUser func(accessToken string) (*discordgo.User, error)
 }
 
 // newWebServer builds a web server around the injected session and modules. A
@@ -235,6 +238,7 @@ func newWebServer(config *cfg.Config, session *discordgo.Session, sb *soundboard
 			Endpoint:     oauthEndpoint,
 		},
 	}
+	ws.fetchDiscordUser = fetchDiscordUserWithToken
 	if sb != nil {
 		ws.soundboard = sb
 	}
@@ -290,11 +294,65 @@ func startWebServer(config *cfg.Config, session *discordgo.Session, sb *soundboa
 	mux.HandleFunc("/health", handleHealth)
 	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("web/static"))))
 
-	err := http.ListenAndServe(":"+strconv.Itoa(config.Web.Port), mux)
+	err := newHTTPServer(config.Web.Port, securityHeaders(mux), ws.esoTimeout).ListenAndServe()
 	if err != nil {
 		slog.Error("could not start webserver", "error", err)
 		os.Exit(1)
 	}
+}
+
+// contentSecurityPolicy fits the current templates: they use an inline script,
+// inline handlers and styles, and Bootstrap from jsDelivr, so 'unsafe-inline'
+// stays until those move into static files.
+const contentSecurityPolicy = "default-src 'self'; " +
+	"script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; " +
+	"style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; " +
+	"img-src 'self' data: https://cdn.discordapp.com; " +
+	"font-src 'self' https://cdn.jsdelivr.net; " +
+	"connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+
+// securityHeaders sets the browser hardening headers on every response.
+func securityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h := w.Header()
+		h.Set("Content-Security-Policy", contentSecurityPolicy)
+		h.Set("X-Frame-Options", "DENY")
+		h.Set("X-Content-Type-Options", "nosniff")
+		h.Set("Referrer-Policy", "same-origin")
+		next.ServeHTTP(w, r)
+	})
+}
+
+// newHTTPServer bounds every connection phase so slow clients cannot hold the
+// server open. The write timeout leaves room for a full /api/eso generation.
+func newHTTPServer(port int, handler http.Handler, esoTimeout time.Duration) *http.Server {
+	return &http.Server{
+		Addr:              ":" + strconv.Itoa(port),
+		Handler:           handler,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      esoTimeout + 15*time.Second,
+		IdleTimeout:       60 * time.Second,
+		MaxHeaderBytes:    1 << 20,
+	}
+}
+
+// fetchDiscordUserWithToken asks Discord for the user owning accessToken and
+// always closes the temporary session.
+func fetchDiscordUserWithToken(accessToken string) (*discordgo.User, error) {
+	dg, err := discordgo.New("Bearer " + accessToken)
+	if err != nil {
+		return nil, fmt.Errorf("create discord session: %w", err)
+	}
+	defer func() { _ = dg.Close() }()
+	user, err := dg.User("@me")
+	if err != nil {
+		return nil, fmt.Errorf("fetch discord user: %w", err)
+	}
+	if user == nil {
+		return nil, errors.New("fetch discord user: empty response")
+	}
+	return user, nil
 }
 
 func readSoundDescription(prefix, name string) (text, shortText string, ok bool) {
@@ -661,21 +719,25 @@ func (ws *webServer) handleDiscordCallback(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	dg, err := discordgo.New("Bearer " + token.AccessToken)
+	ws.finishDiscordLogin(w, r, session, token.AccessToken)
+}
+
+// finishDiscordLogin resolves the Discord user for a verified access token and
+// stores the login; a failed lookup answers 502 instead of logging in nobody.
+func (ws *webServer) finishDiscordLogin(w http.ResponseWriter, r *http.Request, session *sessionData, accessToken string) {
+	user, err := ws.fetchDiscordUser(accessToken)
 	if err != nil {
-		slog.Error("failed to create discord session", "error", err)
+		slog.Error("oauth user lookup failed", "error", err)
+		http.Error(w, "could not fetch discord user", http.StatusBadGateway)
 		return
 	}
-	user, _ := dg.User("@me")
 
-	ws.completeLogin(session, user, token.AccessToken)
+	ws.completeLogin(session, user, accessToken)
 	err = ws.store.Save(w, session)
 	if err != nil {
 		slog.Error("unable to Save", "error", err)
 		return
 	}
-
-	_ = dg.Close()
 
 	http.Redirect(w, r, "/", http.StatusTemporaryRedirect)
 }

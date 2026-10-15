@@ -662,3 +662,83 @@ func TestCompleteLogin_StampsTheLoginTime(t *testing.T) {
 		t.Errorf("DiscordAvatarURL = %q, want empty without an avatar", noAvatar.DiscordAvatarURL)
 	}
 }
+
+func TestSecurityHeaders(t *testing.T) {
+	h := securityHeaders(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+
+	want := map[string]string{
+		"X-Frame-Options":        "DENY",
+		"X-Content-Type-Options": "nosniff",
+		"Referrer-Policy":        "same-origin",
+	}
+	for k, v := range want {
+		if got := rec.Header().Get(k); got != v {
+			t.Errorf("%s = %q, want %q", k, got, v)
+		}
+	}
+	if csp := rec.Header().Get("Content-Security-Policy"); !strings.Contains(csp, "frame-ancestors 'none'") {
+		t.Errorf("Content-Security-Policy = %q, want frame-ancestors 'none'", csp)
+	}
+}
+
+func TestNewHTTPServer_Timeouts(t *testing.T) {
+	esoTimeout := 20 * time.Second
+	srv := newHTTPServer(8080, http.NewServeMux(), esoTimeout)
+	if srv.Addr != ":8080" {
+		t.Errorf("Addr = %q, want :8080", srv.Addr)
+	}
+	if srv.ReadHeaderTimeout <= 0 || srv.ReadTimeout <= 0 || srv.IdleTimeout <= 0 {
+		t.Errorf("timeouts not set: %+v", srv)
+	}
+	if srv.WriteTimeout <= esoTimeout {
+		t.Errorf("WriteTimeout = %v, want > eso timeout %v", srv.WriteTimeout, esoTimeout)
+	}
+	if srv.MaxHeaderBytes <= 0 {
+		t.Errorf("MaxHeaderBytes = %d, want > 0", srv.MaxHeaderBytes)
+	}
+}
+
+func TestFinishDiscordLogin_UserLookupFailure(t *testing.T) {
+	cases := map[string]func(string) (*discordgo.User, error){
+		"error": func(string) (*discordgo.User, error) { return nil, errors.New("boom") },
+	}
+	for name, fetch := range cases {
+		t.Run(name, func(t *testing.T) {
+			ws := newWebServer(&cfg.Config{}, nil, nil, nil, nil)
+			ws.fetchDiscordUser = fetch
+			sess := &sessionData{}
+			rec := httptest.NewRecorder()
+			ws.finishDiscordLogin(rec, httptest.NewRequest(http.MethodGet, "/discordCallback", nil), sess, "token")
+			if rec.Code != http.StatusBadGateway {
+				t.Errorf("status = %d, want %d", rec.Code, http.StatusBadGateway)
+			}
+			if sess.DiscordUserID != "" || sess.AccessToken != "" {
+				t.Errorf("session populated on failure: %+v", sess)
+			}
+			if rec.Header().Get("Set-Cookie") != "" {
+				t.Error("session cookie written on failure")
+			}
+		})
+	}
+}
+
+func TestFinishDiscordLogin_Success(t *testing.T) {
+	ws := newWebServer(&cfg.Config{}, nil, nil, nil, nil)
+	ws.store = newSessionStore("test-secret-test-secret-test-secret")
+	ws.fetchDiscordUser = func(string) (*discordgo.User, error) {
+		return &discordgo.User{ID: "42", Username: "alice"}, nil
+	}
+	sess := &sessionData{}
+	rec := httptest.NewRecorder()
+	ws.finishDiscordLogin(rec, httptest.NewRequest(http.MethodGet, "/discordCallback", nil), sess, "token")
+	if rec.Code != http.StatusTemporaryRedirect {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusTemporaryRedirect)
+	}
+	if sess.DiscordUserID != "42" || sess.AccessToken != "token" {
+		t.Errorf("session = %+v, want user 42 with token", sess)
+	}
+}
