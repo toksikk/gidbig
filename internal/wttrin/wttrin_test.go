@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -560,5 +561,76 @@ func TestComposeWeather_WeatherFetchError(t *testing.T) {
 
 	if _, err := m.composeWeather(nil, "ch1", "Berlin", false); err == nil {
 		t.Fatal("expected error when weather fetch fails")
+	}
+}
+
+func fillWeatherCache(m *Module, n int, expiresAt time.Time) {
+	m.cacheMu.Lock()
+	defer m.cacheMu.Unlock()
+	for i := range n {
+		m.cache["loc"+strconv.Itoa(i)] = weatherCacheEntry{expiresAt: expiresAt}
+	}
+}
+
+func TestGetWeatherCached_EvictsExpiredWhenFull(t *testing.T) {
+	m := newTestModule()
+	now := time.Date(2026, time.August, 7, 12, 0, 0, 0, time.UTC)
+	m.now = func() time.Time { return now }
+	m.getWeatherFn = func(string) (wttrinResponse, error) { return minimalWeatherResponse(), nil }
+	fillWeatherCache(m, maxWeatherCacheEntries, now.Add(-time.Second))
+
+	if _, err := m.getWeatherCached("Berlin"); err != nil {
+		t.Fatal(err)
+	}
+	m.cacheMu.Lock()
+	defer m.cacheMu.Unlock()
+	if len(m.cache) != 1 {
+		t.Errorf("cache size = %d, want 1", len(m.cache))
+	}
+	if _, ok := m.cache["berlin"]; !ok {
+		t.Error("new entry not cached")
+	}
+}
+
+func TestGetWeatherCached_SkipsInsertWhenFullOfLiveEntries(t *testing.T) {
+	m := newTestModule()
+	now := time.Date(2026, time.August, 7, 12, 0, 0, 0, time.UTC)
+	m.now = func() time.Time { return now }
+	m.getWeatherFn = func(string) (wttrinResponse, error) { return minimalWeatherResponse(), nil }
+	fillWeatherCache(m, maxWeatherCacheEntries, now.Add(time.Minute))
+
+	if _, err := m.getWeatherCached("Berlin"); err != nil {
+		t.Fatal(err)
+	}
+	m.cacheMu.Lock()
+	defer m.cacheMu.Unlock()
+	if len(m.cache) != maxWeatherCacheEntries {
+		t.Errorf("cache size = %d, want %d", len(m.cache), maxWeatherCacheEntries)
+	}
+	if _, ok := m.cache["berlin"]; ok {
+		t.Error("entry cached despite full cache")
+	}
+}
+
+func TestHTTPGet_RejectsOversizedBody(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(strings.Repeat(" ", maxWeatherBodyBytes+1)))
+	}))
+	defer srv.Close()
+
+	_, err := httpGet(srv.URL)
+	if err == nil || !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("httpGet() error = %v, want size error", err)
+	}
+}
+
+func TestHTTPGet_NonOKStatus(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer srv.Close()
+
+	if _, err := httpGet(srv.URL); err == nil {
+		t.Fatal("httpGet() error = nil, want status error")
 	}
 }

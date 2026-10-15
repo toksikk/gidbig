@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/toksikk/gidbig/internal/tool"
 )
@@ -52,6 +53,9 @@ func (m *Module) weatherToolHandler(_ context.Context, _ tool.Env, args json.Raw
 	location := strings.TrimSpace(in.Location)
 	if location == "" {
 		return "no location given", nil
+	}
+	if utf8.RuneCountInString(location) > maxLocationLen {
+		return "", fmt.Errorf("weather: location too long (max %d characters)", maxLocationLen)
 	}
 
 	res, err := m.getWeatherCached(location)

@@ -23,6 +23,12 @@ import (
 
 const (
 	weatherCacheTTL = 10 * time.Minute
+	// maxWeatherCacheEntries bounds the location cache.
+	maxWeatherCacheEntries = 256
+	// maxWeatherBodyBytes bounds a single wttr.in response body.
+	maxWeatherBodyBytes = 1 << 20
+	// maxLocationLen matches the slash command's location MaxLength.
+	maxLocationLen = 100
 )
 
 var weatherCodes = map[string]string{
@@ -409,7 +415,7 @@ func (m *Module) getWeatherCached(location string) (wttrinResponse, error) {
 
 	m.cacheMu.Lock()
 	if call.err == nil {
-		m.cache[key] = weatherCacheEntry{result: call.result, expiresAt: m.now().Add(weatherCacheTTL)}
+		m.storeCacheLocked(key, call.result)
 	} else {
 		m.fetchErrors++
 	}
@@ -418,6 +424,23 @@ func (m *Module) getWeatherCached(location string) (wttrinResponse, error) {
 	m.cacheMu.Unlock()
 
 	return call.result, call.err
+}
+
+// storeCacheLocked caches a result. When the cache is full it first drops
+// expired entries and skips the insert if it is still full. cacheMu must be held.
+func (m *Module) storeCacheLocked(key string, result wttrinResponse) {
+	now := m.now()
+	if _, exists := m.cache[key]; !exists && len(m.cache) >= maxWeatherCacheEntries {
+		for k, e := range m.cache {
+			if !now.Before(e.expiresAt) {
+				delete(m.cache, k)
+			}
+		}
+		if len(m.cache) >= maxWeatherCacheEntries {
+			return
+		}
+	}
+	m.cache[key] = weatherCacheEntry{result: result, expiresAt: now.Add(weatherCacheTTL)}
 }
 
 func (m *Module) buildLLMWeatherOutro(s *discordgo.Session, channelID, location, weatherData string) string {
@@ -671,15 +694,27 @@ func httpGet(url string) (weatherResult wttrinResponse, err error) {
 		err = fmt.Errorf("%s", resp.Status)
 		return
 	}
-
-	var body []byte
-	body, err = io.ReadAll(resp.Body)
-	if err != nil {
-		slog.Error("Failed to read response body", "URL", url, "Error", err)
+	if resp.StatusCode != http.StatusOK {
+		err = fmt.Errorf("wttr.in: unexpected status %s", resp.Status)
 		return
 	}
 
-	err = json.Unmarshal(body, &weatherResult)
+	var body []byte
+	body, err = io.ReadAll(io.LimitReader(resp.Body, maxWeatherBodyBytes+1))
+	if err != nil {
+		slog.Error("Failed to read response body", "URL", url, "Error", err)
+		err = fmt.Errorf("wttr.in: read body: %w", err)
+		return
+	}
+	if len(body) > maxWeatherBodyBytes {
+		err = fmt.Errorf("wttr.in: response exceeds %d bytes", maxWeatherBodyBytes)
+		return
+	}
+
+	if err = json.Unmarshal(body, &weatherResult); err != nil {
+		err = fmt.Errorf("wttr.in: decode response: %w", err)
+		return
+	}
 	slog.Debug("Got weather", "URL", url, "Response", weatherResult)
 	return
 }
