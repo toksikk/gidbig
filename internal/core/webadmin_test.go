@@ -611,3 +611,110 @@ func TestHandleAdmin_MintsAFormTokenForAFreshSession(t *testing.T) {
 		t.Fatalf("ApplySet calls = %v, want one", admin.setCalls)
 	}
 }
+
+// TestHandleAdmin_ControlPerKind gives each kind a control that fits it: a
+// checkbox for a boolean, a number field for an integer, a text field otherwise.
+func TestHandleAdmin_ControlPerKind(t *testing.T) {
+	t.Chdir("../..")
+	now := time.Now()
+	admin := &stubConfigAdmin{
+		entries: []configcmd.Entry{
+			{Name: settings.KeyGippityReplyInThread, Kind: settings.KindBool, Value: "true", Source: settings.SourceDefault},
+			{Name: settings.KeyGippityToolsMaxIterations, Kind: settings.KindInt, Value: "3", Source: settings.SourceYAML},
+			{Name: settings.KeyLLMModel, Kind: settings.KindString, Value: "gpt-5", Source: settings.SourceDB},
+		},
+	}
+	ws := newAdminTestServer(admin, testOwnerID, "", now)
+	ws.loadTemplates()
+	session := adminSession(testOwnerID, time.Minute, now)
+
+	w := httptest.NewRecorder()
+	ws.handleAdmin(w, formRequest(t, ws, session, http.MethodGet, "/admin", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
+	}
+	body := w.Body.String()
+
+	for _, want := range []string{
+		`type="checkbox" name="value" value="true"`,
+		`type="number" step="1" name="value" value="3"`,
+		`type="text" name="value" value="gpt-5"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("page is missing %q", want)
+		}
+	}
+	// The ticked box matches the effective value, and the unticked fallback
+	// carries the false case.
+	if !strings.Contains(body, `value="true" class="admin-check" checked`) {
+		t.Error("the checkbox of a true setting is not ticked")
+	}
+	if !strings.Contains(body, `<input type="hidden" name="value" value="false">`) {
+		t.Error("the checkbox has no hidden fallback for the unticked case")
+	}
+}
+
+// TestHandleAdmin_BoolValueIsTrueWhenTheRowSaysSo covers a stored value that is
+// not the literal "true": the checkbox has to reflect it too.
+func TestHandleAdmin_BoolValueIsTrueWhenTheRowSaysSo(t *testing.T) {
+	t.Chdir("../..")
+	now := time.Now()
+	for value, wantChecked := range map[string]bool{"1": true, "TRUE": true, "false": false, "0": false} {
+		admin := &stubConfigAdmin{
+			entries: []configcmd.Entry{{Name: settings.KeyGippityReplyInThread, Kind: settings.KindBool, Value: value}},
+		}
+		ws := newAdminTestServer(admin, testOwnerID, "", now)
+		ws.loadTemplates()
+
+		w := httptest.NewRecorder()
+		ws.handleAdmin(w, formRequest(t, ws, adminSession(testOwnerID, time.Minute, now), http.MethodGet, "/admin", nil))
+
+		if got := strings.Contains(w.Body.String(), `class="admin-check" checked`); got != wantChecked {
+			t.Errorf("value %q: checkbox checked = %v, want %v", value, got, wantChecked)
+		}
+	}
+}
+
+// TestHandleAdmin_BoolCheckboxSubmitsTrueOrFalse pins how the two cases arrive:
+// a ticked box sends both values and the first one wins, an unticked box sends
+// only the hidden fallback. Reordering the two inputs would break the ticked
+// case, so it is asserted rather than assumed.
+func TestHandleAdmin_BoolCheckboxSubmitsTrueOrFalse(t *testing.T) {
+	now := time.Now()
+
+	cases := []struct {
+		name  string
+		value []string
+		want  string
+	}{
+		{name: "ticked", value: []string{"true", "false"}, want: "true"},
+		{name: "unticked", value: []string{"false"}, want: "false"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			admin := &stubConfigAdmin{ok: true}
+			ws := newAdminTestServer(admin, testOwnerID, "", now)
+			session := adminSession(testOwnerID, time.Minute, now)
+
+			form := url.Values{
+				"action": {"set"},
+				"key":    {settings.KeyGippityReplyInThread},
+				"value":  tc.value,
+				"csrf":   {session.AdminCSRF},
+			}
+			w := httptest.NewRecorder()
+			ws.handleAdmin(w, formRequest(t, ws, session, http.MethodPost, "/admin", form))
+
+			if w.Code != http.StatusSeeOther {
+				t.Fatalf("status = %d, want %d", w.Code, http.StatusSeeOther)
+			}
+			if len(admin.setCalls) != 1 {
+				t.Fatalf("ApplySet calls = %v, want one", admin.setCalls)
+			}
+			if got := admin.setCalls[0].Value; got != tc.want {
+				t.Errorf("ApplySet value = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}

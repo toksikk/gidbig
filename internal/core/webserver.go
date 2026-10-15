@@ -20,6 +20,7 @@ import (
 	"net/url"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 	"unicode/utf8"
 
@@ -249,11 +250,22 @@ func newWebServer(config *cfg.Config, session *discordgo.Session, sb *soundboard
 	return ws
 }
 
+// templateFuncs are the helpers the page templates use beyond the builtins.
+var templateFuncs = template.FuncMap{
+	// isTrue reports whether an effective value is a true boolean, so a
+	// checkbox reflects a value stored as "1" or "TRUE" and not only "true".
+	"isTrue": func(value string) bool {
+		b, err := strconv.ParseBool(strings.TrimSpace(value))
+		return err == nil && b
+	},
+}
+
 // loadTemplates parses the page templates into the instance's map.
 func (ws *webServer) loadTemplates() {
 	ws.tmpls["home.html"] = template.Must(template.ParseFiles(templateDir+"home.html", header, footer))
 	ws.tmpls["internal.html"] = template.Must(template.ParseFiles(templateDir+"internal.html", header, footer))
-	ws.tmpls["admin.html"] = template.Must(template.ParseFiles(templateDir+"admin.html", header, footer))
+	ws.tmpls["admin.html"] = template.Must(template.New("admin").Funcs(templateFuncs).
+		ParseFiles(templateDir+"admin.html", header, footer))
 	ws.tmpls["item.html"] = template.Must(template.ParseFiles(templateDir + "item.html"))
 	ws.tmpls["itemrowstart.html"] = template.Must(template.ParseFiles(templateDir + "itemrowstart.html"))
 	ws.tmpls["itemrowend.html"] = template.Must(template.ParseFiles(templateDir + "itemrowend.html"))

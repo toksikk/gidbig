@@ -644,3 +644,12 @@ body {
 .admin-btn:hover { background: rgba(0,200,240,.24); }
 .admin-btn.is-secondary { background: transparent; border-color: var(--border-1); color: var(--text-1); }
 .admin-btn.is-secondary:hover { border-color: var(--error); color: var(--error); }
+
+.admin-input.is-number { min-width: 6rem; }
+.admin-check {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
