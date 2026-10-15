@@ -185,7 +185,7 @@ type webServer struct {
 	soundboard soundboardAPI
 	eso        esoGenerator
 	// config is the runtime settings store behind the /admin panel, and ownerID
-	// is the caller it gates on. Neither is set when the panel is unavailable.
+	// is the caller it gates on.
 	config configAdmin
 	// ownerID is the Discord user allowed into /admin; empty denies everyone,
 	// which mirrors the bot-side gate.
@@ -656,19 +656,7 @@ func (ws *webServer) handleDiscordCallback(w http.ResponseWriter, r *http.Reques
 	}
 	user, _ := dg.User("@me")
 
-	avatarURL := ""
-	if user.Avatar != "" {
-		avatarURL = fmt.Sprintf("https://cdn.discordapp.com/avatars/%s/%s.png", user.ID, user.Avatar)
-	}
-
-	session.DiscordUserID = user.ID
-	session.DiscordUsername = user.Username
-	session.DiscordAvatarURL = avatarURL
-	session.AccessToken = token.AccessToken
-	// Stamp the login: the admin panel only trusts a recent one. A new login
-	// also drops the previous session's admin form token.
-	session.IssuedAt = ws.currentTime().Unix()
-	session.AdminCSRF = ""
+	ws.completeLogin(session, user, token.AccessToken)
 	err = ws.store.Save(w, session)
 	if err != nil {
 		slog.Error("unable to Save", "error", err)
@@ -678,6 +666,23 @@ func (ws *webServer) handleDiscordCallback(w http.ResponseWriter, r *http.Reques
 	_ = dg.Close()
 
 	http.Redirect(w, r, "/", http.StatusTemporaryRedirect)
+}
+
+// completeLogin records the freshly authenticated user in the session and stamps
+// when the login happened. The admin panel refuses a session without a recent
+// IssuedAt, so this is what makes the panel reachable for the owner; a new login
+// also drops the previous session's admin form token.
+func (ws *webServer) completeLogin(session *sessionData, user *discordgo.User, accessToken string) {
+	avatarURL := ""
+	if user.Avatar != "" {
+		avatarURL = fmt.Sprintf("https://cdn.discordapp.com/avatars/%s/%s.png", user.ID, user.Avatar)
+	}
+	session.DiscordUserID = user.ID
+	session.DiscordUsername = user.Username
+	session.DiscordAvatarURL = avatarURL
+	session.AccessToken = accessToken
+	session.IssuedAt = ws.currentTime().Unix()
+	session.AdminCSRF = ""
 }
 
 func parseIPPort(s string) (ip net.IP, port, space string, err error) {
