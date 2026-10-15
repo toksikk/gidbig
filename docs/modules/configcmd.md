@@ -21,10 +21,11 @@ Messages longer than Discord's per-message limit are split on line boundaries
 and sent as ephemeral follow-ups, so a long `list` (a `classifier_names` value,
 for example) is not truncated.
 
-The effective value of `llm.model` and `llm.vision_model` is rendered through
-`Deps.LLM`, because their real fallback lives in the llm client: an empty
-`llm.model` means the client's built-in default, and an empty `llm.vision_model`
-means "follow the text model".
+The effective value of `llm.model`, `llm.vision_model` and `llm.max_tokens` is
+rendered through `Deps.LLM`, because their real fallback lives in the llm client:
+an empty `llm.model` means the client's built-in default, an empty
+`llm.vision_model` means "follow the text model", and `llm.max_tokens` is floored
+by the client.
 
 An unknown key and a secret key produce the same reply, so the command cannot be
 used to probe for the existence of a credential.

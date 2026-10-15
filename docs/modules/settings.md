@@ -79,7 +79,11 @@ The mutex is held across the validation, the SQLite write and the cache reload, 
 
 A stored value that does not parse (for example a row edited by hand with
 `sqlite3`) is logged and falls back to the built-in default, so a bad row cannot
-break an answer path.
+break an answer path. `Effective` and the typed getters share one rule: a stored
+row is used only when it is *applicable* — it parses for the key's kind and passes
+the key's own rule — so a row advertised with source `db` is always the value a
+consumer receives. One unusable row also cannot block writes to other keys: `Set`
+logs and skips it while validating, and `unset` clears it.
 
 ## Key flow
 

@@ -143,7 +143,14 @@ func (s *Store) Effective(key string) (string, Source, bool) {
 		return "", "", false
 	}
 	if v, ok := s.override(key); ok {
-		return v, SourceDB, true
+		if applicable(k, v) {
+			return v, SourceDB, true
+		}
+		// A row that does not parse, or fails the key's own rule, is not applied
+		// by the typed getters either. Reporting it as db would show a value
+		// nothing uses, so fall through to the value actually in force.
+		slog.Warn("settings: stored override is not usable, reporting the config value instead",
+			"key", key, "value", v)
 	}
 	v := k.Extract(s.base)
 	if v == k.Extract(s.baseline) {
@@ -152,7 +159,34 @@ func (s *Store) Effective(key string) (string, Source, bool) {
 	return v, SourceYAML, true
 }
 
-// lookup returns the effective raw value for a known, non-secret key.
+// applicable reports whether a stored value would really be applied for its key:
+// it must parse for the key's kind and pass the key's own rule. This mirrors what
+// the typed getters do on read, so "source: db" always means "this is the value
+// in force".
+func applicable(k Key, value string) bool {
+	switch k.Kind {
+	case KindBool:
+		if _, err := strconv.ParseBool(strings.TrimSpace(value)); err != nil {
+			return false
+		}
+	case KindInt:
+		if _, err := strconv.Atoi(strings.TrimSpace(value)); err != nil {
+			return false
+		}
+	case KindString, KindStringList:
+		// Any string is usable; a list is split leniently.
+	}
+	if k.Validate != nil && k.Validate(value) != nil {
+		return false
+	}
+	return true
+}
+
+// lookup returns the effective raw value for a known, non-secret key. A stored
+// row is used only when it is applicable, so the typed getters and Effective can
+// never disagree about which value is in force. The fallback is silent here
+// because lookup runs on every message; Effective logs it for the owner, and
+// reload warns once per start about rows it does not recognise.
 func (s *Store) lookup(key string) (Key, string, bool) {
 	if s == nil {
 		return Key{}, "", false
@@ -161,7 +195,7 @@ func (s *Store) lookup(key string) (Key, string, bool) {
 	if !ok || k.Secret {
 		return Key{}, "", false
 	}
-	if v, ok := s.override(key); ok {
+	if v, ok := s.override(key); ok && applicable(k, v) {
 		return k, v, true
 	}
 	return k, k.Extract(s.base), true
@@ -256,7 +290,12 @@ func (s *Store) Set(key, value, updatedBy string) error {
 			continue
 		}
 		if err := other.Apply(&merged, v); err != nil {
-			return fmt.Errorf("settings: stored override for %s is invalid: %w", other.Name, err)
+			// The read path ignores a row it cannot parse, so skipping it here
+			// keeps the merged config equal to the effective one instead of
+			// letting one corrupt row block every unrelated write. The error is
+			// still surfaced, and `unset` clears the row.
+			slog.Warn("settings: ignoring an unusable stored override while validating",
+				"key", other.Name, "error", err)
 		}
 	}
 	if err := k.Apply(&merged, value); err != nil {

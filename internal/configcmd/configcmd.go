@@ -219,8 +219,8 @@ func (m *Module) effective(key string) (string, settings.Source, bool) {
 	case settings.KeyLLMVisionModel:
 		value = m.llm.VisionModel()
 	case settings.KeyLLMMaxTokens:
-		// The client floors a non-positive or unparseable value, so echoing the
-		// raw row here would report a cap that is not in force.
+		// The client is the authority on the cap: it floors a value the store
+		// would reject as unusable, and it is what the answer path calls.
 		value = strconv.FormatInt(m.llm.MaxTokens(), 10)
 	}
 	return value, source, true

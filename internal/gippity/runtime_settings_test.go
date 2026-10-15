@@ -19,6 +19,13 @@ import (
 
 // newRuntimeSettingsStore wires a real settings store over the module's test
 // database, so the accessors can be exercised against stored values.
+// newRuntimeSettingsStoreFor reloads the store over an existing database, the way
+// a restart would, so a row written outside the command becomes visible.
+func newRuntimeSettingsStoreFor(t *testing.T, db *gorm.DB) *settings.Store {
+	t.Helper()
+	return newRuntimeSettingsStore(t, db)
+}
+
 func newRuntimeSettingsStore(t *testing.T, db *gorm.DB) *settings.Store {
 	t.Helper()
 	base, err := cfg.Decode(strings.NewReader("discord:\n  token: t\ngippity:\n  allowed_guilds: [guild]\n"))
@@ -396,4 +403,31 @@ func newMaxTokensClient(t *testing.T, store *settings.Store, boot int) *llm.Clie
 		t.Fatalf("llm.New: %v", err)
 	}
 	return client
+}
+
+// TestUserMessageLimitNow_IgnoresNonPositiveStoredValue mirrors the other
+// accessors: a stored 0 must not look like "budget exhausted" for every user.
+func TestUserMessageLimitNow_IgnoresNonPositiveStoredValue(t *testing.T) {
+	m, _ := setupGippityTest(t)
+	store := newRuntimeSettingsStore(t, m.db)
+	m.settings = store
+
+	if err := store.Set(settings.KeyGippityRateLimitMessagesPerHour, "5", "owner"); err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+	if got := m.userMessageLimitNow(); got != 5 {
+		t.Errorf("userMessageLimitNow() = %d, want 5", got)
+	}
+
+	// Set rejects 0, so write the row directly, as sqlite3 would.
+	if err := m.db.Exec(
+		"UPDATE settings SET value = ? WHERE key = ?", "0", settings.KeyGippityRateLimitMessagesPerHour,
+	).Error; err != nil {
+		t.Fatalf("corrupt row: %v", err)
+	}
+	reloaded := newRuntimeSettingsStoreFor(t, m.db)
+	m.settings = reloaded
+	if got := m.userMessageLimitNow(); got != m.userMessageLimit {
+		t.Errorf("userMessageLimitNow() = %d, want the Init-time fallback %d", got, m.userMessageLimit)
+	}
 }
