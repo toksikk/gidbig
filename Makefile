@@ -31,8 +31,7 @@ $(PLATFORMS):
 	GOOS=$(os) GOARCH=$(arch) go build -o ./bin/release/gidbig-$(os)-$(arch) ${LDFLAGS} ./cmd/gidbig/*.go
 
 docker: ## 🐳 Build Docker image
-	GOOS=linux GOARCH=amd64 go build -o ./bin/release/gidbig-linux-amd64 ${LDFLAGS} ./cmd/gidbig/*.go
-	docker build -t gidbig:${VERSION} .
+	docker build --build-arg VERSION=${VERSION} --build-arg BUILDDATE="${BUILDDATE}" -t gidbig:${VERSION} .
 
 test: ## 🧪 Run tests
 	go test -v ./...

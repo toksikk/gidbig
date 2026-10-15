@@ -136,10 +136,10 @@ make docker
 # Prepare writable persistent storage
 touch data/gidbig.db
 
-# Run with Web UI on port 8080
+# Run with Web UI on localhost:8080 (put a TLS reverse proxy in front)
 docker run -it \
-  -p 8080:8080 \
-  --mount type=bind,source=$(pwd)/config.yaml,target=/gidbig/config.yaml \
+  -p 127.0.0.1:8080:8080 \
+  --mount type=bind,source=$(pwd)/config.yaml,target=/gidbig/config.yaml,readonly \
   --mount type=bind,source=$(pwd)/audio,target=/gidbig/audio \
   --mount type=bind,source=$(pwd)/data/gidbig.db,target=/gidbig/gidbig.db \
   gidbig:$(git describe --tags)
