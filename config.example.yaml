@@ -114,3 +114,31 @@ llm:
     # dry = monotone, few words; genalpha = hyper Gen Alpha teen slang.)
     personality_preset: ""
 dev_mode: true
+
+# Runtime settings
+#
+# The owner can change the settings below at runtime with /admin config
+# (owner only, ephemeral replies):
+#
+#   /admin config list                 effective value and source per key
+#   /admin config get <key>            one key
+#   /admin config set <key> <value>    store an override in the shared database
+#   /admin config unset <key>          drop the override, back to config.yaml
+#
+# Precedence is: built-in default < config.yaml < database override. A value set
+# with /admin config takes effect on the next message; no restart and no SSH.
+# Every listed key is hot, and only these keys can be set this way:
+#
+#   gippity.rate_limit_messages_per_hour   gippity.tools.enabled
+#   gippity.reply_in_thread                gippity.tools.max_iterations
+#   gippity.respond_to_all_messages        gippity.tools.allowed
+#   gippity.classifier_model               gippity.tools.reasoning_effort
+#   gippity.classifier_names               soundboard.queue_max_depth
+#   gippity.classifier_rate_limit_per_hour llm.model
+#   gippity.debug_channel                  llm.vision_model
+#
+# Everything else (discord.*, web.*, dev_mode, gippity.allowed_guilds,
+# llm.provider, llm.api_key, leetoclock.*) is boot-time only and is not listed
+# or settable from Discord. Secrets are never readable or writable at runtime;
+# discord.token and web.oauth.client_secret / web.session_secret stay in this
+# file. The bot never writes config.yaml.

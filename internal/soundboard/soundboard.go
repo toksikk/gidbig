@@ -9,6 +9,7 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/toksikk/gidbig/internal/bot"
+	"github.com/toksikk/gidbig/internal/settings"
 	"github.com/toksikk/gidbig/internal/tool"
 )
 
@@ -29,6 +30,11 @@ type Module struct {
 	queues       map[string]chan *play
 	nowPlaying   map[string]*play
 	maxQueueSize int
+
+	// settings is the runtime settings store. When wired, the queue depth is
+	// read through it so an /admin config change applies without a restart.
+	// When nil (tests) the Init-time maxQueueSize is used.
+	settings *settings.Store
 
 	// enqueue queues a play asynchronously; overridable in tests.
 	enqueue func(*discordgo.User, *discordgo.Guild, *soundCollection, *soundClip)
@@ -53,6 +59,7 @@ func (m *Module) Name() string { return "soundboard" }
 // Init loads the audio collections and prepares the per-guild play queues.
 func (m *Module) Init(d bot.Deps) error {
 	m.session = d.Session
+	m.settings = d.Settings
 	if d.Config != nil && d.Config.Soundboard.QueueMaxDepth > 0 {
 		m.maxQueueSize = d.Config.Soundboard.QueueMaxDepth
 	}
@@ -103,6 +110,18 @@ func (m *Module) Commands() []*discordgo.ApplicationCommand {
 			},
 		},
 	}
+}
+
+// queueMaxDepth returns the effective per-guild queue depth. The runtime setting
+// wins so /admin config applies without a restart; a non-positive value falls
+// back to the value set in Init.
+func (m *Module) queueMaxDepth() int {
+	if m.settings != nil {
+		if depth := m.settings.Int(settings.KeySoundboardQueueMaxDepth); depth > 0 {
+			return depth
+		}
+	}
+	return m.maxQueueSize
 }
 
 // Background returns no supervised background tasks for this module.
@@ -194,7 +213,7 @@ func (m *Module) Stats(context.Context) (bot.ModuleStats, error) {
 		Detail: []bot.Stat{
 			{Name: "playing", Value: strconv.Itoa(playing)},
 			{Name: "active queues", Value: strconv.Itoa(active)},
-			{Name: "max queue", Value: strconv.Itoa(m.maxQueueSize)},
+			{Name: "max queue", Value: strconv.Itoa(m.queueMaxDepth())},
 		},
 	}, nil
 }

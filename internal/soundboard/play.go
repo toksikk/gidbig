@@ -124,20 +124,45 @@ func (m *Module) enqueuePlay(user *discordgo.User, guild *discordgo.Guild, coll 
 	_, exists := m.queues[guild.ID]
 	m.mu.Unlock()
 
+	// Read the depth once so a runtime change cannot be applied half-way through
+	// this enqueue (the check and the channel creation must agree).
+	depth := m.queueMaxDepth()
 	if exists {
-		if len(m.queues[guild.ID]) < m.maxQueueSize {
-			m.mu.Lock()
-			m.queues[guild.ID] <- p
-			m.mu.Unlock()
+		if !m.offer(guild.ID, p, depth) {
+			slog.Info("soundboard: not queued, queue is full", "guild", guild.ID, "depth", depth)
 		}
 	} else {
 		m.mu.Lock()
-		m.queues[guild.ID] = make(chan *play, m.maxQueueSize)
+		m.queues[guild.ID] = make(chan *play, depth)
 		m.mu.Unlock()
 		_, _, err := m.playSound(p, nil, "")
 		if err != nil {
 			slog.Error("could not playSound", "error", err)
 		}
+	}
+}
+
+// offer appends p to an existing guild queue without ever blocking. It refuses
+// when the queue already holds depth entries and also when the channel itself is
+// full: a runtime increase of soundboard.queue_max_depth cannot grow a channel
+// that already exists, so "len < depth" does not imply a free slot. A blocking
+// send there would hold the queue mutex while the player goroutine needs that
+// same mutex before it can drain the queue, which is a deadlock. The non-blocking
+// send also covers the queue being deleted between the caller's lookup and this
+// call, where a plain send on the now-absent (nil) channel would block forever.
+func (m *Module) offer(guildID string, p *play, depth int) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	queue, ok := m.queues[guildID]
+	if !ok || len(queue) >= depth {
+		return false
+	}
+	select {
+	case queue <- p:
+		return true
+	default:
+		return false
 	}
 }
 

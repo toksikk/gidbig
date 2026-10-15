@@ -3,13 +3,14 @@
 Directory `internal/bot`. Shared module framework. Not user-facing.
 
 - `module.go` – `Module` interface (`Name`, `Init`, `Background`, `Shutdown`) and `AdminProvider`. A module registers every Discord handler through `Deps.Router` during `Init`; there are no `Commands`/`Listeners`/`Components` methods any more.
-- `deps.go` – `Deps` (Session, Config, LLM `*llm.Client`, Logger, OwnerID, DB, Stats, Tools, Router).
+- `deps.go` – `Deps` (Session, Config, LLM `*llm.Client`, Logger, OwnerID, DB, Stats, Tools, Settings, Router).
 - `router.go` – the single registration and dispatch point. Modules call `AddCommand(cmd, handler, mw...)`, `AddComponent(prefix, handler)`, `OnMessage(handler)` and the typed `OnReady`/`OnConnect`/`OnDisconnect`/`OnResumed`/`OnMessageUpdate`; the router installs exactly one `MessageCreate` and one `InteractionCreate` session handler. All `AddHandler` calls for those two events live here. The typed `On*` methods make a mistyped gateway listener a compile error, unlike discordgo's untyped `AddHandler`.
 - `bot.go` – `Bot`: sets `Deps.Router`, registers modules (Init + stats), registers the router's commands with Discord, runs the background supervisor, and shuts down. Production boots through `bot.New(deps).Run(ctx)`.
 - `background.go` – `BackgroundSupervisor` runs panic-safe goroutines.
 - `middleware.go` – `OwnerOnly` (its denial is autocomplete-aware, returning empty choices for an autocomplete interaction instead of a message) and `Recover`.
 - `stats.go` – `StatsProvider`, `ModuleStats` and the `StatsRegistry` the core module reads for `/status`.
 - `Deps.Tools` is the shared `*tool.Registry`; modules register LLM tools in `Init` and gippity reads it at answer time.
+- `Deps.Settings` is the runtime settings store (`internal/settings`). A module reads its hot keys through it so `/admin config` applies without a restart, and falls back to its `Init`-time value when the store is nil (tests build `Deps` by hand).
 
 ## Interaction dispatch
 

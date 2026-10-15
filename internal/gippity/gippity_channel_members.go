@@ -39,7 +39,7 @@ func (m *Module) registerChannelMembersTool() {
 // or filtered by the allowlist), the list stays in the system prompt so the
 // model does not lose it.
 func (m *Module) channelMembersToolOffered() bool {
-	if !m.toolsEnabled {
+	if !m.toolsEnabledNow() {
 		return false
 	}
 	for _, d := range m.enabledToolDefs() {

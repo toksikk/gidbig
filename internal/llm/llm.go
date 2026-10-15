@@ -59,6 +59,12 @@ type Options struct {
 	APIKey      string
 	Personality string
 	Preset      string
+	// ModelOverride supplies the effective text model at request time, so a
+	// runtime settings change applies without a restart. Returning false, or an
+	// empty value, keeps the model resolved here.
+	ModelOverride func() (string, bool)
+	// VisionModelOverride does the same for the vision model.
+	VisionModelOverride func() (string, bool)
 }
 
 // Client is the shared LLM connection and its resolved configuration. It
@@ -68,6 +74,17 @@ type Client struct {
 	textModel   string
 	visionModel string
 	personality string
+
+	// visionExplicit records whether llm.vision_model was set at boot. When it
+	// was not, the vision model follows the text model, including a runtime
+	// change to it.
+	visionExplicit bool
+
+	// modelOverride and visionModelOverride resolve the effective model at
+	// request time. They are nil when no runtime settings store is wired, in
+	// which case the boot-time models apply. See Options.
+	modelOverride       func() (string, bool)
+	visionModelOverride func() (string, bool)
 
 	// Resolved, non-secret configuration surfaced through Info. provider and
 	// baseURL are the effective values after defaults are applied; keySource
@@ -105,8 +122,8 @@ func (c *Client) Info() Info {
 	}
 	return Info{
 		Provider:          c.provider,
-		Model:             c.textModel,
-		VisionModel:       c.visionModel,
+		Model:             c.Model(),
+		VisionModel:       c.VisionModel(),
 		BaseURL:           c.baseURL,
 		KeySource:         c.keySource,
 		PersonalitySource: c.personalitySource,
@@ -194,14 +211,17 @@ func New(opts Options) (*Client, error) {
 
 	personality, personalitySource := resolvePersonality(opts.Personality, opts.Preset)
 	c := &Client{
-		client:            &openaiClient,
-		textModel:         model,
-		visionModel:       visionModel,
-		personality:       personality,
-		provider:          provider,
-		baseURL:           strings.TrimRight(baseURL, "/"),
-		keySource:         keySource,
-		personalitySource: personalitySource,
+		client:              &openaiClient,
+		textModel:           model,
+		visionModel:         visionModel,
+		visionExplicit:      strings.TrimSpace(opts.VisionModel) != "",
+		modelOverride:       opts.ModelOverride,
+		visionModelOverride: opts.VisionModelOverride,
+		personality:         personality,
+		provider:            provider,
+		baseURL:             strings.TrimRight(baseURL, "/"),
+		keySource:           keySource,
+		personalitySource:   personalitySource,
 	}
 	c.generateFn = c.generateMessage
 	slog.Info("llm: client initialized", "provider", provider, "model", c.textModel, "vision_model", c.visionModel, "api_key_source", keySource)
@@ -218,20 +238,46 @@ func (c *Client) GetClient() *openai.Client {
 	return c.client
 }
 
-// Model returns the configured model for text completions.
+// Model returns the effective model for text completions: the runtime override
+// when one is set, otherwise the model resolved at construction.
 func (c *Client) Model() string {
 	if c == nil {
 		return ""
 	}
+	if v, ok := resolveOverride(c.modelOverride); ok {
+		return v
+	}
 	return c.textModel
 }
 
-// VisionModel returns the configured model for image-aware completions.
+// VisionModel returns the effective model for image-aware completions. An
+// explicit llm.vision_model wins; otherwise the vision model follows the text
+// model, so a runtime change to llm.model carries over.
 func (c *Client) VisionModel() string {
 	if c == nil {
 		return ""
 	}
-	return c.visionModel
+	if v, ok := resolveOverride(c.visionModelOverride); ok {
+		return v
+	}
+	if c.visionExplicit {
+		return c.visionModel
+	}
+	return c.Model()
+}
+
+// resolveOverride calls an optional model resolver, treating an empty result as
+// "no override" so a blank row never disables the client's own fallback.
+func resolveOverride(fn func() (string, bool)) (string, bool) {
+	if fn == nil {
+		return "", false
+	}
+	v, ok := fn()
+	v = strings.TrimSpace(v)
+	if !ok || v == "" {
+		return "", false
+	}
+	return v, true
 }
 
 // Personality returns the active bot persona for inclusion in system prompts.
@@ -274,7 +320,7 @@ func (c *Client) generateMessage(ctx context.Context, systemPrompt, userPrompt s
 			openai.SystemMessage(systemPrompt),
 			openai.UserMessage(userPrompt),
 		},
-		Model:               c.textModel,
+		Model:               c.Model(),
 		N:                   openai.Int(1),
 		MaxCompletionTokens: openai.Int(llmMaxTokens),
 	})

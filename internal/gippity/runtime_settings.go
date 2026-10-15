@@ -1,0 +1,114 @@
+package gippity
+
+import "github.com/toksikk/gidbig/internal/settings"
+
+// The module's own fallbacks for the two per-user hourly limits. cfg.Decode
+// applies both defaults, so these only cover a hand-built Config that skipped
+// it; a zero limit would reject every message.
+const (
+	defaultRateLimitPerHour    = 30
+	defaultClassifierRateLimit = 30
+)
+
+// Runtime-tunable knobs. Each accessor reads the runtime settings store on every
+// use, so an /admin config change applies to the next message without a restart.
+// When no store is wired (tests that build Deps by hand) the Init-time snapshot
+// field is returned, which keeps the existing field-level test setup working
+// unchanged.
+
+func (m *Module) userMessageLimitNow() int {
+	if m.settings != nil {
+		return m.settings.Int(settings.KeyGippityRateLimitMessagesPerHour)
+	}
+	return m.userMessageLimit
+}
+
+// classifierRateLimitNow keeps the Init-time fallback for a non-positive value.
+// cfg.Decode applies the 30/h default, but a hand-built Config may still leave
+// the key at zero, and a zero limit would reject every non-mention classifier
+// call.
+func (m *Module) classifierRateLimitNow() int {
+	if m.settings != nil {
+		if n := m.settings.Int(settings.KeyGippityClassifierRateLimit); n > 0 {
+			return n
+		}
+	}
+	return m.classifierRateLimit
+}
+
+func (m *Module) classifierModelNow() string {
+	if m.settings != nil {
+		return m.settings.String(settings.KeyGippityClassifierModel)
+	}
+	return m.classifierModel
+}
+
+func (m *Module) classifierNamesNow() []string {
+	if m.settings != nil {
+		return m.settings.StringList(settings.KeyGippityClassifierNames)
+	}
+	return m.classifierNames
+}
+
+func (m *Module) replyInThreadNow() bool {
+	if m.settings != nil {
+		return m.settings.Bool(settings.KeyGippityReplyInThread)
+	}
+	return m.replyInThread
+}
+
+func (m *Module) respondToAllMessagesNow() bool {
+	if m.settings != nil {
+		return m.settings.Bool(settings.KeyGippityRespondToAllMessages)
+	}
+	return m.respondToAllMessages
+}
+
+func (m *Module) debugChannelNow() string {
+	if m.settings != nil {
+		return m.settings.String(settings.KeyGippityDebugChannel)
+	}
+	return m.debugChannel
+}
+
+func (m *Module) toolsEnabledNow() bool {
+	if m.settings != nil {
+		return m.settings.Bool(settings.KeyGippityToolsEnabled)
+	}
+	return m.toolsEnabled
+}
+
+// toolMaxIterationsNow keeps the Init-time fallback for a non-positive value,
+// matching the "must be greater than zero" rule the config applies.
+func (m *Module) toolMaxIterationsNow() int {
+	if m.settings != nil {
+		if n := m.settings.Int(settings.KeyGippityToolsMaxIterations); n > 0 {
+			return n
+		}
+	}
+	return m.toolMaxIterations
+}
+
+// toolAllowedNow returns the allowlist as a set, or nil when it is empty, which
+// means every registered tool is offered.
+func (m *Module) toolAllowedNow() map[string]bool {
+	if m.settings == nil {
+		return m.toolAllowed
+	}
+	names := m.settings.StringList(settings.KeyGippityToolsAllowed)
+	if len(names) == 0 {
+		return nil
+	}
+	allowed := make(map[string]bool, len(names))
+	for _, name := range names {
+		allowed[name] = true
+	}
+	return allowed
+}
+
+func (m *Module) toolReasoningEffortNow() string {
+	if m.settings != nil {
+		return m.settings.String(settings.KeyGippityToolsReasoningEffort)
+	}
+	return m.toolReasoningEffort
+}

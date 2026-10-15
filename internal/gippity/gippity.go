@@ -39,7 +39,7 @@ func (m *Module) isLimitedUser(mc *discordgo.MessageCreate) bool {
 
 	m.userMessageCount[mc.Author.ID]++
 
-	return m.userMessageCount[mc.Author.ID] >= m.userMessageLimit
+	return m.userMessageCount[mc.Author.ID] >= m.userMessageLimitNow()
 }
 
 // eligible reports whether a message may be considered for an AI answer at all.
@@ -99,7 +99,7 @@ func (m *Module) isClassifierLimited(mc *discordgo.MessageCreate) bool {
 	}
 
 	m.classifierCount[userID]++
-	return m.classifierCount[userID] >= m.classifierRateLimit
+	return m.classifierCount[userID] >= m.classifierRateLimitNow()
 }
 
 const (
@@ -118,7 +118,7 @@ func (m *Module) classifierBotNames() []string {
 	if m.session != nil && m.session.State != nil && m.session.State.User != nil {
 		raw = append(raw, m.session.State.User.Username, m.session.State.User.GlobalName, m.session.State.User.DisplayName())
 	}
-	raw = append(raw, m.classifierNames...)
+	raw = append(raw, m.classifierNamesNow()...)
 	seen := make(map[string]bool, len(raw))
 	names := make([]string, 0, len(raw))
 	for _, name := range raw {
@@ -150,7 +150,7 @@ func (m *Module) classifyShouldRespond(ctx context.Context, mc *discordgo.Messag
 		return false, nil
 	}
 
-	model := m.classifierModel
+	model := m.classifierModelNow()
 	if model == "" {
 		model = m.llmClient.Model()
 	}
@@ -196,7 +196,7 @@ func parseClassifierAnswer(answer string) (bool, error) {
 // allow threads on threads. When the thread cannot be created the reply falls
 // back to the channel so an answer is never dropped.
 func (m *Module) sendReply(mc *discordgo.MessageCreate, content string) error {
-	if !m.replyInThread || m.channelIsThreadFunc(m.session, mc.ChannelID) {
+	if !m.replyInThreadNow() || m.channelIsThreadFunc(m.session, mc.ChannelID) {
 		_, err := m.messageSendFunc(m.session, mc.ChannelID, content)
 		return err
 	}
@@ -222,7 +222,7 @@ func (m *Module) onMessageCreate(s *discordgo.Session, mc *discordgo.MessageCrea
 	// While debug logging is on the bot stays quiet outside gippity.debug_channel,
 	// so a debug run does not answer in every channel. Empty disables the
 	// restriction.
-	if m.debugChannel != "" && mc.ChannelID != m.debugChannel && slog.Default().Enabled(context.Background(), slog.LevelDebug) {
+	if debugChannel := m.debugChannelNow(); debugChannel != "" && mc.ChannelID != debugChannel && slog.Default().Enabled(context.Background(), slog.LevelDebug) {
 		slog.Debug("Ignoring message", "channel", mc.ChannelID)
 		return
 	}
@@ -237,7 +237,7 @@ func (m *Module) onMessageCreate(s *discordgo.Session, mc *discordgo.MessageCrea
 	if mentioned {
 		if m.isLimitedUser(mc) {
 			count, reset := m.mentionState(mc.Author.ID)
-			slog.Info("not answering because of user limitation", "userMessageCount", count, "userMessageLimit", m.userMessageLimit, "userMessageCountLastReset", reset)
+			slog.Info("not answering because of user limitation", "userMessageCount", count, "userMessageLimit", m.userMessageLimitNow(), "userMessageCountLastReset", reset)
 			if err := m.sendReply(mc, "Du hast heute schon genug Nachrichten geschrieben. Komm wann anders wieder."); err != nil {
 				slog.Info("Error while sending message", "error", err)
 			}
@@ -245,7 +245,7 @@ func (m *Module) onMessageCreate(s *discordgo.Session, mc *discordgo.MessageCrea
 		}
 	} else {
 		// Non-mention responses are opt-in per user and per deployment.
-		if !m.respondToAllMessages {
+		if !m.respondToAllMessagesNow() {
 			return
 		}
 		if !m.getUserConsent(mc.Author.ID) {

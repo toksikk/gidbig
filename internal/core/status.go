@@ -36,9 +36,10 @@ const (
 	statusEmbedColorOK    = 0x2ecc71
 	statusEmbedColorWarn  = 0xe67e22
 
-	// defaultClassifierRateLimit mirrors the gippity module's fallback when
-	// gippity.classifier_rate_limit_per_hour is unset, so /status reports the
-	// effective limit rather than zero.
+	// defaultClassifierRateLimit is the last-resort fallback for a config that
+	// never went through cfg.Decode (a hand-built Config in a test). Decode
+	// applies the same default, so an unset key reports the effective limit
+	// rather than zero.
 	defaultClassifierRateLimit = 30
 )
 

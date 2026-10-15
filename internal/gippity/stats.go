@@ -50,7 +50,7 @@ func (m *Module) Stats(ctx context.Context) (bot.ModuleStats, error) {
 			{Name: "edits", Value: strconv.FormatInt(edits, 10)},
 			{Name: "images", Value: strconv.FormatInt(images, 10)},
 			{Name: "privacy off", Value: strconv.FormatInt(privacyOff, 10)},
-			{Name: "rate limit", Value: strconv.Itoa(m.userMessageLimit) + "/h"},
+			{Name: "rate limit", Value: strconv.Itoa(m.userMessageLimitNow()) + "/h"},
 		},
 	}, nil
 }

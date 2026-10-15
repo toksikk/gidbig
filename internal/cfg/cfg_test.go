@@ -113,8 +113,11 @@ gippity:
 	if cfg.Gippity.ClassifierModel != "" {
 		t.Errorf("gippity.classifier_model = %q, want empty", cfg.Gippity.ClassifierModel)
 	}
-	if cfg.Gippity.ClassifierRateLimitPerHour != 0 {
-		t.Errorf("gippity.classifier_rate_limit_per_hour = %d, want 0 (unset)", cfg.Gippity.ClassifierRateLimitPerHour)
+	// Unlike classifier_model, this key has a built-in default: the effective
+	// limit has always been 30/h, and cfg now applies it so a merged runtime
+	// validation, the module and /status cannot disagree.
+	if cfg.Gippity.ClassifierRateLimitPerHour != defaultGippityClassifierRateLimit {
+		t.Errorf("gippity.classifier_rate_limit_per_hour = %d, want default %d", cfg.Gippity.ClassifierRateLimitPerHour, defaultGippityClassifierRateLimit)
 	}
 	if cfg.Gippity.DebugChannel != "" {
 		t.Errorf("gippity.debug_channel = %q, want empty", cfg.Gippity.DebugChannel)
@@ -583,6 +586,9 @@ gippity:
 	if cfg.Gippity.RateLimitMessagesPerHour != defaultGippityRateLimitPerHour {
 		t.Errorf("rate_limit_messages_per_hour = %d, want default %d", cfg.Gippity.RateLimitMessagesPerHour, defaultGippityRateLimitPerHour)
 	}
+	if cfg.Gippity.ClassifierRateLimitPerHour != defaultGippityClassifierRateLimit {
+		t.Errorf("classifier_rate_limit_per_hour = %d, want default %d", cfg.Gippity.ClassifierRateLimitPerHour, defaultGippityClassifierRateLimit)
+	}
 	if cfg.Soundboard.QueueMaxDepth != defaultSoundboardQueueMaxDepth {
 		t.Errorf("queue_max_depth = %d, want default %d", cfg.Soundboard.QueueMaxDepth, defaultSoundboardQueueMaxDepth)
 	}
@@ -635,6 +641,82 @@ func TestDecodeConfig_rejectsInvalidTuning(t *testing.T) {
 			_, err := decodeConfig(strings.NewReader(yaml))
 			if err == nil || !strings.Contains(err.Error(), tt.wantError) {
 				t.Fatalf("decodeConfig() error = %v, want error containing %q", err, tt.wantError)
+			}
+		})
+	}
+}
+
+// TestDecode_DoesNotValidate pins the split: Decode applies the defaults but
+// never rejects a config, so a runtime settings write can decode and re-check
+// separately.
+func TestDecode_DoesNotValidate(t *testing.T) {
+	// Deliberately missing token and allowed_guilds, with an invalid queue
+	// depth: only Validate may reject this.
+	decoded, err := Decode(strings.NewReader("soundboard:\n  queue_max_depth: 0\n"))
+	if err != nil {
+		t.Fatalf("Decode() error = %v, want nil", err)
+	}
+	if decoded.Discord.Token != "" {
+		t.Errorf("token = %q, want empty", decoded.Discord.Token)
+	}
+	if decoded.Gippity.RateLimitMessagesPerHour != defaultGippityRateLimitPerHour {
+		t.Errorf("rate limit = %d, want the default %d",
+			decoded.Gippity.RateLimitMessagesPerHour, defaultGippityRateLimitPerHour)
+	}
+	if decoded.Gippity.Tools.MaxIterations != defaultGippityToolMaxIterations {
+		t.Errorf("tool max iterations = %d, want the default %d",
+			decoded.Gippity.Tools.MaxIterations, defaultGippityToolMaxIterations)
+	}
+	if decoded.Soundboard.QueueMaxDepth != 0 {
+		t.Errorf("queue depth = %d, want the explicit 0", decoded.Soundboard.QueueMaxDepth)
+	}
+	if err := Validate(decoded); err == nil {
+		t.Error("Validate() = nil for a config with no token, want an error")
+	}
+}
+
+func TestValidate_RejectsInvalidConfigs(t *testing.T) {
+	valid := func() *Config {
+		c := &Config{}
+		c.Discord.Token = "tok"
+		c.Gippity.AllowedGuilds = []string{"guild"}
+		c.Gippity.RateLimitMessagesPerHour = 30
+		c.Gippity.Tools.MaxIterations = 3
+		c.Soundboard.QueueMaxDepth = 6
+		return c
+	}
+
+	tests := []struct {
+		name      string
+		mutate    func(*Config)
+		wantError string
+	}{
+		{"missing token", func(c *Config) { c.Discord.Token = "" }, "discord.token"},
+		{"missing allowed guilds", func(c *Config) { c.Gippity.AllowedGuilds = nil }, "gippity.allowed_guilds"},
+		{"non-positive rate limit", func(c *Config) { c.Gippity.RateLimitMessagesPerHour = 0 }, "rate_limit_messages_per_hour"},
+		{"web port without session secret", func(c *Config) { c.Web.Port = 8080 }, "web.session_secret"},
+		{"tools enabled with zero iterations", func(c *Config) {
+			c.Gippity.Tools.Enabled = true
+			c.Gippity.Tools.MaxIterations = 0
+		}, "max_iterations"},
+		{"invalid reasoning effort", func(c *Config) { c.Gippity.Tools.ReasoningEffort = "bogus" }, "reasoning_effort"},
+		{"non-positive queue depth", func(c *Config) { c.Soundboard.QueueMaxDepth = 0 }, "queue_max_depth"},
+	}
+
+	if err := Validate(valid()); err != nil {
+		t.Fatalf("Validate(valid) error = %v, want nil", err)
+	}
+	if err := Validate(nil); err == nil {
+		t.Error("Validate(nil) = nil, want an error")
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := valid()
+			tt.mutate(c)
+			err := Validate(c)
+			if err == nil || !strings.Contains(err.Error(), tt.wantError) {
+				t.Fatalf("Validate() error = %v, want error containing %q", err, tt.wantError)
 			}
 		})
 	}

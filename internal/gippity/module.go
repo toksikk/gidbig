@@ -10,6 +10,7 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/toksikk/gidbig/internal/bot"
 	"github.com/toksikk/gidbig/internal/llm"
+	"github.com/toksikk/gidbig/internal/settings"
 	"github.com/toksikk/gidbig/internal/tool"
 	"github.com/toksikk/gidbig/internal/util"
 
@@ -88,14 +89,20 @@ type Module struct {
 	toolReasoningEffort string
 
 	llmClient *llm.Client
+
+	// settings is the runtime settings store. When it is wired, every
+	// runtime-tunable knob below is read through it on each use so an
+	// /admin config change applies to the next message. When it is nil (tests
+	// that build Deps by hand) the Init-time snapshot fields above are used.
+	settings *settings.Store
 }
 
 // New returns a Module with production-default hook implementations.
 func New() *Module {
 	m := &Module{
 		idToNameCache:            make(map[string]string),
-		userMessageLimit:         30,
-		classifierRateLimit:      30,
+		userMessageLimit:         defaultRateLimitPerHour,
+		classifierRateLimit:      defaultClassifierRateLimit,
 		classifierCount:          make(map[string]int),
 		classifierCountLastReset: make(map[string]time.Time),
 		toolMaxIterations:        defaultToolMaxIterations,
@@ -147,6 +154,7 @@ func (m *Module) Name() string { return "gippity" }
 func (m *Module) Init(d bot.Deps) error {
 	m.session = d.Session
 	m.llmClient = d.LLM
+	m.settings = d.Settings
 
 	if d.Config != nil && d.Config.Gippity.RateLimitMessagesPerHour > 0 {
 		m.userMessageLimit = d.Config.Gippity.RateLimitMessagesPerHour
