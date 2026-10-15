@@ -224,8 +224,10 @@ func (m *Module) effective(key string) (string, settings.Source, bool) {
 		value = strconv.FormatInt(m.llm.MaxTokens(), 10)
 	case settings.KeyGippityClassifierModel:
 		// An empty classifier model means "use the text model", which is what the
-		// classifier does; show the model it will actually ask.
-		if strings.TrimSpace(value) == "" {
+		// classifier does; show the model it will actually ask. The comparison
+		// matches classifyShouldRespond exactly, so a whitespace-only value is
+		// shown as the value that is sent rather than as the text model.
+		if value == "" {
 			value = m.llm.Model()
 		}
 	}
