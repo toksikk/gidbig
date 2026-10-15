@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -733,5 +734,72 @@ func TestFinishDiscordLogin_Success(t *testing.T) {
 	}
 	if sess.DiscordUserID != "42" || sess.AccessToken != "token" {
 		t.Errorf("session = %+v, want user 42 with token", sess)
+	}
+}
+
+// TestDiscordLogin_StateIsPerSession checks that each login keeps its OAuth
+// state in its own cookie and nowhere shared.
+func TestDiscordLogin_StateIsPerSession(t *testing.T) {
+	ws := newWebServer(&cfg.Config{}, nil, nil, nil, nil)
+
+	login := func() (string, string) {
+		rec := httptest.NewRecorder()
+		ws.handleDiscordLogin(rec, httptest.NewRequest(http.MethodGet, "/discordLogin", nil))
+		if rec.Code != http.StatusTemporaryRedirect {
+			t.Fatalf("status = %d, want %d", rec.Code, http.StatusTemporaryRedirect)
+		}
+		loc, err := url.Parse(rec.Header().Get("Location"))
+		if err != nil {
+			t.Fatalf("parse redirect: %v", err)
+		}
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		for _, c := range rec.Result().Cookies() {
+			req.AddCookie(c)
+		}
+		return ws.store.Get(req).State, loc.Query().Get("state")
+	}
+
+	stored1, sent1 := login()
+	stored2, sent2 := login()
+	if stored1 == "" || stored1 != sent1 || stored2 != sent2 {
+		t.Fatalf("state not stored in the session: %q/%q, %q/%q", stored1, sent1, stored2, sent2)
+	}
+	if stored1 == stored2 {
+		t.Error("two logins share one state")
+	}
+}
+
+func callbackRequest(t *testing.T, ws *webServer, sessionState, queryState string) *http.Request {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, "/discordCallback?code=c&state="+url.QueryEscape(queryState), nil)
+	rec := httptest.NewRecorder()
+	if err := ws.store.Save(rec, &sessionData{State: sessionState}); err != nil {
+		t.Fatalf("save session: %v", err)
+	}
+	for _, c := range rec.Result().Cookies() {
+		req.AddCookie(c)
+	}
+	return req
+}
+
+func TestDiscordCallback_RejectsStateMismatch(t *testing.T) {
+	logs := captureLogs(t)
+	ws := newWebServer(&cfg.Config{}, nil, nil, nil, nil)
+	rec := httptest.NewRecorder()
+	ws.handleDiscordCallback(rec, callbackRequest(t, ws, "expected-state-value", "attacker-state-value"))
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusForbidden)
+	}
+	if out := logs.String(); strings.Contains(out, "expected-state-value") || strings.Contains(out, "attacker-state-value") {
+		t.Errorf("state value logged: %s", out)
+	}
+}
+
+func TestDiscordCallback_RejectsEmptyState(t *testing.T) {
+	ws := newWebServer(&cfg.Config{}, nil, nil, nil, nil)
+	rec := httptest.NewRecorder()
+	ws.handleDiscordCallback(rec, callbackRequest(t, ws, "", ""))
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusForbidden)
 	}
 }

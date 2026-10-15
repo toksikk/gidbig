@@ -7,6 +7,7 @@ import (
 	"crypto/cipher"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -204,10 +205,9 @@ type webServer struct {
 	esoConcurrency *concurrencyLimiter
 	esoTimeout     time.Duration
 
-	store      *sessionStore
-	tmpls      map[string]*template.Template
-	oauth      *oauth2.Config
-	oauthState string
+	store *sessionStore
+	tmpls map[string]*template.Template
+	oauth *oauth2.Config
 	// fetchDiscordUser resolves the user behind an OAuth access token;
 	// injectable for tests.
 	fetchDiscordUser func(accessToken string) (*discordgo.User, error)
@@ -677,32 +677,30 @@ func (ws *webServer) handleDiscordLogin(w http.ResponseWriter, r *http.Request) 
 		slog.Error("unable to Read", "error", err)
 		return
 	}
-	ws.oauthState = base64.URLEncoding.EncodeToString(b)
+	// The state lives only in this browser's session cookie, so concurrent
+	// logins cannot overwrite each other's value.
+	state := base64.URLEncoding.EncodeToString(b)
 
 	session := ws.store.Get(r)
-	session.State = ws.oauthState
+	session.State = state
 	err = ws.store.Save(w, session)
 	if err != nil {
 		slog.Error("unable to Save", "error", err)
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		return
 	}
 
-	url := ws.oauth.AuthCodeURL(ws.oauthState)
+	url := ws.oauth.AuthCodeURL(state)
 	http.Redirect(w, r, url, http.StatusTemporaryRedirect)
 }
 
 func (ws *webServer) handleDiscordCallback(w http.ResponseWriter, r *http.Request) {
 	logWebRequests(r)
 	session := ws.store.Get(r)
-	if r.URL.Query().Get("state") != session.State {
+	if !validOAuthState(r.URL.Query().Get("state"), session.State) {
+		// Neither value is logged: the expected state is a login secret.
 		slog.Warn("oauth state mismatch; possible CSRF or cookies disabled")
 		http.Error(w, "no state match; possible csrf OR cookies not enabled", http.StatusForbidden)
-		return
-	}
-
-	state := r.FormValue("state")
-	if state != ws.oauthState {
-		slog.Warn("invalid oauth state", "expected", ws.oauthState, "got", state)
-		http.Redirect(w, r, "/", http.StatusTemporaryRedirect)
 		return
 	}
 
@@ -720,6 +718,15 @@ func (ws *webServer) handleDiscordCallback(w http.ResponseWriter, r *http.Reques
 	}
 
 	ws.finishDiscordLogin(w, r, session, token.AccessToken)
+}
+
+// validOAuthState compares the callback's state with the one stored in the
+// session in constant time; an empty value on either side never matches.
+func validOAuthState(got, want string) bool {
+	if got == "" || want == "" {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(got), []byte(want)) == 1
 }
 
 // finishDiscordLogin resolves the Discord user for a verified access token and
@@ -757,6 +764,7 @@ func (ws *webServer) completeLogin(session *sessionData, user *discordgo.User, a
 	session.DiscordAvatarURL = avatarURL
 	session.AccessToken = accessToken
 	session.IssuedAt = ws.currentTime().Unix()
+	session.State = ""
 	session.AdminCSRF = ""
 	session.Flash = ""
 	session.FlashOK = false
@@ -790,16 +798,18 @@ func parseIPPort(s string) (ip net.IP, port, space string, err error) {
 	return
 }
 
+// logWebRequests logs the request path, not the full URI: the OAuth callback's
+// query carries the authorization code and state.
 func logWebRequests(r *http.Request) {
 	ip, port, _, err := parseIPPort(r.RemoteAddr)
 	if err != nil {
-		slog.Warn("Error parsing IP address for WebUI Request ", "Request URI", r.RequestURI)
+		slog.Warn("Error parsing IP address for WebUI Request ", "Request Path", r.URL.Path)
 		return
 	}
 	anonIP, err := ipAnonymizer.IPString(ip.String())
 	if err != nil {
-		slog.Warn("Could not anonymize IP address for WebUI Request ", "Request URI", r.RequestURI)
+		slog.Warn("Could not anonymize IP address for WebUI Request ", "Request Path", r.URL.Path)
 	} else {
-		slog.Info("WebUI Request", "Request URI", r.RequestURI, "Requesting IP / Port", anonIP+port)
+		slog.Info("WebUI Request", "Request Path", r.URL.Path, "Requesting IP / Port", anonIP+port)
 	}
 }
