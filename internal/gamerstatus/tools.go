@@ -37,7 +37,9 @@ func (m *Module) statusHandler(_ context.Context, _ tool.Env, _ json.RawMessage)
 	return fmt.Sprintf("Currently shown status: Playing %q (set %s).", game, formatAgo(m.now().Sub(since))), nil
 }
 
-// formatAgo renders a duration rounded down to whole minutes.
+// formatAgo renders a duration rounded down to whole minutes. Negative
+// durations (wall clock jumped back) are intentionally clamped to "less than a
+// minute ago".
 func formatAgo(d time.Duration) string {
 	minutes := int(d / time.Minute)
 	switch {
