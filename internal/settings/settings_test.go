@@ -265,7 +265,6 @@ gippity:
 		{"web.port", "9090"},
 		{"dev_mode", "false"},
 		{"llm.provider", ""},
-		{"gippity.ignored_users", ""},
 	} {
 		k, ok := Lookup(tc.key)
 		if !ok || !k.Cold || k.Note != RestartRequiredNote {
@@ -842,5 +841,29 @@ func TestUnset_RejectsRemovalThatInvalidatesTheConfiguration(t *testing.T) {
 	}
 	if err := store.Unset(KeyGippityToolsEnabled, "owner"); err != nil {
 		t.Fatalf("Unset after fixing the cap: %v", err)
+	}
+}
+
+func TestIgnoredUsers_HotListAllowsEmpty(t *testing.T) {
+	store := newTestStore(t, openTestDB(t), baseYAML)
+	if err := store.Add(KeyGippityIgnoredUsers, "u1", "owner"); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	if err := store.Remove(KeyGippityIgnoredUsers, "u1", "owner"); err != nil {
+		t.Fatalf("removing the last ignored user: %v", err)
+	}
+	if got := store.StringList(KeyGippityIgnoredUsers); len(got) != 0 {
+		t.Errorf("list = %v, want empty", got)
+	}
+	if _, source, _ := store.Effective(KeyGippityIgnoredUsers); source != SourceDB {
+		t.Errorf("an empty stored list is not in force: source = %q", source)
+	}
+	if err := store.Set(KeyGippityIgnoredUsers, "", "owner"); err != nil {
+		t.Errorf("Set(empty): %v", err)
+	}
+	for _, v := range []string{"a,,b", "a,", " , "} {
+		if err := store.Set(KeyGippityIgnoredUsers, v, "owner"); err == nil {
+			t.Errorf("Set(%q) = nil, want an empty-item error", v)
+		}
 	}
 }

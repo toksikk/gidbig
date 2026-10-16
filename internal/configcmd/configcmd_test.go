@@ -706,8 +706,8 @@ func TestColdKey_ReadOnlyEverywhere(t *testing.T) {
 	for name, sub := range map[string]*discordgo.ApplicationCommandInteractionDataOption{
 		"set":    subcommand("set", keyValue("key", "web.port"), keyValue("value", "1")),
 		"unset":  subcommand("unset", keyValue("key", "web.port")),
-		"add":    subcommand("add", keyValue("key", "gippity.ignored_users"), keyValue("value", "1")),
-		"remove": subcommand("remove", keyValue("key", "gippity.ignored_users"), keyValue("value", "1")),
+		"add":    subcommand("add", keyValue("key", "leetoclock.announcement_channels"), keyValue("value", "1")),
+		"remove": subcommand("remove", keyValue("key", "leetoclock.announcement_channels"), keyValue("value", "1")),
 	} {
 		reply := handle(t, m, sub)
 		if !strings.Contains(reply, "read-only at runtime") || reply == unknown {

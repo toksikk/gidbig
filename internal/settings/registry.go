@@ -61,6 +61,8 @@ const (
 	KeyLLMVisionModel                  = "llm.vision_model"
 	KeyLLMMaxTokens                    = "llm.max_tokens"
 	KeyGippityAllowedGuilds            = "gippity.allowed_guilds"
+	KeyGippityIgnoredUsers             = "gippity.ignored_users"
+	KeyLLMBaseURL                      = "llm.base_url"
 )
 
 // RestartRequiredNote is the hint shown for every cold key.
@@ -238,6 +240,16 @@ var registry = append([]Key{
 		Apply:    applyList(func(c *cfg.Config) *[]string { return &c.Gippity.AllowedGuilds }),
 		Validate: requireNonEmptyList,
 	},
+	{
+		// An empty list is meaningful (nobody ignored); only an empty item is
+		// rejected.
+		Name:     KeyGippityIgnoredUsers,
+		Kind:     KindStringList,
+		Hot:      true,
+		Extract:  extractList(func(c *cfg.Config) *[]string { return &c.Gippity.IgnoredUsers }),
+		Apply:    applyList(func(c *cfg.Config) *[]string { return &c.Gippity.IgnoredUsers }),
+		Validate: rejectEmptyItems,
+	},
 }, coldKeys...)
 
 // coldKeys are the non-secret settings read only at boot.
@@ -252,7 +264,6 @@ var coldKeys = []Key{
 	cold("web.eso.rate_limit_per_minute", KindInt, extractInt(func(c *cfg.Config) *int { return &c.Web.Eso.RateLimitPerMinute })),
 	cold("web.eso.max_concurrent_requests", KindInt, extractInt(func(c *cfg.Config) *int { return &c.Web.Eso.MaxConcurrentRequests })),
 	cold("web.eso.request_timeout_seconds", KindInt, extractInt(func(c *cfg.Config) *int { return &c.Web.Eso.RequestTimeoutSeconds })),
-	cold("gippity.ignored_users", KindStringList, extractList(func(c *cfg.Config) *[]string { return &c.Gippity.IgnoredUsers })),
 	cold("leetoclock.announcement_channels", KindStringList, extractList(func(c *cfg.Config) *[]string { return &c.Leetoclock.AnnouncementChannels })),
 	cold("leetoclock.debug_channel", KindString, extractString(func(c *cfg.Config) *string { return &c.Leetoclock.DebugChannel })),
 	cold("leetoclock.debug", KindBool, extractBool(func(c *cfg.Config) *bool { return &c.Leetoclock.Debug })),
@@ -261,7 +272,7 @@ var coldKeys = []Key{
 	cold("leetoclock.emojis.notamused", KindString, extractString(func(c *cfg.Config) *string { return &c.Leetoclock.Emojis.NotAmused })),
 	cold("leetoclock.emojis.wat", KindString, extractString(func(c *cfg.Config) *string { return &c.Leetoclock.Emojis.Wat })),
 	cold("llm.provider", KindString, extractString(func(c *cfg.Config) *string { return &c.LLM.Provider })),
-	cold("llm.base_url", KindString, extractString(func(c *cfg.Config) *string { return &c.LLM.BaseURL })),
+	cold(KeyLLMBaseURL, KindString, extractString(func(c *cfg.Config) *string { return &c.LLM.BaseURL })),
 	cold("llm.http_referer", KindString, extractString(func(c *cfg.Config) *string { return &c.LLM.HTTPReferer })),
 	cold("llm.title", KindString, extractString(func(c *cfg.Config) *string { return &c.LLM.Title })),
 	cold("llm.personality", KindString, extractString(func(c *cfg.Config) *string { return &c.LLM.Personality })),
@@ -403,6 +414,15 @@ func requireNonEmptyList(raw string) error {
 		}
 	}
 	return nil
+}
+
+// rejectEmptyItems accepts an empty list but rejects an empty item in a
+// non-empty one.
+func rejectEmptyItems(raw string) error {
+	if strings.TrimSpace(raw) == "" {
+		return nil
+	}
+	return requireNonEmptyList(raw)
 }
 
 // requireNonEmpty rejects an empty value. An empty model would either be

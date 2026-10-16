@@ -495,3 +495,40 @@ func TestGuildAllowed_FallsBackToSnapshotWithoutAStore(t *testing.T) {
 		t.Error("guildAllowed did not follow the Init snapshot without a store")
 	}
 }
+
+// TestEligible_IgnoredUsersIsHot proves an ignored user added through the store
+// is ignored on the next message and a removed one is answered again.
+func TestEligible_IgnoredUsersIsHot(t *testing.T) {
+	m, _ := setupGippityTest(t)
+	store := newRuntimeSettingsStore(t, m.db)
+	m.settings = store
+	m.ignoredUserIDs["user"] = true // snapshot is ignored once a store is wired
+
+	msg := &discordgo.MessageCreate{Message: &discordgo.Message{
+		ID: "1", ChannelID: "chan", GuildID: "guild", Content: "hi",
+		Type: discordgo.MessageTypeDefault, Author: &discordgo.User{ID: "user"},
+	}}
+	if !m.eligible(msg) {
+		t.Fatal("a user only in the snapshot was ignored with a store wired")
+	}
+	if err := store.Add(settings.KeyGippityIgnoredUsers, "user", "owner"); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	if m.eligible(msg) {
+		t.Error("a user ignored at runtime was still eligible")
+	}
+	if err := store.Remove(settings.KeyGippityIgnoredUsers, "user", "owner"); err != nil {
+		t.Fatalf("Remove: %v", err)
+	}
+	if !m.eligible(msg) {
+		t.Error("a user removed from the ignore list was still ignored")
+	}
+}
+
+func TestUserIgnored_FallsBackToSnapshotWithoutAStore(t *testing.T) {
+	m, _ := setupGippityTest(t)
+	m.ignoredUserIDs["user-1"] = true
+	if !m.userIgnored("user-1") || m.userIgnored("other") {
+		t.Error("userIgnored did not follow the Init snapshot without a store")
+	}
+}

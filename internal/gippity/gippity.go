@@ -52,7 +52,7 @@ func (m *Module) eligible(mc *discordgo.MessageCreate) bool {
 	if mc.Author.Bot {
 		return false
 	}
-	if m.ignoredUserIDs[mc.Author.ID] {
+	if m.userIgnored(mc.Author.ID) {
 		slog.Info("ignoring message from ignored user", "user", mc.Author.ID)
 		return false
 	}

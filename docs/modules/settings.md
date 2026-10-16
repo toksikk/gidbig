@@ -71,7 +71,7 @@ new value, and runs `cfg.Validate` on the result. Applying all overrides first
 matters — two values that are individually valid can be invalid together (tools
 enabled plus a zero iteration cap), and the file alone would not catch that.
 
-Seven keys carry a registry-local rule. Six of them restate a `cfg.Validate` rule — the four positive-value caps, the non-empty `allowed_guilds` and the `reasoning_effort` enum — so the store can judge a single stored row on its own without building a merged config on every read:
+Eight keys carry a registry-local rule. Six of them restate a `cfg.Validate` rule — the four positive-value caps, the non-empty `allowed_guilds` and the `reasoning_effort` enum — so the store can judge a single stored row on its own without building a merged config on every read:
 
 - `llm.model` must not be empty; an empty model would mean the built-in default
   (or be invalid for openrouter), so `unset` is the way back.
@@ -83,6 +83,8 @@ Seven keys carry a registry-local rule. Six of them restate a `cfg.Validate` rul
   (which would disable completions) from Discord.
 - `gippity.allowed_guilds` must hold at least one item and no empty item,
   mirroring `cfg.Validate`, so the last allowed guild cannot be removed.
+- `gippity.ignored_users` may be empty (nobody ignored) but must not contain an
+  empty item.
 - `gippity.tools.reasoning_effort` must be one of the accepted enum values;
   the registry reuses `cfg.ValidateReasoningEffort` rather than copying the list.
 
