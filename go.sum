@@ -46,6 +46,8 @@ github.com/openai/openai-go/v3 v3.75.0 h1:VL634YIquwcUHFSQHhmzlz/0FofepXtIq3v2F3
 github.com/openai/openai-go/v3 v3.75.0/go.mod h1:OHCyuBWptTsxCYQY2WaqdtcbS22WYx2C9yG0CzZ0BU8=
 github.com/openai/openai-go/v3 v3.76.0 h1:QYJqbvNueO0rgKIyCMdWt4xI/NWjSs13Yih0ZNbJQ8A=
 github.com/openai/openai-go/v3 v3.76.0/go.mod h1:OHCyuBWptTsxCYQY2WaqdtcbS22WYx2C9yG0CzZ0BU8=
+github.com/openai/openai-go/v3 v3.77.0 h1:a0iVTVtUNGBlScvTr+i2DTbH1v2x2HMkd2XTIwQPzH0=
+github.com/openai/openai-go/v3 v3.77.0/go.mod h1:OHCyuBWptTsxCYQY2WaqdtcbS22WYx2C9yG0CzZ0BU8=
 github.com/simplesurance/go-ip-anonymizer v0.0.0-20200429124537-35a880f8e87d h1:4FkGkGts6gLznca6fgclIvbupwbq543mb/fFkog4VIg=
 github.com/simplesurance/go-ip-anonymizer v0.0.0-20200429124537-35a880f8e87d/go.mod h1:fTTj1EOmRdtuwYw3jF/1X2dTa0N1BdbZhrpA21N/S4I=
 github.com/tidwall/gjson v1.14.2/go.mod h1:/wbyibRr2FHMks5tjHJ5F8dMZh3AcwJEMf5vlfC0lxk=
