@@ -64,10 +64,14 @@ const (
 	KeyGippityIgnoredUsers             = "gippity.ignored_users"
 	KeyLLMBaseURL                      = "llm.base_url"
 	KeyDevMode                         = "dev_mode"
+	KeyLeetoclockDebug                 = "leetoclock.debug"
 )
 
 // DevModeNote explains that only part of dev_mode is hot.
 const DevModeNote = "only the log level (debug/info) changes at runtime; log format, source locations and discordgo logging need a restart"
+
+// LeetoclockDebugNote warns that leetoclock.debug changes the live game.
+const LeetoclockDebugNote = "debug mode changes leetoclock game behaviour while enabled: target now+1min, 1s tick, announcements to the debug channel only; debug rounds score messages from all channels into the real season; one round per enable; toggle off/on to re-run"
 
 // RestartRequiredNote is the hint shown for every cold key.
 const RestartRequiredNote = "restart required: edit config.yaml"
@@ -264,6 +268,15 @@ var registry = append([]Key{
 		Extract: extractBool(func(c *cfg.Config) *bool { return &c.DevMode }),
 		Apply:   applyBool(func(c *cfg.Config) *bool { return &c.DevMode }),
 	},
+	{
+		// Applies on the next leetoclock loop iteration (at most one tick).
+		Name:    KeyLeetoclockDebug,
+		Kind:    KindBool,
+		Hot:     true,
+		Note:    LeetoclockDebugNote,
+		Extract: extractBool(func(c *cfg.Config) *bool { return &c.Leetoclock.Debug }),
+		Apply:   applyBool(func(c *cfg.Config) *bool { return &c.Leetoclock.Debug }),
+	},
 }, coldKeys...)
 
 // coldKeys are the non-secret settings read only at boot.
@@ -280,7 +293,6 @@ var coldKeys = []Key{
 	cold("web.eso.request_timeout_seconds", KindInt, extractInt(func(c *cfg.Config) *int { return &c.Web.Eso.RequestTimeoutSeconds })),
 	cold("leetoclock.announcement_channels", KindStringList, extractList(func(c *cfg.Config) *[]string { return &c.Leetoclock.AnnouncementChannels })),
 	cold("leetoclock.debug_channel", KindString, extractString(func(c *cfg.Config) *string { return &c.Leetoclock.DebugChannel })),
-	cold("leetoclock.debug", KindBool, extractBool(func(c *cfg.Config) *bool { return &c.Leetoclock.Debug })),
 	cold("leetoclock.emojis.zonk", KindString, extractString(func(c *cfg.Config) *string { return &c.Leetoclock.Emojis.Zonk })),
 	cold("leetoclock.emojis.lol", KindString, extractString(func(c *cfg.Config) *string { return &c.Leetoclock.Emojis.Lol })),
 	cold("leetoclock.emojis.notamused", KindString, extractString(func(c *cfg.Config) *string { return &c.Leetoclock.Emojis.NotAmused })),

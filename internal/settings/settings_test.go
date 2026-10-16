@@ -263,7 +263,7 @@ gippity:
 	store := newTestStore(t, openTestDB(t), yamlConfig)
 	for _, tc := range []struct{ key, value string }{
 		{"web.port", "9090"},
-		{"leetoclock.debug", "false"},
+		{"leetoclock.debug_channel", ""},
 		{"llm.provider", ""},
 	} {
 		k, ok := Lookup(tc.key)

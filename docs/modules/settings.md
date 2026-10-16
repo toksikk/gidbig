@@ -55,6 +55,10 @@ warning on reload, so it can never look in force.
 The hot `dev_mode` uses it to say that only the log level (debug/info) follows a
 runtime change; the log format, source locations and discordgo logging are fixed
 at boot.
+`leetoclock.debug` warns that debug mode changes the
+live game (target now+1min, 1s tick, debug channel only; debug rounds score from all
+channels into the real season) while enabled. The
+other `leetoclock.*` keys stay cold.
 
 Secrets (`discord.token`, `web.oauth.client_secret`, `web.session_secret`,
 `llm.api_key`) are not registered, so they are indistinguishable from a typo.
