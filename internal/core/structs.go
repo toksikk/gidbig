@@ -9,6 +9,8 @@ type templateData struct {
 	IsOwner bool
 	// Admin is the admin page payload; nil on every other page.
 	Admin *adminPage
+	// Logs is the log viewer payload; nil on every other page.
+	Logs *logsPage
 }
 
 // soundItem is used to represent a sound of a collection for html generation

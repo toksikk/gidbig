@@ -656,3 +656,34 @@ body {
   accent-color: var(--accent);
   cursor: pointer;
 }
+
+/* --- Admin log viewer ---------------------------------------- */
+
+.admin-log-form { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; margin-bottom: 1rem; }
+.admin-log-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--text-2);
+  font-size: .62rem;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+.admin-log-window {
+  background: rgba(0,0,0,.28);
+  border: 1px solid var(--border-0);
+  border-radius: var(--r);
+  color: var(--text-0);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: .7rem;
+  line-height: 1.5;
+  margin: 0 0 1rem;
+  max-height: 60vh;
+  overflow: auto;
+  padding: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.admin-log-links { color: var(--text-1); font-size: .72rem; }
+.admin-log-links a { color: var(--accent); }
+.admin-log-sep { color: var(--text-2); margin: 0 .35rem; }

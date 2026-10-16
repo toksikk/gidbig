@@ -15,6 +15,7 @@ Gidbig is a Discord bot written in Go — soundboard playback in voice channels,
   - Files live in `audio/` as `{prefix}_{soundname}.dca`; an optional matching `.txt` file supplies the Web UI description
 - 🌐 **Web UI** — browser interface to trigger sounds; requires Discord OAuth2 credentials in config
   - `/admin` — owner-only panel for the runtime settings, the same keys and rules as `/admin config`; a non-owner gets a 404, and the login must be less than 12h old
+  - `/admin/logs` — owner-only viewer for the bot's own recent log lines (level floor, case-insensitive filter, line count, plus a plain-text download); the same window `/admin logs show` returns
 - 📊 **`/status`** — owner-only ephemeral command showing versions, uptime, memory/runtime statistics, and guild/user counts
 - ⏱️ **`/uptime`** — owner-only uptime command
 - 🛡️ **`/admin`** — owner-only administrative commands
@@ -23,6 +24,7 @@ Gidbig is a Discord bot written in Go — soundboard playback in voice channels,
 
 | Plugin | What it does |
 |---|---|
+| 🪵 **logs** | `/admin logs show` — reads the bot's recent log lines from an in-memory window (level floor, filter, newest N lines), and the same window is on the owner-only web page `/admin/logs` |
 | 🛡️ **anticheat** | `/anticheat query:<game or vendor>` — searches the GamingOnLinux Linux/Steam Deck anti-cheat compatibility list (works/broken, Proton and native Linux status, notes) |
 | ☕ **coffee** | Greets users with their preferred morning beverage when they say "moin", "morgen", etc. `/setbeverage` configures it, `/brew` serves a selected drink, and `/coffeemachine` manages and reports machine state |
 | 🔮 **eso** | `/eso [thema]` generates esoteric pseudoscience nonsense through the LLM, with a local fallback |
