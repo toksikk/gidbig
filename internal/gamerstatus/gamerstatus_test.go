@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bwmarrin/discordgo"
 	"github.com/toksikk/gidbig/internal/bot"
 	"github.com/toksikk/gidbig/internal/util"
 )
@@ -78,6 +79,53 @@ func TestShutdownCancelsGoroutine(t *testing.T) {
 	case <-done:
 	case <-time.After(2 * time.Second):
 		t.Fatal("runStatusLoop did not exit within deadline after ctx cancel")
+	}
+}
+
+func TestRunStatusLoopFailedUpdateNotRecorded(t *testing.T) {
+	session, err := discordgo.New("")
+	if err != nil {
+		t.Fatalf("discordgo.New: %v", err)
+	}
+	m := New()
+	m.session = session // no websocket: UpdateGameStatus fails
+	m.initialDelay = 0
+	m.rotationMin = time.Millisecond
+	m.rotationMax = 2 * time.Millisecond
+
+	// The second season() call starts iteration two, so iteration one,
+	// including its failed UpdateGameStatus, has completed.
+	secondIteration := make(chan struct{})
+	calls := 0
+	m.season = func() util.Season {
+		calls++
+		if calls == 2 {
+			close(secondIteration)
+		}
+		return util.SeasonNone
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		m.runStatusLoop(ctx)
+		close(done)
+	}()
+
+	select {
+	case <-secondIteration:
+	case <-time.After(5 * time.Second):
+		t.Fatal("runStatusLoop did not complete an iteration within deadline")
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("runStatusLoop did not exit after ctx cancel")
+	}
+
+	if game, _ := m.currentStatus(); game != "" {
+		t.Fatalf("currentStatus() = %q after failed update, want empty", game)
 	}
 }
 
