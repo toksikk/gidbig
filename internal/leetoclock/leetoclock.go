@@ -13,6 +13,7 @@ import (
 	"github.com/toksikk/gidbig/internal/bot"
 	"github.com/toksikk/gidbig/internal/cfg"
 	"github.com/toksikk/gidbig/internal/leetoclock/util/datastore"
+	"github.com/toksikk/gidbig/internal/settings"
 	"github.com/toksikk/gidbig/internal/shareddb"
 	"github.com/toksikk/gidbig/internal/tool"
 	"github.com/toksikk/gidbig/internal/util"
@@ -55,7 +56,14 @@ type Module struct {
 	messageTimestamp func(string) time.Time
 	reactOnMessage   func(*discordgo.Session, string, string, string, string)
 	renewGame        func(datastore.Game)
-	tickInterval     time.Duration
+	tickInterval     time.Duration // guarded by stateMu
+
+	settings     *settings.Store
+	cfgDebug     bool   // config.yaml value, used when settings is nil
+	debugChannel string // cold
+	baseChannels []string
+	debug        bool      // guarded by stateMu; last applied debug flag
+	debugTarget  time.Time // guarded by stateMu; full debug round time
 
 	// resolveMember turns a free-text player name from a tool call into a
 	// Discord user ID. Defaults to util.ResolveMemberQuery; overridable in tests.
@@ -128,18 +136,12 @@ func (m *Module) Init(d bot.Deps) error {
 	if d.Config != nil {
 		lec = d.Config.Leetoclock
 	}
-	if lec.Debug {
-		target := m.now().Add(time.Minute)
-		m.targetHour, m.targetMinute = target.Hour(), target.Minute()
-		m.tickInterval = time.Second
-	}
-	if lec.Debug {
-		if lec.DebugChannel != "" {
-			m.announcementChannels = append(m.announcementChannels, lec.DebugChannel)
-		}
-	} else {
-		m.announcementChannels = append(m.announcementChannels, lec.AnnouncementChannels...)
-	}
+	m.settings = d.Settings
+	m.cfgDebug = lec.Debug
+	m.debugChannel = lec.DebugChannel
+	m.baseChannels = append([]string(nil), lec.AnnouncementChannels...)
+	debug := m.debugEnabled()
+	m.applyDebug(debug)
 	m.emojiZonk = resolveEmoji("zonk", lec.Emojis.Zonk, fallbackZonk)
 	m.emojiLol = resolveEmoji("lol", lec.Emojis.Lol, fallbackLol)
 	m.emojiNotAmused = resolveEmoji("notamused", lec.Emojis.NotAmused, fallbackNotAmused)
@@ -151,7 +153,7 @@ func (m *Module) Init(d bot.Deps) error {
 	for _, cmd := range m.Commands() {
 		d.Router.AddCommand(cmd, m.onInteractionCreate)
 	}
-	slog.Info("leetoclock: initialized", "debug", lec.Debug, "announcement_channels", m.announcementChannels, "target", m.currentTarget().String())
+	slog.Info("leetoclock: initialized", "debug", debug, "announcement_channels", m.channels(), "target", m.currentTarget().String())
 	return nil
 }
 
@@ -184,15 +186,84 @@ func (m *Module) Shutdown() error {
 	return m.store.Close()
 }
 
+// debugEnabled reads the effective leetoclock.debug flag: the settings store
+// when wired, otherwise the config.yaml value.
+func (m *Module) debugEnabled() bool {
+	if m.settings != nil {
+		return m.settings.Bool(settings.KeyLeetoclockDebug)
+	}
+	return m.cfgDebug
+}
+
+// applyDebug switches target, tick and announcement channels between debug and
+// normal mode. Debug: target now+1min, 1s tick, debug channel only. Normal:
+// 13:37, 1min tick, configured announcement channels.
+func (m *Module) applyDebug(debug bool) {
+	m.stateMu.Lock()
+	defer m.stateMu.Unlock()
+	m.applyDebugLocked(debug)
+}
+
+// applyDebugLocked is applyDebug for callers already holding stateMu. The debug
+// target keeps its full date, so enabling at 23:59 targets 00:00 the next day.
+func (m *Module) applyDebugLocked(debug bool) {
+	m.debug = debug
+	if debug {
+		target := m.now().Add(time.Minute).Truncate(time.Minute)
+		m.debugTarget = target
+		m.target = target
+		m.targetHour, m.targetMinute = target.Hour(), target.Minute()
+		m.tickInterval = time.Second
+		m.announcementChannels = nil
+		if m.debugChannel != "" {
+			m.announcementChannels = []string{m.debugChannel}
+		}
+		return
+	}
+	m.targetHour, m.targetMinute = defaultHour, defaultMinute
+	m.tickInterval = time.Minute
+	m.announcementChannels = append([]string(nil), m.baseChannels...)
+}
+
+// syncDebug applies the debug flag only when it changed since the last apply,
+// so a debug target is not pushed forward every tick.
+func (m *Module) syncDebug() {
+	debug := m.debugEnabled()
+	m.stateMu.Lock()
+	changed := debug != m.debug
+	if changed {
+		m.applyDebugLocked(debug)
+	}
+	m.stateMu.Unlock()
+	if changed {
+		slog.Info("leetoclock: debug mode changed", "debug", debug)
+	}
+}
+
+func (m *Module) currentTick() time.Duration {
+	m.stateMu.RLock()
+	defer m.stateMu.RUnlock()
+	return m.tickInterval
+}
+
+// channels returns a copy of the announcement channels, safe to use without
+// holding stateMu across Discord calls.
+func (m *Module) channels() []string {
+	m.stateMu.RLock()
+	defer m.stateMu.RUnlock()
+	return append([]string(nil), m.announcementChannels...)
+}
+
 func (m *Module) runPreparationLoop(ctx context.Context) {
 	for {
+		m.syncDebug()
 		m.updateTarget()
 		if m.isOnTargetTimeRange(m.now(), false) {
 			m.announcePreparation()
 			if !wait(ctx, 2*time.Minute) {
 				return
 			}
-		} else if !wait(ctx, m.tickInterval) {
+		} else if !wait(ctx, m.currentTick()) {
 			return
 		}
 	}
@@ -200,17 +271,21 @@ func (m *Module) runPreparationLoop(ctx context.Context) {
 
 func (m *Module) runWinnerLoop(ctx context.Context) {
 	for {
+		m.syncDebug()
 		m.updateTarget()
 		if m.isOnTargetTimeRange(m.now(), true) {
+			// Capture the round before waiting: a debug flip during the wait
+			// must not relabel the scoreboard of the round that just ended.
+			target := m.currentTarget()
 			if !wait(ctx, 62*time.Second) {
 				return
 			}
-			m.announceTodaysWinners()
+			m.announceTodaysWinners(target)
 			m.resetGameVars()
 			if !wait(ctx, time.Minute) {
 				return
 			}
-		} else if !wait(ctx, m.tickInterval) {
+		} else if !wait(ctx, m.currentTick()) {
 			return
 		}
 	}
@@ -236,7 +311,7 @@ func (m *Module) announcementTitle() string {
 
 func (m *Module) announcePreparation() {
 	target := m.currentTarget()
-	for _, channelID := range m.announcementChannels {
+	for _, channelID := range m.channels() {
 		if _, err := m.session.ChannelMessageSend(channelID, fmt.Sprintf("%s\n<t:%d:R>", m.announcementTitle(), target.Unix())); err != nil {
 			slog.Error("leetoclock: send preparation announcement", "error", err)
 		}
@@ -257,7 +332,7 @@ func sortScoreArrayByScore(scores []datastore.Score) []datastore.Score {
 	return scores
 }
 
-func (m *Module) buildScoreboardForGame(game datastore.Game) (string, []datastore.Score, []datastore.Score, []datastore.Score, error) {
+func (m *Module) buildScoreboardForGame(game datastore.Game, target time.Time) (string, []datastore.Score, []datastore.Score, []datastore.Score, error) {
 	scores, err := m.store.GetScoresForGameID(game.ID)
 	if err != nil {
 		return "", nil, nil, nil, err
@@ -268,7 +343,7 @@ func (m *Module) buildScoreboardForGame(game datastore.Game) (string, []datastor
 		return "", nil, nil, nil, err
 	}
 
-	scoreboard := fmt.Sprintf("## 1337erboard for <t:%d>\n", m.currentTarget().Unix())
+	scoreboard := fmt.Sprintf("## 1337erboard for <t:%d>\n", target.Unix())
 	earlyBirds := make([]datastore.Score, 0)
 	winners := make([]datastore.Score, 0)
 	zonks := make([]datastore.Score, 0)
@@ -339,7 +414,7 @@ func (m *Module) renewReactions(game datastore.Game) {
 	m.renewReactionsMu.Lock()
 	defer m.renewReactionsMu.Unlock()
 
-	_, earlyBirds, winners, zonks, err := m.buildScoreboardForGame(game)
+	_, earlyBirds, winners, zonks, err := m.buildScoreboardForGame(game, m.currentTarget())
 	if err != nil {
 		slog.Error("leetoclock: build scoreboard", "error", err)
 		return
@@ -368,14 +443,14 @@ func (m *Module) renewReactions(game datastore.Game) {
 	}
 }
 
-func (m *Module) announceTodaysWinners() {
+func (m *Module) announceTodaysWinners(target time.Time) {
 	games, err := m.store.GetGamesByDate(m.now())
 	if err != nil {
 		slog.Error("leetoclock: get today's games", "error", err)
 		return
 	}
 	for _, game := range games {
-		scoreboard, _, _, _, err := m.buildScoreboardForGame(game)
+		scoreboard, _, _, _, err := m.buildScoreboardForGame(game, target)
 		if err != nil {
 			slog.Error("leetoclock: build scoreboard", "error", err)
 			continue
@@ -394,9 +469,13 @@ func (m *Module) resetGameVars() {
 
 func (m *Module) updateTarget() {
 	now := m.now()
-	target := time.Date(now.Year(), now.Month(), now.Day(), m.targetHour, m.targetMinute, 0, 0, now.Location())
 	m.stateMu.Lock()
-	m.target = target
+	if m.debug {
+		m.target = m.debugTarget
+		m.stateMu.Unlock()
+		return
+	}
+	m.target = time.Date(now.Year(), now.Month(), now.Day(), m.targetHour, m.targetMinute, 0, 0, now.Location())
 	m.stateMu.Unlock()
 }
 

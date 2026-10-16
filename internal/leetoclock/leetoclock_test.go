@@ -3,6 +3,8 @@ package leetoclock
 import (
 	"context"
 	"path/filepath"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -10,6 +12,7 @@ import (
 	"github.com/toksikk/gidbig/internal/bot"
 	"github.com/toksikk/gidbig/internal/cfg"
 	"github.com/toksikk/gidbig/internal/leetoclock/util/datastore"
+	"github.com/toksikk/gidbig/internal/settings"
 	"github.com/toksikk/gidbig/internal/util"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -338,4 +341,183 @@ func newTestModule(t *testing.T) (*Module, *discordgo.Session) {
 		}
 	})
 	return m, session
+}
+
+func TestApplyDebug(t *testing.T) {
+	m := New()
+	fixed := time.Date(2026, 1, 2, 9, 15, 30, 0, time.UTC)
+	m.now = func() time.Time { return fixed }
+	m.debugChannel = "debugchan"
+	m.baseChannels = []string{"prod1", "prod2"}
+
+	m.applyDebug(true)
+	if m.targetHour != 9 || m.targetMinute != 16 {
+		t.Errorf("debug target = %02d:%02d, want 09:16", m.targetHour, m.targetMinute)
+	}
+	if m.tickInterval != time.Second {
+		t.Errorf("debug tick = %v, want 1s", m.tickInterval)
+	}
+	if got := m.channels(); len(got) != 1 || got[0] != "debugchan" {
+		t.Errorf("debug channels = %v, want [debugchan]", got)
+	}
+
+	m.applyDebug(false)
+	if m.targetHour != defaultHour || m.targetMinute != defaultMinute {
+		t.Errorf("normal target = %02d:%02d, want 13:37", m.targetHour, m.targetMinute)
+	}
+	if m.tickInterval != time.Minute {
+		t.Errorf("normal tick = %v, want 1m", m.tickInterval)
+	}
+	if got := m.channels(); len(got) != 2 || got[0] != "prod1" || got[1] != "prod2" {
+		t.Errorf("normal channels = %v, want [prod1 prod2]", got)
+	}
+}
+
+func TestDebugFlipTakesEffectBetweenIterations(t *testing.T) {
+	db := openTestDB(t)
+	conf, err := cfg.Decode(strings.NewReader("discord:\n  token: t\ngippity:\n  allowed_guilds: [g]\nleetoclock:\n  debug_channel: debugchan\n  announcement_channels: [prod]\n"))
+	if err != nil {
+		t.Fatalf("decode config: %v", err)
+	}
+	store, err := settings.New(db, conf)
+	if err != nil {
+		t.Fatalf("settings.New: %v", err)
+	}
+	session, err := discordgo.New("Bot test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := New()
+	fixed := time.Date(2026, 1, 2, 9, 15, 30, 0, time.UTC)
+	m.now = func() time.Time { return fixed }
+	if err := m.Init(bot.Deps{Session: session, Config: conf, DB: db, Settings: store}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = m.Shutdown() })
+
+	if m.currentTick() != time.Minute || m.currentTarget().Hour() != defaultHour {
+		t.Fatalf("initial state not normal: tick=%v target=%v", m.currentTick(), m.currentTarget())
+	}
+
+	if err := store.Set(settings.KeyLeetoclockDebug, "true", "owner"); err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+	m.syncDebug()
+	m.updateTarget()
+	if m.currentTick() != time.Second {
+		t.Errorf("tick after enable = %v, want 1s", m.currentTick())
+	}
+	if tg := m.currentTarget(); tg.Hour() != 9 || tg.Minute() != 16 {
+		t.Errorf("target after enable = %v, want 09:16", tg)
+	}
+	if got := m.channels(); len(got) != 1 || got[0] != "debugchan" {
+		t.Errorf("channels after enable = %v", got)
+	}
+
+	// A further iteration without a change must not push the target forward.
+	fixed = fixed.Add(30 * time.Second)
+	m.syncDebug()
+	m.updateTarget()
+	if tg := m.currentTarget(); tg.Minute() != 16 {
+		t.Errorf("target moved without a flag change: %v", tg)
+	}
+
+	if err := store.Set(settings.KeyLeetoclockDebug, "false", "owner"); err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+	m.syncDebug()
+	m.updateTarget()
+	if m.currentTick() != time.Minute || m.currentTarget().Hour() != defaultHour || m.currentTarget().Minute() != defaultMinute {
+		t.Errorf("state after disable: tick=%v target=%v", m.currentTick(), m.currentTarget())
+	}
+	if got := m.channels(); len(got) != 1 || got[0] != "prod" {
+		t.Errorf("channels after disable = %v", got)
+	}
+}
+
+func TestDebugConcurrentReadsRace(t *testing.T) {
+	m := New()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := 0; i < 200; i++ {
+			m.applyDebug(i%2 == 0)
+		}
+	}()
+	syncDone := make(chan struct{})
+	go func() {
+		defer close(syncDone)
+		for i := 0; i < 200; i++ {
+			m.syncDebug()
+		}
+	}()
+	for i := 0; i < 200; i++ {
+		m.updateTarget()
+		_ = m.channels()
+		_ = m.currentTick()
+		_ = m.isOnTargetTimeRange(time.Now(), false)
+	}
+	<-done
+	<-syncDone
+}
+
+func TestSyncDebugAppliesOnceAcrossMinuteBoundary(t *testing.T) {
+	m := New()
+	var clockMu sync.Mutex
+	clock := time.Date(2026, 1, 2, 9, 15, 59, 0, time.UTC)
+	m.now = func() time.Time {
+		clockMu.Lock()
+		defer clockMu.Unlock()
+		t := clock
+		clock = clock.Add(time.Second) // every read crosses into the next minute
+		return t
+	}
+	m.cfgDebug = true
+
+	var wg sync.WaitGroup
+	for i := 0; i < 2; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			m.syncDebug()
+		}()
+	}
+	wg.Wait()
+
+	// Exactly one apply reads the clock (09:15:59 -> 09:16:59 -> 09:16).
+	if tg := m.currentTarget(); tg.Hour() != 9 || tg.Minute() != 16 {
+		t.Errorf("target = %v, want 09:16 (applied once)", tg)
+	}
+	clockMu.Lock()
+	reads := clock.Sub(time.Date(2026, 1, 2, 9, 15, 59, 0, time.UTC))
+	clockMu.Unlock()
+	if reads != time.Second {
+		t.Errorf("debug applied %d times, want once", int(reads/time.Second))
+	}
+}
+
+func TestDebugTargetCrossesMidnight(t *testing.T) {
+	m := New()
+	fixed := time.Date(2026, 1, 2, 23, 59, 30, 0, time.UTC)
+	m.now = func() time.Time { return fixed }
+	m.applyDebug(true)
+	m.updateTarget()
+	want := time.Date(2026, 1, 3, 0, 0, 0, 0, time.UTC)
+	if tg := m.currentTarget(); !tg.Equal(want) {
+		t.Fatalf("target = %v, want %v", tg, want)
+	}
+	if !m.isOnTargetTimeRange(fixed, false) {
+		t.Error("23:59:30 should be in the preparation window")
+	}
+	fixed = time.Date(2026, 1, 3, 0, 0, 10, 0, time.UTC)
+	m.updateTarget()
+	if tg := m.currentTarget(); !tg.Equal(want) {
+		t.Fatalf("target after midnight = %v, want %v", tg, want)
+	}
+	if !m.isOnTargetTimeRange(fixed, true) {
+		t.Error("00:00:10 next day should fire the debug round")
+	}
+	if got := m.calculateScore(fixed); got != 10000 {
+		t.Errorf("score = %d, want 10000", got)
+	}
 }
