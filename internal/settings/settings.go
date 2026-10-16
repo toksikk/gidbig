@@ -20,6 +20,13 @@ import (
 // indistinguishable so a caller cannot probe for a credential.
 var ErrUnknownKey = errors.New("unknown or non-editable setting")
 
+// ErrRestartRequired is returned by every write to a cold key: it is known and
+// readable, but only config.yaml and a restart change it.
+var ErrRestartRequired = errors.New("read-only at runtime; restart required: edit config.yaml")
+
+// ErrNotList is returned by Add and Remove for a key that is not a list.
+var ErrNotList = errors.New("not a list setting; use set instead")
+
 // Store holds the runtime overrides over the config loaded at boot. The
 // database is the source of truth; the in-memory cache is derived and rebuilt
 // from it, never mutated in place.
@@ -100,6 +107,10 @@ func (s *Store) reload() error {
 			slog.Warn("settings: ignoring a stored value for an unknown or non-editable key", "key", row.Key)
 			continue
 		}
+		if k.Cold {
+			slog.Warn("settings: ignoring a stored value for a cold key; edit config.yaml instead", "key", row.Key)
+			continue
+		}
 		values[row.Key] = row.Value
 	}
 	s.now.Store(&snapshot{values: values, invalid: s.combinationError(values)})
@@ -115,7 +126,7 @@ func (s *Store) combinationError(values map[string]string) error {
 	merged := *s.base
 	for _, k := range registry {
 		v, ok := values[k.Name]
-		if !ok || !applicable(k, v) {
+		if !ok || k.Apply == nil || !applicable(k, v) {
 			continue
 		}
 		if err := k.Apply(&merged, v); err != nil {
@@ -308,13 +319,6 @@ func (s *Store) Set(key, value, updatedBy string) error {
 	if err != nil {
 		return err
 	}
-	value = strings.TrimSpace(value)
-	if k.Validate != nil {
-		if err := k.Validate(value); err != nil {
-			return fmt.Errorf("%s %w", key, err)
-		}
-	}
-
 	// The lock spans validation, not just the write: validation reads the stored
 	// overrides, so two concurrent writes could each validate against the
 	// pre-change state and together persist a combination cfg.Validate rejects.
@@ -322,6 +326,71 @@ func (s *Store) Set(key, value, updatedBy string) error {
 	// process's own SQLite write.
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.setLocked(k, value, updatedBy)
+}
+
+// Add appends item to a list key and stores the result like Set. An item that is
+// already present is rejected and nothing is written.
+func (s *Store) Add(key, item, updatedBy string) error {
+	return s.editList(key, item, updatedBy, func(list []string, item string) ([]string, error) {
+		for _, existing := range list {
+			if existing == item {
+				return nil, fmt.Errorf("%s already contains %q", key, item)
+			}
+		}
+		return append(list, item), nil
+	})
+}
+
+// Remove drops item from a list key and stores the result like Set. An item that
+// is not present is rejected and nothing is written.
+func (s *Store) Remove(key, item, updatedBy string) error {
+	return s.editList(key, item, updatedBy, func(list []string, item string) ([]string, error) {
+		for i, existing := range list {
+			if existing == item {
+				return append(list[:i:i], list[i+1:]...), nil
+			}
+		}
+		return nil, fmt.Errorf("%s does not contain %q", key, item)
+	})
+}
+
+// editList reads the effective list under the write lock, edits it and stores
+// it through the same validation path as Set, so a concurrent write cannot be
+// lost between the read and the write.
+func (s *Store) editList(key, item, updatedBy string, edit func([]string, string) ([]string, error)) error {
+	if s == nil {
+		return errors.New("settings: store not initialised")
+	}
+	k, err := editable(key)
+	if err != nil {
+		return err
+	}
+	if k.Kind != KindStringList {
+		return fmt.Errorf("%w: %q", ErrNotList, key)
+	}
+	item = strings.TrimSpace(item)
+	if item == "" || strings.ContainsAny(item, ",\n") {
+		return fmt.Errorf("%s item must be one non-empty value without commas", key)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	list, err := edit(s.StringList(key), item)
+	if err != nil {
+		return err
+	}
+	return s.setLocked(k, formatList(list), updatedBy)
+}
+
+// setLocked validates and stores value for k. The caller holds s.mu.
+func (s *Store) setLocked(k Key, value, updatedBy string) error {
+	key := k.Name
+	value = strings.TrimSpace(value)
+	if k.Validate != nil {
+		if err := k.Validate(value); err != nil {
+			return fmt.Errorf("%s %w", key, err)
+		}
+	}
 
 	// Validate against the same rules the boot path uses, on a merged copy: the
 	// deploy-time config with every stored override applied, then this one on
@@ -330,7 +399,7 @@ func (s *Store) Set(key, value, updatedBy string) error {
 	// this key against the file.
 	merged := *s.base
 	for _, other := range registry {
-		if other.Name == k.Name {
+		if other.Name == k.Name || other.Apply == nil {
 			continue
 		}
 		v, ok := s.override(other.Name)
@@ -409,11 +478,14 @@ func (s *Store) Unset(key, updatedBy string) error {
 }
 
 // editable resolves a key that may be written, rejecting an unknown or secret
-// name with ErrUnknownKey.
+// name with ErrUnknownKey and a cold one with ErrRestartRequired.
 func editable(key string) (Key, error) {
 	k, ok := byName[key]
 	if !ok || k.Secret {
 		return Key{}, fmt.Errorf("%w: %q", ErrUnknownKey, key)
+	}
+	if k.Cold {
+		return Key{}, fmt.Errorf("%q is %w", key, ErrRestartRequired)
 	}
 	return k, nil
 }

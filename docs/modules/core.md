@@ -120,6 +120,11 @@ submits nothing), a number field for an integer, a text field otherwise. The
 checkbox is ticked from the effective value through the `isTrue` template helper,
 so a row stored as `1` or `TRUE` shows as ticked too.
 
+A list key additionally gets one remove form per item and an add form. A cold
+key is shown read-only with its value, source and the "restart required: edit
+config.yaml" note, and has no form; a crafted POST for it is refused by
+`configcmd` like the slash command.
+
 ```mermaid
 sequenceDiagram
     participant O as Owner browser
@@ -139,10 +144,10 @@ sequenceDiagram
         T-->>C: value + source (or the invalid-combination error)
         C-->>W: entries + error
         W-->>O: admin.html — table, forms, fresh form token
-        O->>W: POST /admin action=set|unset key value csrf
+        O->>W: POST /admin action=set|unset|add|remove key value csrf
         W->>W: Origin check, constant-time token compare
-        W->>C: ApplySet / ApplyUnset
-        C->>T: Set / Unset (validated against config.yaml, merged)
+        W->>C: ApplySet / ApplyUnset / ApplyAdd / ApplyRemove
+        C->>T: Set / Unset / Add / Remove (validated against config.yaml, merged)
         W-->>O: 303 to /admin, outcome flashed once
     end
 ```

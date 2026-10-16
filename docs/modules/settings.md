@@ -11,6 +11,11 @@ config`. Not user-facing on its own.
   loaded at boot; it supplies the values an override layers over. The shared
   `*gorm.DB` is owned by the composition root and is never closed here.
 - `Store.Set/Unset` – validate, write, reload the cache.
+- `Store.Add/Remove` – edit one item of a `stringlist` key. Under the write lock
+  they read the effective list, add or drop the item, and store the result
+  through the same validation as `Set`. A duplicate add, a missing remove, an
+  empty item or one containing a comma, and a non-list key (`ErrNotList`) are
+  rejected and nothing is written.
 - `Store.Bool/Int/String/StringList` – typed effective value for a key.
 - `Store.Override` – the stored value only, without the config.yaml or built-in
   fallback. The llm client uses it to resolve `llm.model` per request.
@@ -35,14 +40,24 @@ equal to that baseline is reported as `default`. One consequence is pinned by
 test: a config.yaml value that happens to equal the built-in default is reported
 as `default`, because the effective value is identical either way.
 
-## Only hot keys are registered
+## Hot, cold and secret keys
 
-Every registered key applies to the next read; there is no restart-required key
-in the registry. A boot-time-only setting (for example `discord.shard_id`,
-`web.port` or `dev_mode`) is therefore indistinguishable from a typo: both are
-reported as an unknown key. Secrets are never registered, and every entry point
-(`Lookup`, `Set`, `Unset`, `Effective`, `Override`) rejects a key flagged
-`Secret`, so a future addition cannot leak a credential even by mistake.
+A key is either **hot** (applies to the next read) or **cold** (`Cold: true`,
+read only at boot). Cold keys — every non-secret `cfg.Config` field that is not
+hot, for example `discord.shard_id`, `web.port`, `llm.provider` or `dev_mode` —
+are registered with `Extract` only and carry the `Note` "restart required: edit
+config.yaml". They are listed and readable with their value and source, but
+`Set`/`Unset`/`Add`/`Remove` return `ErrRestartRequired`, which is distinct from
+`ErrUnknownKey`. A stored row for a cold key (hand-edited) is ignored with a
+warning on reload, so it can never look in force.
+
+`Note` is an optional per-key warning that every surface renders the same way.
+
+Secrets (`discord.token`, `web.oauth.client_secret`, `web.session_secret`,
+`llm.api_key`) are not registered, so they are indistinguishable from a typo.
+Every entry point (`Lookup`, `Set`, `Unset`, `Add`, `Remove`, `Effective`,
+`Override`) also rejects a key flagged `Secret`, so a future addition cannot leak
+a credential even by mistake.
 
 ## Registry, validation and keys
 
@@ -56,7 +71,7 @@ new value, and runs `cfg.Validate` on the result. Applying all overrides first
 matters — two values that are individually valid can be invalid together (tools
 enabled plus a zero iteration cap), and the file alone would not catch that.
 
-Six keys carry a registry-local rule. Five of them restate a `cfg.Validate` rule — the four positive-value caps and the `reasoning_effort` enum — so the store can judge a single stored row on its own without building a merged config on every read:
+Seven keys carry a registry-local rule. Six of them restate a `cfg.Validate` rule — the four positive-value caps, the non-empty `allowed_guilds` and the `reasoning_effort` enum — so the store can judge a single stored row on its own without building a merged config on every read:
 
 - `llm.model` must not be empty; an empty model would mean the built-in default
   (or be invalid for openrouter), so `unset` is the way back.
@@ -66,6 +81,8 @@ Six keys carry a registry-local rule. Five of them restate a `cfg.Validate` rule
 - `llm.max_tokens` must be greater than zero. `cfg.Decode` applies the 300
   default, matching `llm.DefaultMaxTokens`, so the cap cannot be driven to zero
   (which would disable completions) from Discord.
+- `gippity.allowed_guilds` must hold at least one item and no empty item,
+  mirroring `cfg.Validate`, so the last allowed guild cannot be removed.
 - `gippity.tools.reasoning_effort` must be one of the accepted enum values;
   the registry reuses `cfg.ValidateReasoningEffort` rather than copying the list.
 

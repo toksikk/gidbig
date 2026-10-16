@@ -454,3 +454,44 @@ func TestToolMaxIterationsNow_HonoursAStoredZero(t *testing.T) {
 		t.Errorf("toolMaxIterationsNow() = %d, want the stored 0 rather than a floored value", got)
 	}
 }
+
+// TestEligible_AllowedGuildsIsHot proves a guild added through the store is
+// answered on the next message and a removed one is ignored, without a restart.
+func TestEligible_AllowedGuildsIsHot(t *testing.T) {
+	m, _ := setupGippityTest(t)
+	store := newRuntimeSettingsStore(t, m.db)
+	m.settings = store
+
+	msg := func(guild string) *discordgo.MessageCreate {
+		return &discordgo.MessageCreate{Message: &discordgo.Message{
+			ID: "1", ChannelID: "chan", GuildID: guild, Content: "hi",
+			Type: discordgo.MessageTypeDefault, Author: &discordgo.User{ID: "user"},
+		}}
+	}
+	// The Init snapshot is ignored once a store is wired.
+	if m.eligible(msg("allowed-guild")) {
+		t.Error("a guild only in the snapshot was eligible with a store wired")
+	}
+	if !m.eligible(msg("guild")) {
+		t.Fatal("the config.yaml guild was not eligible")
+	}
+	if err := store.Add(settings.KeyGippityAllowedGuilds, "new-guild", "owner"); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	if !m.eligible(msg("new-guild")) {
+		t.Error("a guild added at runtime was not eligible on the next message")
+	}
+	if err := store.Remove(settings.KeyGippityAllowedGuilds, "guild", "owner"); err != nil {
+		t.Fatalf("Remove: %v", err)
+	}
+	if m.eligible(msg("guild")) {
+		t.Error("a guild removed at runtime was still eligible")
+	}
+}
+
+func TestGuildAllowed_FallsBackToSnapshotWithoutAStore(t *testing.T) {
+	m, _ := setupGippityTest(t)
+	if !m.guildAllowed("allowed-guild") || m.guildAllowed("other") {
+		t.Error("guildAllowed did not follow the Init snapshot without a store")
+	}
+}

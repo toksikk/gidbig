@@ -100,7 +100,18 @@ func TestAdminSubcommandGroup_Structure(t *testing.T) {
 	for _, o := range group.Options {
 		subs[o.Name] = o
 	}
-	for _, want := range []string{"list", "get", "set", "unset"} {
+	if len(group.Options) != 6 {
+		t.Errorf("group has %d subcommands, want 6", len(group.Options))
+	}
+	for _, name := range []string{"add", "remove"} {
+		if sub := subs[name]; sub != nil {
+			if len(sub.Options) != 2 || sub.Options[0].Name != "key" || sub.Options[1].Name != "value" ||
+				!sub.Options[0].Required || !sub.Options[1].Required {
+				t.Errorf("%s must take required key and value options, got %+v", name, sub.Options)
+			}
+		}
+	}
+	for _, want := range []string{"list", "get", "set", "unset", "add", "remove"} {
 		if subs[want] == nil {
 			t.Errorf("missing subcommand %q", want)
 		}
@@ -677,5 +688,80 @@ func TestApplyUnset_ReportsWhetherItRemovedSomething(t *testing.T) {
 	message, ok = New().ApplyUnset(settings.KeyGippityToolsEnabled, "owner")
 	if ok || !strings.Contains(message, "unavailable") {
 		t.Errorf("unwired module: ok = %v, message = %q", ok, message)
+	}
+}
+
+func TestColdKey_ReadOnlyEverywhere(t *testing.T) {
+	m, _ := newTestModule(t)
+
+	list := m.renderList()
+	if !strings.Contains(list, "Read-only (restart required: edit config.yaml)") || !strings.Contains(list, "web.port") {
+		t.Errorf("list does not mark cold keys:\n%s", list)
+	}
+	get := handle(t, m, subcommand("get", keyValue("key", "web.port")))
+	if !strings.Contains(get, "restart required: edit config.yaml") || !strings.Contains(get, "source:") {
+		t.Errorf("get(web.port) = %q", get)
+	}
+	unknown := handle(t, m, subcommand("set", keyValue("key", "nope"), keyValue("value", "1")))
+	for name, sub := range map[string]*discordgo.ApplicationCommandInteractionDataOption{
+		"set":    subcommand("set", keyValue("key", "web.port"), keyValue("value", "1")),
+		"unset":  subcommand("unset", keyValue("key", "web.port")),
+		"add":    subcommand("add", keyValue("key", "gippity.ignored_users"), keyValue("value", "1")),
+		"remove": subcommand("remove", keyValue("key", "gippity.ignored_users"), keyValue("value", "1")),
+	} {
+		reply := handle(t, m, sub)
+		if !strings.Contains(reply, "read-only at runtime") || reply == unknown {
+			t.Errorf("%s on a cold key = %q, want a restart-required refusal", name, reply)
+		}
+	}
+}
+
+func TestAddRemove_Replies(t *testing.T) {
+	m, store := newTestModule(t)
+	key := settings.KeyGippityAllowedGuilds
+
+	if reply := handle(t, m, subcommand("add", keyValue("key", key), keyValue("value", "g2"))); !strings.HasPrefix(reply, "Added `g2`") {
+		t.Errorf("add reply = %q", reply)
+	}
+	if got := strings.Join(store.StringList(key), ","); got != "guild,g2" {
+		t.Errorf("list = %q", got)
+	}
+	if reply := handle(t, m, subcommand("add", keyValue("key", key), keyValue("value", "g2"))); !strings.Contains(reply, "already contains") {
+		t.Errorf("duplicate add reply = %q", reply)
+	}
+	if reply := handle(t, m, subcommand("remove", keyValue("key", key), keyValue("value", "nope"))); !strings.Contains(reply, "does not contain") {
+		t.Errorf("missing remove reply = %q", reply)
+	}
+	if reply := handle(t, m, subcommand("remove", keyValue("key", key), keyValue("value", "guild"))); !strings.HasPrefix(reply, "Removed `guild`") {
+		t.Errorf("remove reply = %q", reply)
+	}
+	if reply := handle(t, m, subcommand("remove", keyValue("key", key), keyValue("value", "g2"))); !strings.HasPrefix(reply, "Rejected: remove") {
+		t.Errorf("removing the last guild reply = %q", reply)
+	}
+	if reply := handle(t, m, subcommand("add", keyValue("key", settings.KeyLLMMaxTokens), keyValue("value", "1"))); !strings.Contains(reply, "not a list setting") {
+		t.Errorf("add on non-list reply = %q", reply)
+	}
+	if reply := handle(t, m, subcommand("add", keyValue("key", "discord.token"), keyValue("value", "1"))); !strings.Contains(reply, "Unknown or non-editable") {
+		t.Errorf("add on secret reply = %q", reply)
+	}
+}
+
+func TestEntries_ColdAndItems(t *testing.T) {
+	m, _ := newTestModule(t)
+	entries, err := m.Entries()
+	if err != nil {
+		t.Fatalf("Entries: %v", err)
+	}
+	var sawCold, sawItems bool
+	for _, e := range entries {
+		if e.Name == "web.port" && e.Cold && e.Note != "" {
+			sawCold = true
+		}
+		if e.Name == settings.KeyGippityAllowedGuilds && !e.Cold && len(e.Items) == 1 && e.Items[0] == "guild" {
+			sawItems = true
+		}
+	}
+	if !sawCold || !sawItems {
+		t.Errorf("entries missing cold or list items: cold=%v items=%v", sawCold, sawItems)
 	}
 }

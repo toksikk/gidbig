@@ -132,12 +132,9 @@ func TestSet_UnknownAndNonEditableKeysAreRejected(t *testing.T) {
 		"nope",
 		"",
 		"discord.token",
-		"web.port",
 		"web.session_secret",
-		"dev_mode",
-		"leetoclock.debug",
-		"llm.provider",
-		"gippity.allowed_guilds",
+		"web.oauth.client_secret",
+		"llm.api_key",
 	}
 	for _, key := range keys {
 		if err := store.Set(key, "value", "owner"); err == nil {
@@ -148,8 +145,17 @@ func TestSet_UnknownAndNonEditableKeysAreRejected(t *testing.T) {
 		if err := store.Unset(key, "owner"); err == nil {
 			t.Errorf("Unset(%q) = nil, want %v", key, ErrUnknownKey)
 		}
+		if err := store.Add(key, "value", "owner"); !errors.Is(err, ErrUnknownKey) {
+			t.Errorf("Add(%q) error = %v, want %v", key, err, ErrUnknownKey)
+		}
+		if err := store.Remove(key, "value", "owner"); !errors.Is(err, ErrUnknownKey) {
+			t.Errorf("Remove(%q) error = %v, want %v", key, err, ErrUnknownKey)
+		}
 		if _, _, ok := store.Effective(key); ok {
 			t.Errorf("Effective(%q) reported the key as known", key)
+		}
+		if _, ok := Lookup(key); ok {
+			t.Errorf("Lookup(%q) reported the key as known", key)
 		}
 	}
 	if _, ok := store.Override("discord.token"); ok {
@@ -209,6 +215,12 @@ func TestSecretKeysAreNeverExposed(t *testing.T) {
 	if err := store.Unset(name, "owner"); !errors.Is(err, ErrUnknownKey) {
 		t.Errorf("Unset(secret) error = %v, want %v", err, ErrUnknownKey)
 	}
+	if err := store.Add(name, "x", "owner"); !errors.Is(err, ErrUnknownKey) {
+		t.Errorf("Add(secret) error = %v, want %v", err, ErrUnknownKey)
+	}
+	if err := store.Remove(name, "x", "owner"); !errors.Is(err, ErrUnknownKey) {
+		t.Errorf("Remove(secret) error = %v, want %v", err, ErrUnknownKey)
+	}
 }
 
 // TestRegistry_NoSecretKeys guards the invariant that no credential is ever
@@ -219,12 +231,137 @@ func TestRegistry_NoSecretKeys(t *testing.T) {
 		if k.Secret {
 			t.Errorf("key %q is registered as secret", k.Name)
 		}
-		if !k.Hot {
-			t.Errorf("key %q is not hot; only hot keys may be registered", k.Name)
+		if k.Hot == k.Cold {
+			t.Errorf("key %q must be exactly one of hot or cold", k.Name)
 		}
-		if k.Extract == nil || k.Apply == nil {
-			t.Errorf("key %q is missing Extract or Apply", k.Name)
+		if k.Extract == nil {
+			t.Errorf("key %q is missing Extract", k.Name)
 		}
+		if k.Hot && k.Apply == nil {
+			t.Errorf("hot key %q is missing Apply", k.Name)
+		}
+		if k.Cold && (k.Apply != nil || k.Validate != nil) {
+			t.Errorf("cold key %q must not have Apply or Validate", k.Name)
+		}
+	}
+	for _, secret := range []string{"discord.token", "web.session_secret", "web.oauth.client_secret", "llm.api_key"} {
+		if _, ok := byName[secret]; ok {
+			t.Errorf("secret %q is registered", secret)
+		}
+	}
+}
+
+func TestColdKeys_ReadOnlyWithSource(t *testing.T) {
+	const yamlConfig = `
+discord:
+  token: "test-token"
+web:
+  port: 9090
+gippity:
+  allowed_guilds: ["guild"]
+`
+	store := newTestStore(t, openTestDB(t), yamlConfig)
+	for _, tc := range []struct{ key, value string }{
+		{"web.port", "9090"},
+		{"dev_mode", "false"},
+		{"llm.provider", ""},
+		{"gippity.ignored_users", ""},
+	} {
+		k, ok := Lookup(tc.key)
+		if !ok || !k.Cold || k.Note != RestartRequiredNote {
+			t.Errorf("Lookup(%q) = %+v, %v; want a cold key with the restart note", tc.key, k, ok)
+		}
+		value, _, ok := store.Effective(tc.key)
+		if !ok || value != tc.value {
+			t.Errorf("Effective(%q) = %q, %v; want %q", tc.key, value, ok, tc.value)
+		}
+		for name, err := range map[string]error{
+			"Set":    store.Set(tc.key, "1", "owner"),
+			"Unset":  store.Unset(tc.key, "owner"),
+			"Add":    store.Add(tc.key, "1", "owner"),
+			"Remove": store.Remove(tc.key, "1", "owner"),
+		} {
+			if !errors.Is(err, ErrRestartRequired) {
+				t.Errorf("%s(%q) error = %v, want %v", name, tc.key, err, ErrRestartRequired)
+			}
+		}
+	}
+	if _, source, _ := store.Effective("web.port"); source != SourceYAML {
+		t.Errorf("source(web.port) = %q, want %q", source, SourceYAML)
+	}
+}
+
+func TestColdKeys_StoredRowIgnored(t *testing.T) {
+	store := newTestStore(t, openTestDB(t), baseYAML)
+	if err := store.db.Create(&Setting{Key: "web.port", Value: "1", UpdatedBy: "manual"}).Error; err != nil {
+		t.Fatalf("insert cold row: %v", err)
+	}
+	if err := store.reload(); err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	if v, source, _ := store.Effective("web.port"); v == "1" || source == SourceDB {
+		t.Errorf("Effective(web.port) = (%q, %q), want the config value", v, source)
+	}
+	if _, ok := store.Override("web.port"); ok {
+		t.Error("Override reported a cold row")
+	}
+}
+
+func TestAddRemove_List(t *testing.T) {
+	store := newTestStore(t, openTestDB(t), baseYAML)
+	if err := store.Add(KeyGippityAllowedGuilds, " g2 ", "owner"); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	if got := store.StringList(KeyGippityAllowedGuilds); strings.Join(got, ",") != "guild,g2" {
+		t.Errorf("after Add = %v", got)
+	}
+	if _, source, _ := store.Effective(KeyGippityAllowedGuilds); source != SourceDB {
+		t.Errorf("source = %q, want db", source)
+	}
+	if err := store.Add(KeyGippityAllowedGuilds, "g2", "owner"); err == nil || !strings.Contains(err.Error(), "already contains") {
+		t.Errorf("duplicate Add error = %v", err)
+	}
+	if err := store.Remove(KeyGippityAllowedGuilds, "missing", "owner"); err == nil || !strings.Contains(err.Error(), "does not contain") {
+		t.Errorf("missing Remove error = %v", err)
+	}
+	for _, bad := range []string{"", "a,b"} {
+		if err := store.Add(KeyGippityAllowedGuilds, bad, "owner"); err == nil {
+			t.Errorf("Add(%q) = nil, want an error", bad)
+		}
+	}
+	if err := store.Remove(KeyGippityAllowedGuilds, "guild", "owner"); err != nil {
+		t.Fatalf("Remove: %v", err)
+	}
+	if got := store.StringList(KeyGippityAllowedGuilds); strings.Join(got, ",") != "g2" {
+		t.Errorf("after Remove = %v", got)
+	}
+	if err := store.Remove(KeyGippityAllowedGuilds, "g2", "owner"); err == nil {
+		t.Error("removing the last allowed guild succeeded")
+	}
+	if got := store.StringList(KeyGippityAllowedGuilds); strings.Join(got, ",") != "g2" {
+		t.Errorf("rejected Remove changed the list to %v", got)
+	}
+	if err := store.Add(KeySoundboardQueueMaxDepth, "1", "owner"); !errors.Is(err, ErrNotList) {
+		t.Errorf("Add(non-list) error = %v, want %v", err, ErrNotList)
+	}
+	if err := store.Remove(KeyGippityToolsEnabled, "1", "owner"); !errors.Is(err, ErrNotList) {
+		t.Errorf("Remove(non-list) error = %v, want %v", err, ErrNotList)
+	}
+	// Add works on a list key that starts empty.
+	if err := store.Add(KeyGippityToolsAllowed, "search", "owner"); err != nil {
+		t.Errorf("Add(tools.allowed): %v", err)
+	}
+}
+
+func TestAllowedGuilds_SetRejectsEmpty(t *testing.T) {
+	store := newTestStore(t, openTestDB(t), baseYAML)
+	for _, v := range []string{"", " ", "a,,b", "a,"} {
+		if err := store.Set(KeyGippityAllowedGuilds, v, "owner"); err == nil {
+			t.Errorf("Set(allowed_guilds, %q) = nil, want an error", v)
+		}
+	}
+	if err := store.Set(KeyGippityAllowedGuilds, "a,b", "owner"); err != nil {
+		t.Errorf("Set(allowed_guilds, a,b): %v", err)
 	}
 }
 

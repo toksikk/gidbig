@@ -129,10 +129,13 @@ dev_mode: true
 #   /admin config get <key>            one key
 #   /admin config set <key> <value>    store an override in the shared database
 #   /admin config unset <key>          drop the override, back to config.yaml
+#   /admin config add <key> <item>     add one item to a list key
+#   /admin config remove <key> <item>  remove one item from a list key
 #
 # Precedence is: built-in default < config.yaml < database override. A value set
 # with /admin config takes effect on the next message; no restart and no SSH.
-# Every listed key is hot, and only these keys can be set this way:
+# Every listed key is hot, and only these keys can be set this way
+# (gippity.allowed_guilds is runtime-editable too; it can never become empty):
 #
 #   gippity.rate_limit_messages_per_hour   gippity.tools.enabled
 #   gippity.reply_in_thread                gippity.tools.max_iterations
@@ -141,10 +144,12 @@ dev_mode: true
 #   gippity.classifier_names               soundboard.queue_max_depth
 #   gippity.classifier_rate_limit_per_hour llm.model
 #   gippity.debug_channel                  llm.vision_model
-#                                          llm.max_tokens
+#   gippity.allowed_guilds                 llm.max_tokens
 #
-# Everything else (discord.*, web.*, dev_mode, gippity.allowed_guilds,
-# llm.provider, llm.api_key, leetoclock.*) is boot-time only and is not listed
-# or settable from Discord. Secrets are never readable or writable at runtime;
+# Every other non-secret key (discord.shard_id, web.port, dev_mode, llm.provider,
+# leetoclock.*, ...) is boot-time only: /admin config list and get show its value
+# and source marked "restart required: edit config.yaml", and any write is
+# refused. Secrets are never readable or writable at runtime and are reported as
+# unknown;
 # discord.token and web.oauth.client_secret / web.session_secret stay in this
 # file. The bot never writes config.yaml.

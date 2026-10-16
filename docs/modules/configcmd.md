@@ -10,6 +10,15 @@ for the owner-only `/admin config` command. It is the only writer of the
   value. A rejected value is reported with the reason and the unchanged current
   value.
 - `unset <key>` – drop the override so `config.yaml` applies again.
+- `add <key> <value>` / `remove <key> <value>` – add or drop one item of any
+  list key (for example `gippity.allowed_guilds`). A duplicate add, a missing
+  remove, a non-list key and removing the last allowed guild are rejected.
+
+`list` shows the hot keys first (with any `Note` warning), then the cold keys in
+a "Read-only (restart required: edit config.yaml)" section. `get` on a cold key
+shows value, source and that note. Every write to a cold key is refused with a
+"read-only at runtime" reply that names the value in force, so it reads
+differently from an unknown key.
 
 It registers no slash command of its own: the group lives under `/admin`, whose
 `OwnerOnly` middleware is the access control, and the admin module already
@@ -30,7 +39,8 @@ by the client.
 An unknown key and a secret key produce the same reply, so the command cannot be
 used to probe for the existence of a credential.
 
-The module also exposes that work as `Entries`, `ApplySet` and `ApplyUnset`, and
+The module also exposes that work as `Entries`, `ApplySet`, `ApplyUnset`,
+`ApplyAdd` and `ApplyRemove`, and
 the web admin panel (`/admin`, see `core`) calls these instead of duplicating the
 validation, the secret-key hiding or the llm display special cases. `Entries`
 returns the store's invalid-combination error alongside the entries, which is
@@ -65,6 +75,9 @@ sequenceDiagram
         else unset
             C->>S: Unset(key, ownerID)
             S-->>C: error or nil
+        else add / remove
+            C->>S: Add / Remove(key, item, ownerID)
+            S-->>C: error or nil
         end
         C-->>O: edit ephemeral (+ follow-ups when long)
     end
@@ -87,9 +100,9 @@ sequenceDiagram
     C->>S: Effective(key) per key
     S-->>C: value + source
     C-->>W: entries (+ invalid-combination error)
-    W-->>O: table with a set and an unset form per key
-    O->>W: POST action=set|unset (csrf token, same-origin)
-    W->>C: ApplySet / ApplyUnset
-    C->>S: Set / Unset
+    W-->>O: table: set/unset per hot key, add/remove per list item, cold rows read-only
+    O->>W: POST action=set|unset|add|remove (csrf token, same-origin)
+    W->>C: ApplySet / ApplyUnset / ApplyAdd / ApplyRemove
+    C->>S: Set / Unset / Add / Remove
     W-->>O: 303 to /admin, outcome shown once
 ```

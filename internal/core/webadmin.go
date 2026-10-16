@@ -33,6 +33,8 @@ type configAdmin interface {
 	Entries() ([]configcmd.Entry, error)
 	ApplySet(key, value, actor string) (string, bool)
 	ApplyUnset(key, actor string) (string, bool)
+	ApplyAdd(key, item, actor string) (string, bool)
+	ApplyRemove(key, item, actor string) (string, bool)
 }
 
 // adminPage is the payload web/templates/admin.html renders.
@@ -174,7 +176,7 @@ func (ws *webServer) renderAdminPage(w http.ResponseWriter, session *sessionData
 	}
 }
 
-// applyAdminPost applies one set or unset and redirects back to the table, so a
+// applyAdminPost applies one set, unset, add or remove and redirects back to the table, so a
 // reload cannot repeat the change.
 func (ws *webServer) applyAdminPost(w http.ResponseWriter, r *http.Request, session *sessionData) {
 	r.Body = http.MaxBytesReader(w, r.Body, adminFormMaxBytes)
@@ -203,6 +205,10 @@ func (ws *webServer) applyAdminPost(w http.ResponseWriter, r *http.Request, sess
 		message, ok = ws.config.ApplySet(key, r.PostFormValue("value"), session.DiscordUserID)
 	case "unset":
 		message, ok = ws.config.ApplyUnset(key, session.DiscordUserID)
+	case "add":
+		message, ok = ws.config.ApplyAdd(key, r.PostFormValue("value"), session.DiscordUserID)
+	case "remove":
+		message, ok = ws.config.ApplyRemove(key, r.PostFormValue("value"), session.DiscordUserID)
 	default:
 		http.Error(w, "unknown action", http.StatusBadRequest)
 		return
