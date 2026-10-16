@@ -42,6 +42,18 @@ func newTestModule(t *testing.T) (*Module, *settings.Store) {
 // outside the command the way a hand-edited sqlite3 session would.
 func newTestModuleWithDB(t *testing.T) (*Module, *settings.Store, *gorm.DB) {
 	t.Helper()
+	return newTestModuleFull(t, baseYAML)
+}
+
+// newTestModuleWithYAML wires the module over a custom config.yaml.
+func newTestModuleWithYAML(t *testing.T, yaml string) (*Module, *settings.Store) {
+	t.Helper()
+	m, store, _ := newTestModuleFull(t, yaml)
+	return m, store
+}
+
+func newTestModuleFull(t *testing.T, yaml string) (*Module, *settings.Store, *gorm.DB) {
+	t.Helper()
 
 	db, err := shareddb.Open(filepath.Join(t.TempDir(), shareddb.Filename))
 	if err != nil {
@@ -53,7 +65,7 @@ func newTestModuleWithDB(t *testing.T) (*Module, *settings.Store, *gorm.DB) {
 	}
 	t.Cleanup(func() { _ = sqlDB.Close() })
 
-	base, err := cfg.Decode(strings.NewReader(baseYAML))
+	base, err := cfg.Decode(strings.NewReader(yaml))
 	if err != nil {
 		t.Fatalf("decode base config: %v", err)
 	}
@@ -100,7 +112,18 @@ func TestAdminSubcommandGroup_Structure(t *testing.T) {
 	for _, o := range group.Options {
 		subs[o.Name] = o
 	}
-	for _, want := range []string{"list", "get", "set", "unset"} {
+	if len(group.Options) != 6 {
+		t.Errorf("group has %d subcommands, want 6", len(group.Options))
+	}
+	for _, name := range []string{"add", "remove"} {
+		if sub := subs[name]; sub != nil {
+			if len(sub.Options) != 2 || sub.Options[0].Name != "key" || sub.Options[1].Name != "value" ||
+				!sub.Options[0].Required || !sub.Options[1].Required {
+				t.Errorf("%s must take required key and value options, got %+v", name, sub.Options)
+			}
+		}
+	}
+	for _, want := range []string{"list", "get", "set", "unset", "add", "remove"} {
 		if subs[want] == nil {
 			t.Errorf("missing subcommand %q", want)
 		}
@@ -677,5 +700,146 @@ func TestApplyUnset_ReportsWhetherItRemovedSomething(t *testing.T) {
 	message, ok = New().ApplyUnset(settings.KeyGippityToolsEnabled, "owner")
 	if ok || !strings.Contains(message, "unavailable") {
 		t.Errorf("unwired module: ok = %v, message = %q", ok, message)
+	}
+}
+
+func TestColdKey_ReadOnlyEverywhere(t *testing.T) {
+	m, _ := newTestModule(t)
+
+	list := m.renderList()
+	if !strings.Contains(list, "Read-only (restart required: edit config.yaml)") || !strings.Contains(list, "web.port") {
+		t.Errorf("list does not mark cold keys:\n%s", list)
+	}
+	get := handle(t, m, subcommand("get", keyValue("key", "web.port")))
+	if !strings.Contains(get, "restart required: edit config.yaml") || !strings.Contains(get, "source:") {
+		t.Errorf("get(web.port) = %q", get)
+	}
+	unknown := handle(t, m, subcommand("set", keyValue("key", "nope"), keyValue("value", "1")))
+	for name, sub := range map[string]*discordgo.ApplicationCommandInteractionDataOption{
+		"set":    subcommand("set", keyValue("key", "web.port"), keyValue("value", "1")),
+		"unset":  subcommand("unset", keyValue("key", "web.port")),
+		"add":    subcommand("add", keyValue("key", "leetoclock.announcement_channels"), keyValue("value", "1")),
+		"remove": subcommand("remove", keyValue("key", "leetoclock.announcement_channels"), keyValue("value", "1")),
+	} {
+		reply := handle(t, m, sub)
+		if !strings.Contains(reply, "read-only at runtime") || reply == unknown {
+			t.Errorf("%s on a cold key = %q, want a restart-required refusal", name, reply)
+		}
+	}
+}
+
+func TestAddRemove_Replies(t *testing.T) {
+	m, store := newTestModule(t)
+	key := settings.KeyGippityAllowedGuilds
+
+	if reply := handle(t, m, subcommand("add", keyValue("key", key), keyValue("value", "g2"))); !strings.HasPrefix(reply, "Added `g2`") {
+		t.Errorf("add reply = %q", reply)
+	}
+	if got := strings.Join(store.StringList(key), ","); got != "guild,g2" {
+		t.Errorf("list = %q", got)
+	}
+	if reply := handle(t, m, subcommand("add", keyValue("key", key), keyValue("value", "g2"))); !strings.Contains(reply, "already contains") {
+		t.Errorf("duplicate add reply = %q", reply)
+	}
+	if reply := handle(t, m, subcommand("remove", keyValue("key", key), keyValue("value", "nope"))); !strings.Contains(reply, "does not contain") {
+		t.Errorf("missing remove reply = %q", reply)
+	}
+	if reply := handle(t, m, subcommand("remove", keyValue("key", key), keyValue("value", "guild"))); !strings.HasPrefix(reply, "Removed `guild`") {
+		t.Errorf("remove reply = %q", reply)
+	}
+	if reply := handle(t, m, subcommand("remove", keyValue("key", key), keyValue("value", "g2"))); !strings.HasPrefix(reply, "Rejected: remove") {
+		t.Errorf("removing the last guild reply = %q", reply)
+	}
+	if reply := handle(t, m, subcommand("add", keyValue("key", settings.KeyLLMMaxTokens), keyValue("value", "1"))); !strings.Contains(reply, "not a list setting") {
+		t.Errorf("add on non-list reply = %q", reply)
+	}
+	if reply := handle(t, m, subcommand("add", keyValue("key", "discord.token"), keyValue("value", "1"))); !strings.Contains(reply, "Unknown or non-editable") {
+		t.Errorf("add on secret reply = %q", reply)
+	}
+}
+
+func TestEntries_ColdAndItems(t *testing.T) {
+	m, _ := newTestModule(t)
+	entries, err := m.Entries()
+	if err != nil {
+		t.Fatalf("Entries: %v", err)
+	}
+	var sawCold, sawItems bool
+	for _, e := range entries {
+		if e.Name == "web.port" && e.Cold && e.Note != "" {
+			sawCold = true
+		}
+		if e.Name == settings.KeyGippityAllowedGuilds && !e.Cold && len(e.Items) == 1 && e.Items[0] == "guild" {
+			sawItems = true
+		}
+	}
+	if !sawCold || !sawItems {
+		t.Errorf("entries missing cold or list items: cold=%v items=%v", sawCold, sawItems)
+	}
+}
+
+func TestRedactURL(t *testing.T) {
+	for in, want := range map[string]string{
+		"":                                    "",
+		"https://api.example.com/v1":          "https://api.example.com/v1",
+		"https://user:sk-secret@host/v1":      "https://***@host/v1",
+		"https://host/v1?api_key=sk-secret":   "https://host/v1?***",
+		"https://u:sk-secret@host/p?key=sk-2": "https://***@host/p?***",
+		"https://host/p#token=sk-secret":      "https://host/p#***",
+		"not a url sk-secret":                 "***",
+	} {
+		if got := redactURL(in); got != want {
+			t.Errorf("redactURL(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// TestBaseURLCredentialNeverShown covers every display surface: list, get, the
+// cold-write refusal and Entries (the web panel).
+func TestBaseURLCredentialNeverShown(t *testing.T) {
+	m, _ := newTestModuleWithYAML(t, baseYAML+"llm:\n  base_url: \"https://user:sk-userinfo@llm.example/v1?api_key=sk-query\"\n")
+	const want = "https://***@llm.example/v1?***"
+	surfaces := map[string]string{
+		"list":  m.renderList(),
+		"get":   handle(t, m, subcommand("get", keyValue("key", settings.KeyLLMBaseURL))),
+		"set":   handle(t, m, subcommand("set", keyValue("key", settings.KeyLLMBaseURL), keyValue("value", "x"))),
+		"unset": handle(t, m, subcommand("unset", keyValue("key", settings.KeyLLMBaseURL))),
+	}
+	entries, err := m.Entries()
+	if err != nil {
+		t.Fatalf("Entries: %v", err)
+	}
+	for _, e := range entries {
+		if e.Name == settings.KeyLLMBaseURL {
+			surfaces["entries"] = e.Value
+		}
+	}
+	for name, out := range surfaces {
+		if strings.Contains(out, "sk-userinfo") || strings.Contains(out, "sk-query") || strings.Contains(out, "user:") {
+			t.Errorf("%s leaks the credential: %q", name, out)
+		}
+		if !strings.Contains(out, want) {
+			t.Errorf("%s = %q, want it to contain %q", name, out, want)
+		}
+	}
+}
+
+// TestRenderList_LongPersonalityIsChunked proves a long llm.personality cannot
+// push one reply past Discord's limit: every chunk fits and nothing is lost.
+func TestRenderList_LongPersonalityIsChunked(t *testing.T) {
+	long := strings.Repeat("zqxw ", 1000) // 8000 runes on one line
+	m, _ := newTestModuleWithYAML(t, baseYAML+"llm:\n  personality: \""+long+"\"\n")
+	list := m.renderList()
+	chunks := chunkContent(list, maxMessageRunes)
+	if len(chunks) < 3 {
+		t.Fatalf("got %d chunks, want the list split", len(chunks))
+	}
+	for i, c := range chunks {
+		if n := len([]rune(c)); n > maxMessageRunes {
+			t.Errorf("chunk %d has %d runes, limit %d", i, n, maxMessageRunes)
+		}
+	}
+	if got := strings.Count(strings.Join(chunks, ""), "zqxw"); got != 1000 {
+		t.Errorf("chunks carry %d zqxw words, want 1000", got)
 	}
 }

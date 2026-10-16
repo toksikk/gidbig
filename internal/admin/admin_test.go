@@ -469,6 +469,24 @@ func stubConfigProvider() *recordingProvider {
 					Description: "Remove the runtime override, falling back to config.yaml",
 					Options:     []*discordgo.ApplicationCommandOption{keyOption("Setting key to reset")},
 				},
+				{
+					Type:        discordgo.ApplicationCommandOptionSubCommand,
+					Name:        "add",
+					Description: "Add one item to a list setting",
+					Options: []*discordgo.ApplicationCommandOption{
+						keyOption("List setting key, for example gippity.allowed_guilds"),
+						{Type: discordgo.ApplicationCommandOptionString, Name: "value", Description: "Item to add", Required: true},
+					},
+				},
+				{
+					Type:        discordgo.ApplicationCommandOptionSubCommand,
+					Name:        "remove",
+					Description: "Remove one item from a list setting",
+					Options: []*discordgo.ApplicationCommandOption{
+						keyOption("List setting key, for example gippity.allowed_guilds"),
+						{Type: discordgo.ApplicationCommandOptionString, Name: "value", Description: "Item to remove", Required: true},
+					},
+				},
 			},
 		},
 	}
@@ -489,7 +507,7 @@ func TestCommands_ConfigSubcommands(t *testing.T) {
 	for _, o := range group.Options {
 		subNames[o.Name] = true
 	}
-	for _, want := range []string{"list", "get", "set", "unset"} {
+	for _, want := range []string{"list", "get", "set", "unset", "add", "remove"} {
 		if !subNames[want] {
 			t.Errorf("missing config subcommand %q", want)
 		}

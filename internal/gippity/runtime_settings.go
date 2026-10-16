@@ -130,3 +130,35 @@ func (m *Module) toolReasoningEffortNow() string {
 	}
 	return m.toolReasoningEffort
 }
+
+// guildAllowed reports whether gippity may answer in guildID. It reads
+// gippity.allowed_guilds from the store on every message, so an /admin config
+// add or remove applies to the next message; without a store the Init-time
+// snapshot is used.
+func (m *Module) guildAllowed(guildID string) bool {
+	if m.settings == nil {
+		return m.allowedGuildIDs[guildID]
+	}
+	for _, id := range m.settings.StringList(settings.KeyGippityAllowedGuilds) {
+		if id == guildID {
+			return true
+		}
+	}
+	return false
+}
+
+// userIgnored reports whether gippity must ignore messages from userID. It reads
+// gippity.ignored_users from the store on every message, so an /admin config
+// add or remove applies to the next message; without a store the Init-time
+// snapshot is used.
+func (m *Module) userIgnored(userID string) bool {
+	if m.settings == nil {
+		return m.ignoredUserIDs[userID]
+	}
+	for _, id := range m.settings.StringList(settings.KeyGippityIgnoredUsers) {
+		if id == userID {
+			return true
+		}
+	}
+	return false
+}

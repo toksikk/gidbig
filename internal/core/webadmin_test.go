@@ -7,13 +7,17 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/toksikk/gidbig/internal/bot"
+	"github.com/toksikk/gidbig/internal/cfg"
 	"github.com/toksikk/gidbig/internal/configcmd"
 	"github.com/toksikk/gidbig/internal/settings"
+	"github.com/toksikk/gidbig/internal/shareddb"
 )
 
 const (
@@ -31,10 +35,12 @@ type stubConfigAdmin struct {
 	entries    []configcmd.Entry
 	entriesErr error
 
-	setCalls   []adminCall
-	unsetCalls []adminCall
-	message    string
-	ok         bool
+	setCalls    []adminCall
+	unsetCalls  []adminCall
+	addCalls    []adminCall
+	removeCalls []adminCall
+	message     string
+	ok          bool
 }
 
 type adminCall struct {
@@ -54,6 +60,16 @@ func (s *stubConfigAdmin) ApplySet(key, value, actor string) (string, bool) {
 
 func (s *stubConfigAdmin) ApplyUnset(key, actor string) (string, bool) {
 	s.unsetCalls = append(s.unsetCalls, adminCall{Key: key, Actor: actor})
+	return s.message, s.ok
+}
+
+func (s *stubConfigAdmin) ApplyAdd(key, item, actor string) (string, bool) {
+	s.addCalls = append(s.addCalls, adminCall{Key: key, Value: item, Actor: actor})
+	return s.message, s.ok
+}
+
+func (s *stubConfigAdmin) ApplyRemove(key, item, actor string) (string, bool) {
+	s.removeCalls = append(s.removeCalls, adminCall{Key: key, Value: item, Actor: actor})
 	return s.message, s.ok
 }
 
@@ -716,5 +732,132 @@ func TestHandleAdmin_BoolCheckboxSubmitsTrueOrFalse(t *testing.T) {
 				t.Errorf("ApplySet value = %q, want %q", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestHandleAdmin_PostAppliesAddAndRemove(t *testing.T) {
+	now := time.Now()
+	admin := &stubConfigAdmin{message: "Added.", ok: true}
+	ws := newAdminTestServer(admin, testOwnerID, "", now)
+	session := adminSession(testOwnerID, time.Minute, now)
+
+	for _, action := range []string{"add", "remove"} {
+		form := url.Values{"action": {action}, "key": {settings.KeyGippityAllowedGuilds}, "value": {"g2"}, "csrf": {session.AdminCSRF}}
+		w := httptest.NewRecorder()
+		ws.handleAdmin(w, formRequest(t, ws, session, http.MethodPost, "/admin", form))
+		if w.Code != http.StatusSeeOther {
+			t.Fatalf("%s status = %d, want %d", action, w.Code, http.StatusSeeOther)
+		}
+	}
+	want := adminCall{Key: settings.KeyGippityAllowedGuilds, Value: "g2", Actor: testOwnerID}
+	if len(admin.addCalls) != 1 || admin.addCalls[0] != want {
+		t.Errorf("ApplyAdd calls = %v, want [%v]", admin.addCalls, want)
+	}
+	if len(admin.removeCalls) != 1 || admin.removeCalls[0] != want {
+		t.Errorf("ApplyRemove calls = %v, want [%v]", admin.removeCalls, want)
+	}
+}
+
+func TestHandleAdmin_AddRemoveKeepTheGuards(t *testing.T) {
+	now := time.Now()
+	admin := &stubConfigAdmin{ok: true}
+	ws := newAdminTestServer(admin, testOwnerID, "", now)
+	owner := adminSession(testOwnerID, time.Minute, now)
+	other := adminSession(testOtherUser, time.Minute, now)
+
+	for _, action := range []string{"add", "remove"} {
+		bad := url.Values{"action": {action}, "key": {settings.KeyGippityAllowedGuilds}, "value": {"g2"}, "csrf": {"wrong"}}
+		w := httptest.NewRecorder()
+		ws.handleAdmin(w, formRequest(t, ws, owner, http.MethodPost, "/admin", bad))
+		if w.Code != http.StatusForbidden {
+			t.Errorf("%s with a bad token status = %d, want %d", action, w.Code, http.StatusForbidden)
+		}
+		good := url.Values{"action": {action}, "key": {settings.KeyGippityAllowedGuilds}, "value": {"g2"}, "csrf": {other.AdminCSRF}}
+		w = httptest.NewRecorder()
+		ws.handleAdmin(w, formRequest(t, ws, other, http.MethodPost, "/admin", good))
+		if w.Code != http.StatusNotFound {
+			t.Errorf("%s by a non-owner status = %d, want %d", action, w.Code, http.StatusNotFound)
+		}
+		foreign := formRequest(t, ws, owner, http.MethodPost, "/admin",
+			url.Values{"action": {action}, "key": {settings.KeyGippityAllowedGuilds}, "value": {"g2"}, "csrf": {owner.AdminCSRF}})
+		foreign.Header.Set("Origin", "https://evil.example")
+		w = httptest.NewRecorder()
+		ws.handleAdmin(w, foreign)
+		if w.Code != http.StatusForbidden {
+			t.Errorf("%s from a foreign origin status = %d, want %d", action, w.Code, http.StatusForbidden)
+		}
+	}
+	if len(admin.addCalls)+len(admin.removeCalls) != 0 {
+		t.Errorf("a refused submission reached the store: add=%v remove=%v", admin.addCalls, admin.removeCalls)
+	}
+}
+
+func TestHandleAdmin_RendersColdRowsReadOnlyAndListItems(t *testing.T) {
+	t.Chdir("../..")
+	now := time.Now()
+	admin := &stubConfigAdmin{
+		entries: []configcmd.Entry{
+			{Name: "web.port", Kind: settings.KindInt, Value: "9090", Source: settings.SourceYAML, Cold: true, Note: settings.RestartRequiredNote},
+			{Name: settings.KeyGippityAllowedGuilds, Kind: settings.KindStringList, Value: "g1,g2", Source: settings.SourceYAML, Items: []string{"g1", "g2"}},
+		},
+	}
+	ws := newAdminTestServer(admin, testOwnerID, "", now)
+	ws.loadTemplates()
+	session := adminSession(testOwnerID, time.Minute, now)
+
+	w := httptest.NewRecorder()
+	ws.handleAdmin(w, formRequest(t, ws, session, http.MethodGet, "/admin", nil))
+	body := w.Body.String()
+
+	if strings.Contains(body, `name="key" value="web.port"`) {
+		t.Error("a cold key has an edit form")
+	}
+	if !strings.Contains(body, "9090") || !strings.Contains(body, settings.RestartRequiredNote) {
+		t.Error("the cold row does not show its value and the restart note")
+	}
+	if got := strings.Count(body, `name="action" value="remove"`); got != 2 {
+		t.Errorf("remove forms = %d, want one per item (2)", got)
+	}
+	if got := strings.Count(body, `name="action" value="add"`); got != 1 {
+		t.Errorf("add forms = %d, want 1", got)
+	}
+}
+
+// TestHandleAdmin_ColdSetIsRefusedByTheRealModule runs a set on a cold key
+// through the real configcmd module, so the web panel shows the same
+// restart-required refusal as the slash command.
+func TestHandleAdmin_ColdSetIsRefusedByTheRealModule(t *testing.T) {
+	db, err := shareddb.Open(filepath.Join(t.TempDir(), shareddb.Filename))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	sqlDB, _ := db.DB()
+	t.Cleanup(func() { _ = sqlDB.Close() })
+	base, err := cfg.Decode(strings.NewReader("discord:\n  token: t\ngippity:\n  allowed_guilds: [g]\n"))
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	store, err := settings.New(db, base)
+	if err != nil {
+		t.Fatalf("settings.New: %v", err)
+	}
+	mod := configcmd.New()
+	if err := mod.Init(bot.Deps{Settings: store}); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+
+	now := time.Now()
+	ws := newAdminTestServer(mod, testOwnerID, "", now)
+	session := adminSession(testOwnerID, time.Minute, now)
+	form := url.Values{"action": {"set"}, "key": {"web.port"}, "value": {"1"}, "csrf": {session.AdminCSRF}}
+	w := httptest.NewRecorder()
+	ws.handleAdmin(w, formRequest(t, ws, session, http.MethodPost, "/admin", form))
+
+	after := sessionFromResponse(t, ws, w)
+	if after.FlashOK || !strings.Contains(after.Flash, "read-only at runtime") {
+		t.Errorf("flash = %q (ok=%v), want a restart-required refusal", after.Flash, after.FlashOK)
+	}
+	if _, ok := store.Override("web.port"); ok {
+		t.Error("a cold key was written")
 	}
 }

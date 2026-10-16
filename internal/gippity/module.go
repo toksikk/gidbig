@@ -190,6 +190,8 @@ func (m *Module) Init(d bot.Deps) error {
 	m.classifierCount = make(map[string]int)
 	m.classifierCountLastReset = make(map[string]time.Time)
 
+	// allowedGuildIDs is the fallback when no settings store is wired; with a
+	// store, guildAllowed reads gippity.allowed_guilds on every message.
 	m.allowedGuildIDs = make(map[string]bool)
 	m.ignoredUserIDs = make(map[string]bool)
 	if d.Config != nil {

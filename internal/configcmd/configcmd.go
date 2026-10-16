@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -50,6 +51,12 @@ type Entry struct {
 	Value string
 	// Source names where Value came from.
 	Source settings.Source
+	// Cold marks a read-only key that only config.yaml and a restart change.
+	Cold bool
+	// Note is an optional warning the registry attaches to the key.
+	Note string
+	// Items is the effective list for a list key, for per-item editing.
+	Items []string
 }
 
 // Module implements bot.Module and bot.AdminProvider.
@@ -85,6 +92,14 @@ func (m *Module) AdminSubcommandGroup() *discordgo.ApplicationCommandOption {
 		return &discordgo.ApplicationCommandOption{
 			Type:        discordgo.ApplicationCommandOptionString,
 			Name:        "key",
+			Description: description,
+			Required:    true,
+		}
+	}
+	itemOption := func(description string) *discordgo.ApplicationCommandOption {
+		return &discordgo.ApplicationCommandOption{
+			Type:        discordgo.ApplicationCommandOptionString,
+			Name:        "value",
 			Description: description,
 			Required:    true,
 		}
@@ -125,6 +140,24 @@ func (m *Module) AdminSubcommandGroup() *discordgo.ApplicationCommandOption {
 				Description: "Remove the runtime override, falling back to config.yaml",
 				Options:     []*discordgo.ApplicationCommandOption{keyOption("Setting key to reset")},
 			},
+			{
+				Type:        discordgo.ApplicationCommandOptionSubCommand,
+				Name:        "add",
+				Description: "Add one item to a list setting",
+				Options: []*discordgo.ApplicationCommandOption{
+					keyOption("List setting key, for example gippity.allowed_guilds"),
+					itemOption("Item to add"),
+				},
+			},
+			{
+				Type:        discordgo.ApplicationCommandOptionSubCommand,
+				Name:        "remove",
+				Description: "Remove one item from a list setting",
+				Options: []*discordgo.ApplicationCommandOption{
+					keyOption("List setting key, for example gippity.allowed_guilds"),
+					itemOption("Item to remove"),
+				},
+			},
 		},
 	}
 }
@@ -142,6 +175,12 @@ func (m *Module) HandleAdminSubcommand(s *discordgo.Session, i *discordgo.Intera
 		reply(s, i, msg)
 	case "unset":
 		msg, _ := m.ApplyUnset(optionString(sub.Options, "key"), actorID(i))
+		reply(s, i, msg)
+	case "add":
+		msg, _ := m.ApplyAdd(optionString(sub.Options, "key"), optionString(sub.Options, "value"), actorID(i))
+		reply(s, i, msg)
+	case "remove":
+		msg, _ := m.ApplyRemove(optionString(sub.Options, "key"), optionString(sub.Options, "value"), actorID(i))
 		reply(s, i, msg)
 	}
 }
@@ -161,7 +200,11 @@ func (m *Module) Entries() ([]Entry, error) {
 		if !ok {
 			continue
 		}
-		entries = append(entries, Entry{Name: k.Name, Kind: k.Kind, Value: value, Source: source})
+		e := Entry{Name: k.Name, Kind: k.Kind, Value: value, Source: source, Cold: k.Cold, Note: k.Note}
+		if k.Kind == settings.KindStringList {
+			e.Items = m.settings.StringList(k.Name)
+		}
+		entries = append(entries, e)
 	}
 	return entries, m.settings.EffectiveError()
 }
@@ -186,7 +229,19 @@ func (m *Module) renderList() string {
 	sb.WriteString("Runtime settings. Hot keys apply to the next message; no restart is needed.\n")
 	sb.WriteString("source: default = built-in, yaml = config.yaml, db = runtime override\n")
 	for _, e := range entries {
+		if e.Cold {
+			continue
+		}
 		fmt.Fprintf(&sb, "%-42s %-8s %s\n", e.Name, e.Source, e.Value)
+		if e.Note != "" {
+			fmt.Fprintf(&sb, "  ! %s\n", e.Note)
+		}
+	}
+	sb.WriteString("\nRead-only (" + settings.RestartRequiredNote + "):\n")
+	for _, e := range entries {
+		if e.Cold {
+			fmt.Fprintf(&sb, "%-42s %-8s %s\n", e.Name, e.Source, e.Value)
+		}
 	}
 	return "```\n" + sb.String() + "```"
 }
@@ -204,7 +259,14 @@ func (m *Module) renderGet(key string) string {
 	if !ok {
 		return unknownKeyMessage(key)
 	}
-	return fmt.Sprintf("`%s`\neffective: `%s`\nsource: `%s`\napplies: to the next message; no restart needed", k.Name, value, source)
+	if k.Cold {
+		return fmt.Sprintf("`%s`\neffective: `%s`\nsource: `%s`\napplies: %s", k.Name, value, source, settings.RestartRequiredNote)
+	}
+	msg := fmt.Sprintf("`%s`\neffective: `%s`\nsource: `%s`\napplies: to the next message; no restart needed", k.Name, value, source)
+	if k.Note != "" {
+		msg += "\nwarning: " + k.Note
+	}
+	return msg
 }
 
 // ApplySet validates and stores an override. A rejected value leaves the
@@ -218,6 +280,9 @@ func (m *Module) ApplySet(key, value, updatedBy string) (string, bool) {
 	k, ok := settings.Lookup(key)
 	if !ok {
 		return unknownKeyMessage(key), false
+	}
+	if k.Cold {
+		return m.restartRequiredMessage(k.Name), false
 	}
 	if err := m.settings.Set(key, value, updatedBy); err != nil {
 		if errors.Is(err, settings.ErrUnknownKey) {
@@ -240,6 +305,9 @@ func (m *Module) ApplyUnset(key, updatedBy string) (string, bool) {
 	if !ok {
 		return unknownKeyMessage(key), false
 	}
+	if k.Cold {
+		return m.restartRequiredMessage(k.Name), false
+	}
 	_, had := m.settings.Override(k.Name)
 	if err := m.settings.Unset(key, updatedBy); err != nil {
 		if errors.Is(err, settings.ErrUnknownKey) {
@@ -254,6 +322,52 @@ func (m *Module) ApplyUnset(key, updatedBy string) (string, bool) {
 	return fmt.Sprintf("Removed the runtime override for `%s`.\neffective: `%s` (source: `%s`)", k.Name, effective, source), true
 }
 
+// ApplyAdd adds one item to a list key. The bool is false when nothing was
+// written: an unknown or cold key, a non-list key, a duplicate or an invalid
+// result.
+func (m *Module) ApplyAdd(key, item, updatedBy string) (string, bool) {
+	return m.applyListEdit(key, item, updatedBy, "add", "Added", m.settings.Add)
+}
+
+// ApplyRemove removes one item from a list key. The bool is false when nothing
+// was written: an unknown or cold key, a non-list key, a missing item or a list
+// that would become invalid (for example the last allowed guild).
+func (m *Module) ApplyRemove(key, item, updatedBy string) (string, bool) {
+	return m.applyListEdit(key, item, updatedBy, "remove", "Removed", m.settings.Remove)
+}
+
+func (m *Module) applyListEdit(key, item, updatedBy, action, verb string, op func(key, item, by string) error) (string, bool) {
+	if m.settings == nil {
+		return UnavailableMessage, false
+	}
+	k, ok := settings.Lookup(key)
+	if !ok {
+		return unknownKeyMessage(key), false
+	}
+	if k.Cold {
+		return m.restartRequiredMessage(k.Name), false
+	}
+	if k.Kind != settings.KindStringList {
+		return fmt.Sprintf("`%s` is not a list setting; use `/admin config set` instead.", k.Name), false
+	}
+	if err := op(k.Name, item, updatedBy); err != nil {
+		if errors.Is(err, settings.ErrUnknownKey) {
+			return unknownKeyMessage(key), false
+		}
+		current, source, _ := m.effective(k.Name)
+		return fmt.Sprintf("Rejected: %s `%s` on `%s`.\nreason: %v\nunchanged: `%s` (source: `%s`)", action, item, k.Name, err, current, source), false
+	}
+	effective, source, _ := m.effective(k.Name)
+	return fmt.Sprintf("%s `%s` on `%s`.\neffective: `%s` (source: `%s`)\nTakes effect on the next message; no restart needed.", verb, strings.TrimSpace(item), k.Name, effective, source), true
+}
+
+// restartRequiredMessage refuses a write to a cold key and shows the value in
+// force, so it reads differently from an unknown key.
+func (m *Module) restartRequiredMessage(key string) string {
+	value, source, _ := m.effective(key)
+	return fmt.Sprintf("`%s` is read-only at runtime (%s).\neffective: `%s` (source: `%s`)", key, settings.RestartRequiredNote, value, source)
+}
+
 // effective returns the value to display for a key. The two llm.* model keys
 // are special-cased because their real fallback lives in the llm client, not in
 // cfg: an empty llm.model means the client's built-in default, and an empty
@@ -262,6 +376,11 @@ func (m *Module) effective(key string) (string, settings.Source, bool) {
 	value, source, ok := m.settings.Effective(key)
 	if !ok {
 		return "", "", false
+	}
+	if key == settings.KeyLLMBaseURL {
+		// Display only: a base URL may embed a credential in its userinfo or
+		// query, so neither is ever shown.
+		return redactURL(value), source, true
 	}
 	if m.llm == nil {
 		return value, source, true
@@ -287,10 +406,37 @@ func (m *Module) effective(key string) (string, settings.Source, bool) {
 	return value, source, true
 }
 
+// redactURL masks the userinfo, query and fragment of a URL, which is where a
+// credential can hide (https://user:key@host/v1?api_key=...). A value that does
+// not parse as an absolute URL is masked whole unless it is empty.
+func redactURL(raw string) string {
+	if raw == "" {
+		return ""
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return "***"
+	}
+	var sb strings.Builder
+	sb.WriteString(u.Scheme + "://")
+	if u.User != nil {
+		sb.WriteString("***@")
+	}
+	sb.WriteString(u.Host)
+	sb.WriteString(u.EscapedPath())
+	if u.RawQuery != "" || u.ForceQuery {
+		sb.WriteString("?***")
+	}
+	if u.Fragment != "" {
+		sb.WriteString("#***")
+	}
+	return sb.String()
+}
+
 // unknownKeyMessage is deliberately identical for an unknown key and for a
 // secret key, so a caller cannot probe for the existence of a credential.
 func unknownKeyMessage(key string) string {
-	return fmt.Sprintf("Unknown or non-editable setting `%s`. Only hot runtime settings are covered; run `/admin config list` to see them.", key)
+	return fmt.Sprintf("Unknown or non-editable setting `%s`. Secrets are never shown; run `/admin config list` to see every known setting.", key)
 }
 
 // optionString returns the string value of a named subcommand option.

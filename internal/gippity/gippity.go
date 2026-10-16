@@ -52,11 +52,11 @@ func (m *Module) eligible(mc *discordgo.MessageCreate) bool {
 	if mc.Author.Bot {
 		return false
 	}
-	if m.ignoredUserIDs[mc.Author.ID] {
+	if m.userIgnored(mc.Author.ID) {
 		slog.Info("ignoring message from ignored user", "user", mc.Author.ID)
 		return false
 	}
-	if !m.allowedGuildIDs[mc.GuildID] {
+	if !m.guildAllowed(mc.GuildID) {
 		slog.Info("not using ai generated message in this guild", "guild", mc.GuildID)
 		return false
 	}
@@ -325,7 +325,7 @@ func (m *Module) onMessageUpdate(_ *discordgo.Session, mu *discordgo.MessageUpda
 	if mu.EditedTimestamp == nil || mu.Content == "" {
 		return
 	}
-	if !m.allowedGuildIDs[mu.GuildID] {
+	if !m.guildAllowed(mu.GuildID) {
 		return
 	}
 	if m.getUserPrivacy(mu.Author.ID) {

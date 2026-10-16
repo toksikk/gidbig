@@ -60,7 +60,13 @@ const (
 	KeyLLMModel                        = "llm.model"
 	KeyLLMVisionModel                  = "llm.vision_model"
 	KeyLLMMaxTokens                    = "llm.max_tokens"
+	KeyGippityAllowedGuilds            = "gippity.allowed_guilds"
+	KeyGippityIgnoredUsers             = "gippity.ignored_users"
+	KeyLLMBaseURL                      = "llm.base_url"
 )
+
+// RestartRequiredNote is the hint shown for every cold key.
+const RestartRequiredNote = "restart required: edit config.yaml"
 
 // Key describes one runtime-tunable setting.
 type Key struct {
@@ -69,9 +75,14 @@ type Key struct {
 	// Kind is the value type used to parse stored strings.
 	Kind Kind
 	// Hot is true when a change applies to the next read without a restart.
-	// Every registered key is hot by design: a key that needs a restart is not
-	// offered at all, so the command cannot silently write a dead value.
 	Hot bool
+	// Cold keys are read once at boot. They are listed read-only with their
+	// effective value and source, and every write is refused with
+	// ErrRestartRequired, so the command cannot silently store a dead value.
+	// A cold key has only Extract; Apply and Validate stay nil.
+	Cold bool
+	// Note is an optional warning shown next to the key by every surface.
+	Note string
 	// Secret keys are never listed, read or written. No key is secret today;
 	// the flag keeps a future addition from leaking a credential.
 	Secret bool
@@ -88,8 +99,11 @@ type Key struct {
 	Validate func(string) error
 }
 
-// registry is the set of runtime-editable keys.
-var registry = []Key{
+// registry is the set of known keys: hot runtime-editable ones plus the
+// read-only cold ones appended from coldKeys. Secrets (discord.token,
+// web.oauth.client_secret, web.session_secret, llm.api_key) are deliberately
+// absent, so they stay unknown everywhere.
+var registry = append([]Key{
 	{
 		// cfg.Validate already rejects a non-positive value; repeating it here
 		// lets the store tell that such a row is not in force.
@@ -216,6 +230,59 @@ var registry = []Key{
 		Extract: extractString(func(c *cfg.Config) *string { return &c.LLM.VisionModel }),
 		Apply:   applyString(func(c *cfg.Config) *string { return &c.LLM.VisionModel }),
 	},
+	{
+		// cfg.Validate already rejects an empty list; repeating it here lets the
+		// store tell that such a row is not in force.
+		Name:     KeyGippityAllowedGuilds,
+		Kind:     KindStringList,
+		Hot:      true,
+		Extract:  extractList(func(c *cfg.Config) *[]string { return &c.Gippity.AllowedGuilds }),
+		Apply:    applyList(func(c *cfg.Config) *[]string { return &c.Gippity.AllowedGuilds }),
+		Validate: requireNonEmptyList,
+	},
+	{
+		// An empty list is meaningful (nobody ignored); only an empty item is
+		// rejected.
+		Name:     KeyGippityIgnoredUsers,
+		Kind:     KindStringList,
+		Hot:      true,
+		Extract:  extractList(func(c *cfg.Config) *[]string { return &c.Gippity.IgnoredUsers }),
+		Apply:    applyList(func(c *cfg.Config) *[]string { return &c.Gippity.IgnoredUsers }),
+		Validate: rejectEmptyItems,
+	},
+}, coldKeys...)
+
+// coldKeys are the non-secret settings read only at boot.
+var coldKeys = []Key{
+	cold("discord.owner_id", KindString, extractString(func(c *cfg.Config) *string { return &c.Discord.OwnerID })),
+	cold("discord.shard_id", KindInt, extractInt(func(c *cfg.Config) *int { return &c.Discord.ShardID })),
+	cold("discord.shard_count", KindInt, extractInt(func(c *cfg.Config) *int { return &c.Discord.ShardCount })),
+	cold("web.port", KindInt, extractInt(func(c *cfg.Config) *int { return &c.Web.Port })),
+	cold("web.oauth.client_id", KindString, extractString(func(c *cfg.Config) *string { return &c.Web.Oauth.ClientID })),
+	cold("web.oauth.redirect_uri", KindString, extractString(func(c *cfg.Config) *string { return &c.Web.Oauth.RedirectURI })),
+	cold("web.eso.rate_limit_burst", KindInt, extractInt(func(c *cfg.Config) *int { return &c.Web.Eso.RateLimitBurst })),
+	cold("web.eso.rate_limit_per_minute", KindInt, extractInt(func(c *cfg.Config) *int { return &c.Web.Eso.RateLimitPerMinute })),
+	cold("web.eso.max_concurrent_requests", KindInt, extractInt(func(c *cfg.Config) *int { return &c.Web.Eso.MaxConcurrentRequests })),
+	cold("web.eso.request_timeout_seconds", KindInt, extractInt(func(c *cfg.Config) *int { return &c.Web.Eso.RequestTimeoutSeconds })),
+	cold("leetoclock.announcement_channels", KindStringList, extractList(func(c *cfg.Config) *[]string { return &c.Leetoclock.AnnouncementChannels })),
+	cold("leetoclock.debug_channel", KindString, extractString(func(c *cfg.Config) *string { return &c.Leetoclock.DebugChannel })),
+	cold("leetoclock.debug", KindBool, extractBool(func(c *cfg.Config) *bool { return &c.Leetoclock.Debug })),
+	cold("leetoclock.emojis.zonk", KindString, extractString(func(c *cfg.Config) *string { return &c.Leetoclock.Emojis.Zonk })),
+	cold("leetoclock.emojis.lol", KindString, extractString(func(c *cfg.Config) *string { return &c.Leetoclock.Emojis.Lol })),
+	cold("leetoclock.emojis.notamused", KindString, extractString(func(c *cfg.Config) *string { return &c.Leetoclock.Emojis.NotAmused })),
+	cold("leetoclock.emojis.wat", KindString, extractString(func(c *cfg.Config) *string { return &c.Leetoclock.Emojis.Wat })),
+	cold("llm.provider", KindString, extractString(func(c *cfg.Config) *string { return &c.LLM.Provider })),
+	cold(KeyLLMBaseURL, KindString, extractString(func(c *cfg.Config) *string { return &c.LLM.BaseURL })),
+	cold("llm.http_referer", KindString, extractString(func(c *cfg.Config) *string { return &c.LLM.HTTPReferer })),
+	cold("llm.title", KindString, extractString(func(c *cfg.Config) *string { return &c.LLM.Title })),
+	cold("llm.personality", KindString, extractString(func(c *cfg.Config) *string { return &c.LLM.Personality })),
+	cold("llm.personality_preset", KindString, extractString(func(c *cfg.Config) *string { return &c.LLM.Preset })),
+	cold("dev_mode", KindBool, extractBool(func(c *cfg.Config) *bool { return &c.DevMode })),
+}
+
+// cold builds a read-only key.
+func cold(name string, kind Kind, extract func(*cfg.Config) string) Key {
+	return Key{Name: name, Kind: kind, Cold: true, Note: RestartRequiredNote, Extract: extract}
 }
 
 // byName indexes the registry once at package init.
@@ -330,6 +397,32 @@ func requirePositiveInt(raw string) error {
 		return fmt.Errorf("must be greater than zero, got %d", n)
 	}
 	return nil
+}
+
+// requireNonEmptyList rejects an empty list and a list with an empty item.
+func requireNonEmptyList(raw string) error {
+	if strings.TrimSpace(raw) == "" {
+		return errors.New("must contain at least one item")
+	}
+	fields := strings.Split(strings.ReplaceAll(raw, "\n", ","), ",")
+	if len(fields) == 0 {
+		return errors.New("must contain at least one item")
+	}
+	for _, f := range fields {
+		if strings.TrimSpace(f) == "" {
+			return errors.New("must not contain an empty item")
+		}
+	}
+	return nil
+}
+
+// rejectEmptyItems accepts an empty list but rejects an empty item in a
+// non-empty one.
+func rejectEmptyItems(raw string) error {
+	if strings.TrimSpace(raw) == "" {
+		return nil
+	}
+	return requireNonEmptyList(raw)
 }
 
 // requireNonEmpty rejects an empty value. An empty model would either be
