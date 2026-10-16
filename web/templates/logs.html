@@ -1,0 +1,38 @@
+{{ define "sessionHandler" }}
+<div class="inner-wrap">
+  <div class="admin-panel">
+    <h1 class="admin-title">Log lines</h1>
+    <p class="admin-sub">The bot's own recent log lines, oldest first, read from the in-memory window the process logs through. The same window <code>/admin logs show</code> returns; the window keeps the newest lines only.</p>
+
+    {{ if .Logs.Unavailable }}
+    <div class="admin-banner is-error">{{ .Logs.Unavailable }}</div>
+    {{ end }}
+
+    <form method="get" action="/admin/logs" class="admin-log-form">
+      <label class="admin-log-field">Minimum level
+        <select name="level" class="admin-input">
+          {{ range .Logs.Levels }}
+          <option value="{{ .Value }}"{{ if .Selected }} selected{{ end }}>{{ .Label }}</option>
+          {{ end }}
+        </select>
+      </label>
+      <label class="admin-log-field">Filter (case-insensitive)
+        <input type="text" name="filter" value="{{ .Logs.Filter }}" maxlength="100" class="admin-input" aria-label="Only show lines containing this text">
+      </label>
+      <label class="admin-log-field">Lines
+        <input type="number" name="count" value="{{ .Logs.Count }}" min="1" max="100" step="1" class="admin-input is-number" aria-label="How many lines to show">
+      </label>
+      <button type="submit" class="admin-btn">Show</button>
+    </form>
+
+    <p class="admin-sub">{{ .Logs.Header }}</p>
+    <pre class="admin-log-window">{{ .Logs.Text }}</pre>
+
+    <p class="admin-log-links">
+      <a href="{{ .Logs.RawURL }}">Download this window</a>
+      <span class="admin-log-sep">·</span>
+      <a href="/admin">Runtime settings</a>
+    </p>
+  </div>
+</div>
+{{ end }}

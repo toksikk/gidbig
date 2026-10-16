@@ -2,7 +2,7 @@
 <div class="inner-wrap">
   <div class="admin-panel">
     <h1 class="admin-title">Runtime settings</h1>
-    <p class="admin-sub">The same keys and rules as <code>/admin config</code>. A change to an editable key applies to the next message; no restart is needed. Read-only keys need an edit to config.yaml and a restart.</p>
+    <p class="admin-sub">The same keys and rules as <code>/admin config</code>. A change to an editable key applies to the next message; no restart is needed. Read-only keys need an edit to config.yaml and a restart. The bot's own recent log lines are on the <a href="/admin/logs">log page</a>.</p>
 
     {{ if .Admin.Unavailable }}
     <div class="admin-banner is-error">{{ .Admin.Unavailable }}</div>

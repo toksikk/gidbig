@@ -8,6 +8,11 @@ Package `gidbig`, directory `internal/core`. Composition root and core module.
 - `slashcmd.go` – `/uptime` rendering helpers.
 - `status.go` / `status_users.go` – `/status` snapshot collection and rendering. The snapshot carries an `LLM` section with the effective, non-secret LLM configuration (provider, models, base URL, credential source, persona source, classifier, reasoning effort, tools, rate limits, timeouts), sourced from the shared `*llm.Client` (`Info`) and the gippity config via `Module.llmStatus`.
 - `webserver.go` – optional OAuth session web UI, sound + eso APIs. Served by an `http.Server` with read/write/idle timeouts and a `securityHeaders` middleware (CSP with `frame-ancestors 'none'`, `X-Frame-Options`, `nosniff`, `Referrer-Policy`); the OAuth callback answers 502 when the Discord user lookup fails. See "Web sessions and endpoints" below.
+- `weblogs.go` – the owner-only `/admin/logs` page: it renders the window the
+  `logs` module returns from the in-memory log buffer (`internal/logbuf`, wired
+  in `setupLogging`), through the same owner gate and the same 404 refusals as
+  `/admin`. `?level=`, `?filter=` and `?count=` select the window and
+  `?format=raw` downloads it as `text/plain`.
 - `webadmin.go` – the owner-only `/admin` panel: it renders the same runtime
   settings the `/admin config` command edits, through the `configcmd` module, and
   applies a set or an unset with the same validation. Access needs the session to
@@ -70,6 +75,10 @@ sequenceDiagram
 
 ## Web sessions and endpoints
 
+- **`/admin/logs`** – the log viewer: GET only (405 with `Allow: GET`), the
+  owner gate of `/admin`, and the `level`, `filter` and `count` parameters
+  validated at the boundary (`400` on an unknown level or a non-numeric
+  count); a missing buffer renders the module's unavailable message.
 - **Session cookie** – AES-GCM encrypted, `HttpOnly`, `SameSite=Lax`, `MaxAge`
   7 days, and `Secure` when `web.oauth.redirect_uri` is `https`. It stores the
   user ID, name, avatar and login time (`IssuedAt`); the OAuth access token is

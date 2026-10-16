@@ -31,6 +31,7 @@ import (
 	"github.com/toksikk/gidbig/internal/cfg"
 	"github.com/toksikk/gidbig/internal/configcmd"
 	"github.com/toksikk/gidbig/internal/eso"
+	"github.com/toksikk/gidbig/internal/logs"
 	"github.com/toksikk/gidbig/internal/soundboard"
 	"golang.org/x/oauth2"
 )
@@ -174,6 +175,13 @@ type esoGenerator interface {
 	GenerateText(context.Context, string) string
 }
 
+// logWindow is the slice of the logs module the /admin/logs page uses. It is the
+// same method the /admin logs command renders, so both surfaces show the same
+// window and the page cannot drift from the command.
+type logWindow interface {
+	Window(logs.Query) logs.Window
+}
+
 // oauthEndpoint is Discord's fixed OAuth2 endpoint pair.
 var oauthEndpoint = oauth2.Endpoint{
 	AuthURL:  "https://discordapp.com/api/oauth2/authorize",
@@ -194,6 +202,9 @@ type webServer struct {
 	session    *discordgo.Session
 	soundboard soundboardAPI
 	eso        esoGenerator
+	// logs is the window behind the owner-only /admin/logs page; nil leaves the
+	// page reporting the missing window instead of 404.
+	logs logWindow
 	// config is the runtime settings store behind the /admin panel, and ownerID
 	// is the caller it gates on.
 	config configAdmin
@@ -227,7 +238,7 @@ type webServer struct {
 // newWebServer builds a web server around the injected session and modules. A
 // nil module is stored as a nil interface so the handlers' nil checks (for
 // example the /api/eso 503) still work for a nil *Module.
-func newWebServer(config *cfg.Config, session *discordgo.Session, sb *soundboard.Module, esoMod *eso.Module, configMod *configcmd.Module) *webServer {
+func newWebServer(config *cfg.Config, session *discordgo.Session, sb *soundboard.Module, esoMod *eso.Module, configMod *configcmd.Module, logsMod *logs.Module) *webServer {
 	esoBurst, esoRefillPerSecond, esoMaxConcurrent, esoTimeout := resolveEsoLimits(config.Web.Eso)
 
 	ws := &webServer{
@@ -260,6 +271,9 @@ func newWebServer(config *cfg.Config, session *discordgo.Session, sb *soundboard
 	if configMod != nil {
 		ws.config = configMod
 	}
+	if logsMod != nil {
+		ws.logs = logsMod
+	}
 	if u, err := url.Parse(config.Web.Oauth.RedirectURI); err == nil && u.Scheme != "" && u.Host != "" {
 		ws.uiOrigin = u.Scheme + "://" + u.Host
 		ws.store.secure = u.Scheme == "https"
@@ -283,6 +297,8 @@ func (ws *webServer) loadTemplates() {
 	ws.tmpls["internal.html"] = template.Must(template.ParseFiles(templateDir+"internal.html", header, footer))
 	ws.tmpls["admin.html"] = template.Must(template.New("admin").Funcs(templateFuncs).
 		ParseFiles(templateDir+"admin.html", header, footer))
+	ws.tmpls["logs.html"] = template.Must(template.New("logs").Funcs(templateFuncs).
+		ParseFiles(templateDir+"logs.html", header, footer))
 	ws.tmpls["item.html"] = template.Must(template.ParseFiles(templateDir + "item.html"))
 	ws.tmpls["itemrowstart.html"] = template.Must(template.ParseFiles(templateDir + "itemrowstart.html"))
 	ws.tmpls["itemrowend.html"] = template.Must(template.ParseFiles(templateDir + "itemrowend.html"))
@@ -290,14 +306,14 @@ func (ws *webServer) loadTemplates() {
 	ws.tmpls["collwrapend.html"] = template.Must(template.ParseFiles(templateDir + "collwrapend.html"))
 }
 
-// startWebServer starts the HTTP UI around the injected session and modules.
-func startWebServer(config *cfg.Config, session *discordgo.Session, sb *soundboard.Module, esoMod *eso.Module, configMod *configcmd.Module) {
-	ws := newWebServer(config, session, sb, esoMod, configMod)
-	ws.loadTemplates()
-
+// routes builds the UI's routing table. It is a method rather than a local in
+// startWebServer so a test can drive the registered paths, including the ones
+// that are only reachable with an owner session.
+func (ws *webServer) routes() *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", ws.handleMain)
 	mux.HandleFunc("/admin", ws.handleAdmin)
+	mux.HandleFunc("/admin/logs", ws.handleAdminLogs)
 	mux.HandleFunc("/logout", ws.handleLogout)
 	mux.HandleFunc("/discordLogin", ws.handleDiscordLogin)
 	mux.HandleFunc("/discordCallback", ws.handleDiscordCallback)
@@ -306,8 +322,15 @@ func startWebServer(config *cfg.Config, session *discordgo.Session, sb *soundboa
 	mux.HandleFunc("/api/eso", ws.handleAPIEso)
 	mux.HandleFunc("/health", handleHealth)
 	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("web/static"))))
+	return mux
+}
 
-	err := newHTTPServer(config.Web.Port, securityHeaders(mux), ws.esoTimeout).ListenAndServe()
+// startWebServer starts the HTTP UI around the injected session and modules.
+func startWebServer(config *cfg.Config, session *discordgo.Session, sb *soundboard.Module, esoMod *eso.Module, configMod *configcmd.Module, logsMod *logs.Module) {
+	ws := newWebServer(config, session, sb, esoMod, configMod, logsMod)
+	ws.loadTemplates()
+
+	err := newHTTPServer(config.Web.Port, securityHeaders(ws.routes()), ws.esoTimeout).ListenAndServe()
 	if err != nil {
 		slog.Error("could not start webserver", "error", err)
 		os.Exit(1)

@@ -64,7 +64,7 @@ Gidbig is a Discord bot focused on soundboard playback in voice channels, with a
 3. Create the Discord session (dial deadline dialer, gateway logging, sharding) and initialize the LLM client
 4. Build `bot.Deps`, create the `bot.Bot`, register the core module before `Open` so lifecycle handlers are active from the first connect
 5. Start the watchdog and open the Discord WebSocket
-6. Register each module (soundboard, coffee, eso, gamerstatus, gippity, admin, leetoclock, anticheat, stoll, wardogs, wttrin) with `bot.RegisterModule`; the router funnels their listeners into a single `MessageCreate` and `InteractionCreate` session handler and registers their stats providers
+6. Register each module (soundboard, coffee, eso, gamerstatus, gippity, configcmd, logs, admin, leetoclock, anticheat, stoll, wardogs, wttrin) with `bot.RegisterModule`; the router funnels their listeners into a single `MessageCreate` and `InteractionCreate` session handler and registers their stats providers
 7. `bot.Run(ctx)` publishes all collected slash commands via `ApplicationCommandBulkOverwrite`, starts background tasks, and blocks until the signal context is cancelled
 8. Start the optional web server (requires OAuth credentials in config)
 9. On shutdown, `bot.Shutdown` cancels the context, waits for background tasks, shuts modules down, and closes the session
@@ -80,7 +80,7 @@ All modules live in `internal/`, compile into the binary, and implement `bot.Mod
 
 ### Web server (`internal/core/webserver.go`)
 
-Standard library `net/http` (`ServeMux`) + AES-GCM encrypted cookie session store. Discord OAuth2 (identify + guilds). Session key is derived from the Web SessionSecret. Routes: `/`, `/discordLogin`, `/discordCallback`, `/playsound` (POST), `/logout`, `/api/queue`, `/api/eso`, `/health`, and `/static/`. IP addresses are anonymized to /16 (IPv4) or /64 (IPv6). `/api/queue` requires a Discord session; `/api/eso` is unauthenticated and token-billed, so it is guarded by a per-IP token bucket and a global concurrency cap with a per-request timeout (`internal/core/ratelimit.go`, tunable via the optional `web.eso` config).
+Standard library `net/http` (`ServeMux`) + AES-GCM encrypted cookie session store. Discord OAuth2 (identify + guilds). Session key is derived from the Web SessionSecret. Routes: `/`, `/discordLogin`, `/discordCallback`, `/playsound` (POST), `/logout`, `/admin`, `/admin/logs`, `/api/queue`, `/api/eso`, `/health`, and `/static/`. IP addresses are anonymized to /16 (IPv4) or /64 (IPv6). `/api/queue` requires a Discord session; `/api/eso` is unauthenticated and token-billed, so it is guarded by a per-IP token bucket and a global concurrency cap with a per-request timeout (`internal/core/ratelimit.go`, tunable via the optional `web.eso` config).
 
 ### Key packages
 
@@ -92,6 +92,8 @@ Standard library `net/http` (`ServeMux`) + AES-GCM encrypted cookie session stor
 | `internal/shareddb` | Opens the shared `gidbig.db` (WAL + busy timeout) |
 | `internal/soundboard` | Audio collection loading and per-guild voice playback queue |
 | `internal/admin` | `/admin` slash command, admin subcommand registry |
+| `internal/logs` | `/admin logs show`, owner-only log viewer over the in-memory log window |
+| `internal/logbuf` | Bounded in-memory window of the newest log lines, filled by the slog handler |
 | `internal/anticheat` | GamingOnLinux anti-cheat compatibility lookup with a cached CSV dataset |
 | `internal/llm` | Shared OpenAI/LLM client |
 | `internal/gippity` | OpenAI integration with GORM/SQLite conversation history |
