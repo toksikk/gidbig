@@ -13,3 +13,6 @@ bin
 *.db.bak
 *.db.pre-*.bak
 .claude/
+
+# Local implementation plans from gidbig-planner; never committed.
+.plans/

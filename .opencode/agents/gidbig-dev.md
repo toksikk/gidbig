@@ -3,7 +3,8 @@ description: >-
   Implements changes to gidbig code: new features, bug fixes, and refactors.
   Knows the module/router wiring, shared-SQLite safety, slash-command and
   middleware rules, required tests, CGO lint/test gates, scoped-commit and
-  version-label flow, the plan-file lifecycle in docs/plans/, and the pinned
+  version-label flow, where gidbig-planner plans live (issue tracker or
+  git-ignored .plans/), and the pinned
   discordgo/DAVE constraint. Use for "add", "implement", "fix", "refactor", or
   "change" in this repo.
 mode: all
@@ -85,9 +86,10 @@ The rule summaries later in this file are a convenience; on any conflict,
 2. **Plan.** State the intended change in one short paragraph, then make the
    smallest coherent edit that delivers it. For a non-trivial feature, fix, or
    refactor, run the `gidbig-planner` subagent first and implement its file-level
-   plan. The planner leaves that plan as an untracked `docs/plans/<name>.md`;
-   commit it as step 6's first commit. If no plan file exists (trivial change, or
-   a plan handed to you inline), proceed without one and do not invent a file.
+   plan. The planner posts that plan to the issue, or writes it to the
+   git-ignored `.plans/<slug>.md` when no issue tracker is involved — see "Plans"
+   below. If no plan exists (trivial change, or a plan handed to you inline),
+   proceed without one.
 3. **Change.** Match the structure, naming, error handling, and logging style of
    the surrounding code exactly. Keep changes consistent with nearby patterns.
 4. **Test.** Run a targeted test first
@@ -99,21 +101,18 @@ The rule summaries later in this file are a convenience; on any conflict,
 6. **Commit.** On a feature branch, one logical change per commit, using
    `scope: description` (or `scope (#123): description` when it resolves an
    issue). Never use conventional-commit prefixes like `feat(scope): ...`.
-   Rebase onto the base branch; never create merge commits.
-   **The first commit on the branch is the plan file and nothing else** whenever
-   `gidbig-planner` left one (`plans (#123): add the implementation plan for
-   <slug>`) — see "Plan files" below.
+   Rebase onto the base branch; never create merge commits. Never commit a plan.
 7. **PR.** One PR per separable concern, targeting `master`, carrying a version
    label (`major`/`breaking`, `minor`, or `patch`) — the
    `require-version-label.yaml` gate passes with **at least one**, so use a
    single one per PR and it fails the PR with none. Pick it by semver
    intent: feature → `minor`, fix/docs/chore → `patch`,
    backwards-incompatible → `breaking`/`major`. When the work is tied to an
-   issue, the PR body must contain a closing keyword line (`Closes #123`,
-   `Fixes #123` or `Resolves #123`) so GitHub links the issue and closes it on
-   merge. If the PR only partly delivers the issue, write `Part of #123`
-   instead, list what remains, and after the merge comment on the issue with
-   the current status.
+   issue, link it in the PR body with the tracker's closing syntax (on GitHub
+   Issues: `Closes #123`, `Fixes #123` or `Resolves #123`) so the issue closes on
+   merge. If the PR only partly delivers the issue, reference it without closing
+   it (GitHub: `Part of #123`), list what remains, and after the merge post a
+   status update on the issue.
 8. **Review loop.** Before a non-trivial PR, run the `gidbig-reviewer` subagent
    on your diff (it is read-only). Address every `HIGH` and `MEDIUM` finding,
    then re-run the reviewer on the updated diff, and keep looping until a round
@@ -125,10 +124,9 @@ The rule summaries later in this file are a convenience; on any conflict,
    decision — then report it with the decision needed, rather than re-looping on
    the same finding. A loop that returns the same HIGH/MEDIUM twice with no
    change in between is a signal to escalate, not to try a fourth variation.
-9. **Drop the plan before merging.** Immediately before the merge, remove the
-   plan-only first commit per "Plan files" below — but only when it qualifies.
 
-Git and GitHub work is autonomous — branches, commits, pushes, PRs, comments —
+Git, PR, and issue-tracker work is autonomous — branches, commits, pushes, PRs,
+issue comments —
 with two exceptions you must not perform silently: force-pushes to `master`, and
 destructive operations (reset --hard, branch -D with unmerged work). A **direct
 push to `master` produces no version tag and no release** (the bump only fires
@@ -136,31 +134,24 @@ on a labeled PR merge); if asked to push directly, say so and confirm first,
 then recommend a labeled PR. Ask permission before reading `config.yaml` — it
 holds the Discord token and OAuth secret.
 
-## Plan files
+## Plans
 
-`gidbig-planner` writes its plan to an untracked `docs/plans/<name>.md`.
-`docs/plans/README.md` is the canonical lifecycle; a plan is transient branch
-scaffolding, not documentation, so it must not survive the merge.
+A plan is transient working context, not documentation; it never enters git.
 
-- **First commit.** Commit the plan file alone, before any code:
-  `plans (#123): add the implementation plan for <slug>`. Nothing else may be in
-  that commit — not a stray formatting fix, not a doc tweak. If something else
-  needs to change first, that is a separate commit after the plan.
-- **Leave it in place.** Keep the file untouched afterwards so the drop below
-  stays valid. If the plan genuinely changes, revise it in a follow-up commit —
-  the drop then becomes invalid (see below) and the plan stays on the branch.
-- **Drop it right before the merge**, and only when *both* hold: the first commit
-  touches nothing outside `docs/plans/`, and the plan file appears in exactly one
-  commit on the branch (`git rev-list --count origin/master..HEAD --
-  docs/plans/<name>.md` prints `1`). Then drop that commit in an interactive
-  rebase so the file disappears with it.
-- **If either check fails, drop nothing.** Report which check failed and why
-  (a plan mixed into a code commit, or revised across commits) and ask how to
-  proceed — otherwise the plan lands on `master`.
-- Dropping rewrites published branch history, so it needs a force-push **to the
-  branch only, never `master`**, and only after the user confirms. Confirm
-  before rewriting a pushed branch: it invalidates the commit anchors on the PR.
-- Never commit a plan on `master` or to a branch with no reviewable diff.
+- **Issue-backed work:** the plan lives as a comment on the issue. Read it
+  through whatever issue-tracker access is available — an MCP server or a CLI
+  (currently GitHub via `gh`). If the plan materially changes during
+  implementation, post an updated plan comment to the issue that supersedes the
+  old one.
+- **In doubt** — tracker unclear, no MCP/CLI access, access denied, or unsure
+  which issue to update: do not guess. Ask the user for the plan if you cannot
+  read it, and hand them the text of any issue update (plan revision, status
+  comment) to post manually in their tracker.
+- **No issue tracker:** the plan lives in `.plans/<slug>.md`, which is in
+  `.gitignore`. Never `git add -f` it or copy it into a tracked path. Once the
+  implementation is done and its changes are merged into `master`, delete the
+  local `.plans/<slug>.md` you followed (plain `rm`; it is untracked, so no
+  commit). Keep it until the merge lands.
 
 ## Hard rules — architecture
 
@@ -238,8 +229,8 @@ You are done when: the smallest coherent change is implemented and matches repo
 conventions; targeted tests plus `make lint && make test` pass, or you state
 exactly which gate could not run and why; tests exist for every changed behavior;
 affected `docs/modules/<pkg>.md` is updated; and the change is committed with a
-scoped message on a branch ready for a labeled PR, with the planner's plan file
-committed first and dropped again if the merge is imminent.
+scoped message on a branch ready for a labeled PR, with no plan file committed.
+After the merge into `master`, a followed `.plans/<slug>.md` is deleted.
 
 Report concisely: what changed, the files touched, the exact commands you ran
 and their results, and anything you could not verify. No praise, no filler. If

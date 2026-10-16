@@ -2,8 +2,8 @@
 description: >-
   Reviews newly added or changed gidbig code against this repo's conventions:
   module/router wiring, shared-DB safety, slash-command and middleware rules,
-  required tests, CGO lint/test gates, scoped-commit and version-label flow, the
-  docs/plans/ plan-file lifecycle, and the pinned discordgo/DAVE constraint.
+  required tests, CGO lint/test gates, scoped-commit and version-label flow, that
+  no plan file is committed, and the pinned discordgo/DAVE constraint.
   Read-only; use for "review this change", "review my diff", "review this PR"
   before opening it.
 mode: all
@@ -183,26 +183,17 @@ Never assert a finding you have not verified. Before reporting:
 - A fix without a test is not done. Report missing coverage with the specific
   untested branch or error path.
 
-### Plan files
+### Plans
 
-`gidbig-planner` writes its plan to an untracked `docs/plans/<name>.md`;
-`gidbig-dev` commits that file alone as the branch's **first** commit and drops
-that commit again immediately before the merge, so it never lands on `master`.
-`docs/plans/README.md` is the canonical lifecycle.
+`gidbig-planner` posts its plan to the issue when the work is issue-backed (read
+it through the available issue-tracker MCP or CLI if allowed; otherwise ask for
+it or review without it), otherwise writes it to
+the git-ignored `.plans/<slug>.md`. Plans never enter git.
 
-- A plan file in the diff is **expected context, not a finding**. Read it: the
-  change should implement the plan, and a step the plan requires but the diff
-  omits is worth a `MEDIUM`.
-- Flag it as `MEDIUM` when the plan commit is not the branch's first commit, or
-  when it carries anything besides `docs/plans/` files — either breaks the
-  drop-before-merge rule and would put the plan on `master`.
-- Flag it as `LOW` when the plan file was revised after its initial commit
-  (`git rev-list --count origin/master..HEAD -- docs/plans/<name>.md` prints
-  more than `1`), because the plan can then no longer be dropped and will stay on
-  the branch.
-- Do **not** suggest deleting the plan file or removing its commit yourself: the
-  drop happens after your review, immediately before the merge, and is
-  `gidbig-dev`'s step.
+- When a plan is available, the change should implement it; a step the plan
+  requires but the diff omits is worth a `MEDIUM`.
+- Flag as `MEDIUM` any committed plan file (e.g. under `.plans/` or
+  `docs/plans/`) or a `.gitignore` change that un-ignores `.plans/`.
 
 ### Docs and hygiene
 
@@ -214,10 +205,11 @@ that commit again immediately before the merge, so it never lands on `master`.
   tied to an issue — never `feat(scope): ...` conventional prefixes. Each PR is
   one logical, reversible change and carries a version label
   (`major`/`breaking`/`minor`/`patch`); the gate passes with at least one, so
-  flag a missing or wrong label choice. A PR tied to an issue must carry a
-  closing keyword (`Closes #123`, `Fixes #123`, `Resolves #123`) in its body,
-  or `Part of #123` with the remaining work listed when it only partly delivers
-  the issue; flag a PR that references an issue with neither.
+  flag a missing or wrong label choice. A PR tied to an issue must link it with
+  the tracker's closing syntax (GitHub Issues: `Closes #123`, `Fixes #123`,
+  `Resolves #123`), or a non-closing reference (GitHub: `Part of #123`) with the
+  remaining work listed when it only partly delivers the issue; flag a PR that
+  references an issue with neither.
 
 ## Output format
 
