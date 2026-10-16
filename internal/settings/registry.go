@@ -63,7 +63,11 @@ const (
 	KeyGippityAllowedGuilds            = "gippity.allowed_guilds"
 	KeyGippityIgnoredUsers             = "gippity.ignored_users"
 	KeyLLMBaseURL                      = "llm.base_url"
+	KeyDevMode                         = "dev_mode"
 )
+
+// DevModeNote explains that only part of dev_mode is hot.
+const DevModeNote = "only the log level (debug/info) changes at runtime; log format, source locations and discordgo logging need a restart"
 
 // RestartRequiredNote is the hint shown for every cold key.
 const RestartRequiredNote = "restart required: edit config.yaml"
@@ -250,6 +254,16 @@ var registry = append([]Key{
 		Apply:    applyList(func(c *cfg.Config) *[]string { return &c.Gippity.IgnoredUsers }),
 		Validate: rejectEmptyItems,
 	},
+	{
+		// Only the slog level follows a runtime change; the handler format,
+		// AddSource and the discordgo log level are chosen once at boot.
+		Name:    KeyDevMode,
+		Kind:    KindBool,
+		Hot:     true,
+		Note:    DevModeNote,
+		Extract: extractBool(func(c *cfg.Config) *bool { return &c.DevMode }),
+		Apply:   applyBool(func(c *cfg.Config) *bool { return &c.DevMode }),
+	},
 }, coldKeys...)
 
 // coldKeys are the non-secret settings read only at boot.
@@ -277,7 +291,6 @@ var coldKeys = []Key{
 	cold("llm.title", KindString, extractString(func(c *cfg.Config) *string { return &c.LLM.Title })),
 	cold("llm.personality", KindString, extractString(func(c *cfg.Config) *string { return &c.LLM.Personality })),
 	cold("llm.personality_preset", KindString, extractString(func(c *cfg.Config) *string { return &c.LLM.Preset })),
-	cold("dev_mode", KindBool, extractBool(func(c *cfg.Config) *bool { return &c.DevMode })),
 }
 
 // cold builds a read-only key.

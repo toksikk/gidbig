@@ -22,6 +22,15 @@ Package `gidbig`, directory `internal/core`. Composition root and core module.
 The soundboard lives in `internal/soundboard`; the web server reaches it through
 the module's exported `Collections`, `Enqueue` and `QueueStatus` API.
 
+## Log level and dev_mode
+
+`setupLogging` picks the handler at boot from `config.yaml`: text with
+`AddSource` in dev mode, JSON otherwise; `configureDiscordgoLogging` is also
+boot-only (pinned fork). The level is a package `slog.LevelVar`. Once the
+settings store exists, `wireDevModeLevel` applies the effective `dev_mode`
+(a stored override wins) and registers `settings.Store.OnChange`, so
+`/admin config set dev_mode` flips only the level between Debug and Info.
+
 ## Startup sequence
 
 `StartGidbig` builds the session and `Deps`, registers every module with a
@@ -43,6 +52,7 @@ sequenceDiagram
     main->>core: StartGidbig()
     core->>cfg: GetConfig()
     core->>core: shareddb.Open → settings.New(db, conf)
+    core->>core: wireDevModeLevel(store) — level from effective dev_mode
     core->>dg: New("Bot token")
     core->>llm: New(Options + ModelOverride) → *llm.Client
     core->>bot: New(Deps) — installs single session handlers

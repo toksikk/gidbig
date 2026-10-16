@@ -44,7 +44,7 @@ as `default`, because the effective value is identical either way.
 
 A key is either **hot** (applies to the next read) or **cold** (`Cold: true`,
 read only at boot). Cold keys — every non-secret `cfg.Config` field that is not
-hot, for example `discord.shard_id`, `web.port`, `llm.provider` or `dev_mode` —
+hot, for example `discord.shard_id`, `web.port`, or `llm.provider` —
 are registered with `Extract` only and carry the `Note` "restart required: edit
 config.yaml". They are listed and readable with their value and source, but
 `Set`/`Unset`/`Add`/`Remove` return `ErrRestartRequired`, which is distinct from
@@ -52,6 +52,9 @@ config.yaml". They are listed and readable with their value and source, but
 warning on reload, so it can never look in force.
 
 `Note` is an optional per-key warning that every surface renders the same way.
+The hot `dev_mode` uses it to say that only the log level (debug/info) follows a
+runtime change; the log format, source locations and discordgo logging are fixed
+at boot.
 
 Secrets (`discord.token`, `web.oauth.client_secret`, `web.session_secret`,
 `llm.api_key`) are not registered, so they are indistinguishable from a typo.
