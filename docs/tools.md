@@ -68,6 +68,7 @@ No change to `internal/gippity` or `internal/core` is needed to add a tool.
 | `wardogs_status` | wardogs | the cached WARDOGS Linux/Proton support verdict |
 | `weather` | wttrin | current weather or forecast for a location, from the cached wttr.in lookup |
 | `stoll_quote` | stoll | a random Dr. Axel Stoll quote |
+| `current_game_status` | gamerstatus | the bot's currently shown game and how long ago it was set |
 
 ## Configuration
 
