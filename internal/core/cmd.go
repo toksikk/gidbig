@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -51,11 +52,44 @@ func startedStatus() string {
 	return "I just started! " + currentVersion() + " (" + builddate + ")"
 }
 
+// logLevel is the process-wide slog level. It is the only part of dev_mode that
+// follows a runtime change; the handler format and AddSource are fixed at boot.
+var logLevel slog.LevelVar
+
+// applyDevModeLevel sets lv to Debug in dev mode and to Info otherwise.
+func applyDevModeLevel(lv *slog.LevelVar, devMode bool) {
+	if devMode {
+		lv.Set(slog.LevelDebug)
+		return
+	}
+	lv.Set(slog.LevelInfo)
+}
+
+// wireDevModeLevel applies the effective dev_mode from the settings store to lv
+// and keeps it in sync with every later /admin config change. mu serialises the
+// read-and-set so two concurrent writes cannot apply their values out of order;
+// it is separate from the store lock, which is released before callbacks run.
+func wireDevModeLevel(store *settings.Store, lv *slog.LevelVar) {
+	var mu sync.Mutex
+	apply := func(msg string) {
+		mu.Lock()
+		defer mu.Unlock()
+		before := lv.Level()
+		devMode := store.Bool(settings.KeyDevMode)
+		applyDevModeLevel(lv, devMode)
+		if lv.Level() != before {
+			slog.Info(msg, "dev_mode", devMode, "level", lv.Level().String())
+		}
+	}
+	apply("log level applied from stored dev_mode")
+	store.OnChange(settings.KeyDevMode, func() { apply("log level updated from dev_mode") })
+}
+
 func setupLogging(config *cfg.Config) {
-	opts := &slog.HandlerOptions{}
+	opts := &slog.HandlerOptions{Level: &logLevel}
+	applyDevModeLevel(&logLevel, config.DevMode)
 	var logger *slog.Logger
 	if config.DevMode {
-		opts.Level = slog.LevelDebug
 		opts.AddSource = true
 		slog.Debug("Dev Mode", "devMode", config.DevMode)
 		logger = slog.New(slog.NewTextHandler(os.Stdout, opts))
@@ -137,6 +171,8 @@ func StartGidbig() {
 		os.Exit(1)
 		return
 	}
+	// A stored dev_mode override wins over config.yaml for the log level.
+	wireDevModeLevel(settingsStore, &logLevel)
 
 	// Create a discord session
 	slog.Info("Starting discord session...")

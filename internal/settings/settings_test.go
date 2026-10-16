@@ -263,7 +263,7 @@ gippity:
 	store := newTestStore(t, openTestDB(t), yamlConfig)
 	for _, tc := range []struct{ key, value string }{
 		{"web.port", "9090"},
-		{"dev_mode", "false"},
+		{"leetoclock.debug", "false"},
 		{"llm.provider", ""},
 	} {
 		k, ok := Lookup(tc.key)
@@ -865,5 +865,80 @@ func TestIgnoredUsers_HotListAllowsEmpty(t *testing.T) {
 		if err := store.Set(KeyGippityIgnoredUsers, v, "owner"); err == nil {
 			t.Errorf("Set(%q) = nil, want an empty-item error", v)
 		}
+	}
+}
+
+func TestOnChangeFiresOnlyOnSuccessfulWrite(t *testing.T) {
+	const yamlConfig = `
+discord:
+  token: "test-token"
+gippity:
+  allowed_guilds: ["guild"]
+`
+	store := newTestStore(t, openTestDB(t), yamlConfig)
+	calls := 0
+	var seen int
+	store.OnChange(KeySoundboardQueueMaxDepth, func() {
+		calls++
+		seen = store.Int(KeySoundboardQueueMaxDepth)
+	})
+	listCalls := 0
+	store.OnChange(KeyGippityAllowedGuilds, func() { listCalls++ })
+
+	if err := store.Set(KeySoundboardQueueMaxDepth, "not-a-number", "owner"); err == nil {
+		t.Fatal("Set with an invalid value succeeded")
+	}
+	if calls != 0 {
+		t.Fatalf("callback fired %d times after a failed Set", calls)
+	}
+	if err := store.Set(KeySoundboardQueueMaxDepth, "9", "owner"); err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+	if calls != 1 || seen != 9 {
+		t.Fatalf("after Set: calls=%d seen=%d; want 1, 9", calls, seen)
+	}
+	if err := store.Unset(KeySoundboardQueueMaxDepth, "owner"); err != nil {
+		t.Fatalf("Unset: %v", err)
+	}
+	if calls != 2 {
+		t.Fatalf("after Unset: calls=%d; want 2", calls)
+	}
+	if err := store.Unset("no.such.key", "owner"); err == nil || calls != 2 {
+		t.Fatalf("Unset unknown: err=%v calls=%d", err, calls)
+	}
+
+	if err := store.Add(KeyGippityAllowedGuilds, "guild", "owner"); err == nil || listCalls != 0 {
+		t.Fatalf("duplicate Add: err=%v listCalls=%d", err, listCalls)
+	}
+	if err := store.Add(KeyGippityAllowedGuilds, "other", "owner"); err != nil || listCalls != 1 {
+		t.Fatalf("Add: err=%v listCalls=%d", err, listCalls)
+	}
+	if err := store.Remove(KeyGippityAllowedGuilds, "missing", "owner"); err == nil || listCalls != 1 {
+		t.Fatalf("Remove missing: err=%v listCalls=%d", err, listCalls)
+	}
+	if err := store.Remove(KeyGippityAllowedGuilds, "other", "owner"); err != nil || listCalls != 2 {
+		t.Fatalf("Remove: err=%v listCalls=%d", err, listCalls)
+	}
+}
+
+func TestOnChangeRecoversPanickingCallback(t *testing.T) {
+	const yamlConfig = `
+discord:
+  token: "test-token"
+gippity:
+  allowed_guilds: ["guild"]
+`
+	store := newTestStore(t, openTestDB(t), yamlConfig)
+	store.OnChange(KeySoundboardQueueMaxDepth, func() { panic("boom") })
+	ran := false
+	store.OnChange(KeySoundboardQueueMaxDepth, func() { ran = true })
+	if err := store.Set(KeySoundboardQueueMaxDepth, "9", "owner"); err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+	if !ran {
+		t.Error("callback after the panicking one did not run")
+	}
+	if got := store.Int(KeySoundboardQueueMaxDepth); got != 9 {
+		t.Errorf("value after panic = %d; want 9 (write committed)", got)
 	}
 }

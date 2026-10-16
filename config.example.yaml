@@ -118,6 +118,10 @@ llm:
     # superintelligence; schemer = fake-friendly sarcastic manipulator;
     # dry = monotone, few words; genalpha = hyper Gen Alpha teen slang.)
     personality_preset: ""
+# dev_mode picks the log format (text with source locations vs. JSON) and the
+# discordgo log level at boot. The owner can flip it at runtime with
+# /admin config, but only the log level (debug/info) follows; the rest needs a
+# restart.
 dev_mode: true
 
 # Runtime settings
@@ -146,8 +150,9 @@ dev_mode: true
 #   gippity.classifier_rate_limit_per_hour llm.model
 #   gippity.debug_channel                  llm.vision_model
 #   gippity.allowed_guilds                 llm.max_tokens
+#   dev_mode (log level only)
 #
-# Every other non-secret key (discord.shard_id, web.port, dev_mode, llm.provider,
+# Every other non-secret key (discord.shard_id, web.port, llm.provider,
 # leetoclock.*, ...) is boot-time only: /admin config list and get show its value
 # and source marked "restart required: edit config.yaml", and any write is
 # refused. llm.base_url is shown with its userinfo and query masked. Secrets are never readable or writable at runtime and are reported as

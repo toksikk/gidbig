@@ -44,6 +44,49 @@ type Store struct {
 	// lock-free.
 	mu  sync.Mutex
 	now atomic.Pointer[snapshot]
+
+	// listenersMu guards listeners. It is separate from mu so a callback may
+	// read the store, and is never held while a callback runs.
+	listenersMu sync.Mutex
+	listeners   map[string][]func()
+}
+
+// OnChange registers fn to run after every successful Set, Unset, Add or Remove
+// of key. It runs synchronously on the writer's goroutine, after the new value is
+// published and outside the store lock, so fn reads the new value through the
+// typed getters. A failed write never fires it. fn must be quick and must not
+// block on Discord or network calls.
+func (s *Store) OnChange(key string, fn func()) {
+	if s == nil || fn == nil {
+		return
+	}
+	s.listenersMu.Lock()
+	defer s.listenersMu.Unlock()
+	if s.listeners == nil {
+		s.listeners = make(map[string][]func())
+	}
+	s.listeners[key] = append(s.listeners[key], fn)
+}
+
+// notify runs the callbacks registered for key. The caller must not hold s.mu.
+func (s *Store) notify(key string) {
+	s.listenersMu.Lock()
+	fns := append([]func(){}, s.listeners[key]...)
+	s.listenersMu.Unlock()
+	for _, fn := range fns {
+		s.runCallback(key, fn)
+	}
+}
+
+// runCallback runs one OnChange callback. The write is already committed, so a
+// panicking callback is logged and the remaining callbacks still run.
+func (s *Store) runCallback(key string, fn func()) {
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("settings: OnChange callback panicked", "key", key, "panic", r)
+		}
+	}()
+	fn()
 }
 
 // snapshot is the immutable view of the stored overrides. It is replaced, never
@@ -325,8 +368,13 @@ func (s *Store) Set(key, value, updatedBy string) error {
 	// It is never held across a Discord or network call, only across this
 	// process's own SQLite write.
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.setLocked(k, value, updatedBy)
+	err = s.setLocked(k, value, updatedBy)
+	s.mu.Unlock()
+	if err != nil {
+		return err
+	}
+	s.notify(k.Name)
+	return nil
 }
 
 // Add appends item to a list key and stores the result like Set. An item that is
@@ -374,12 +422,16 @@ func (s *Store) editList(key, item, updatedBy string, edit func([]string, string
 		return fmt.Errorf("%s item must be one non-empty value without commas", key)
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	list, err := edit(s.StringList(key), item)
+	if err == nil {
+		err = s.setLocked(k, formatList(list), updatedBy)
+	}
+	s.mu.Unlock()
 	if err != nil {
 		return err
 	}
-	return s.setLocked(k, formatList(list), updatedBy)
+	s.notify(k.Name)
+	return nil
 }
 
 // setLocked validates and stores value for k. The caller holds s.mu.
@@ -450,8 +502,18 @@ func (s *Store) Unset(key, updatedBy string) error {
 	}
 
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	err = s.unsetLocked(k, updatedBy)
+	s.mu.Unlock()
+	if err != nil {
+		return err
+	}
+	s.notify(k.Name)
+	return nil
+}
 
+// unsetLocked removes the override for k. The caller holds s.mu.
+func (s *Store) unsetLocked(k Key, updatedBy string) error {
+	key := k.Name
 	// Removing a row changes the effective configuration, so it gets the same
 	// check a write does. Only an unset that would *introduce* an invalid
 	// combination is refused, so an already-invalid state can always be cleared,

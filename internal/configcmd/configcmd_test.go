@@ -764,8 +764,11 @@ func TestEntries_ColdAndItems(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Entries: %v", err)
 	}
-	var sawCold, sawItems bool
+	var sawCold, sawItems, sawDevMode bool
 	for _, e := range entries {
+		if e.Name == settings.KeyDevMode && !e.Cold && e.Note == settings.DevModeNote {
+			sawDevMode = true
+		}
 		if e.Name == "web.port" && e.Cold && e.Note != "" {
 			sawCold = true
 		}
@@ -773,8 +776,8 @@ func TestEntries_ColdAndItems(t *testing.T) {
 			sawItems = true
 		}
 	}
-	if !sawCold || !sawItems {
-		t.Errorf("entries missing cold or list items: cold=%v items=%v", sawCold, sawItems)
+	if !sawCold || !sawItems || !sawDevMode {
+		t.Errorf("entries missing cold, list items or hot dev_mode note: cold=%v items=%v dev_mode=%v", sawCold, sawItems, sawDevMode)
 	}
 }
 
