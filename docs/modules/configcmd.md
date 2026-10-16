@@ -36,6 +36,11 @@ an empty `llm.model` means the client's built-in default, an empty
 `llm.vision_model` means "follow the text model", and `llm.max_tokens` is floored
 by the client.
 
+`llm.base_url` is cold but is redacted on every display surface (`list`, `get`,
+refusals and `Entries` for the web panel): the userinfo, query and fragment are
+masked (`https://***@host/path?***`) because a deployment may embed a credential
+there; a value that does not parse as an absolute URL is masked whole. Credentials embedded in the URL path (for example `https://host/key/sk-.../v1`) are not redacted.
+
 An unknown key and a secret key produce the same reply, so the command cannot be
 used to probe for the existence of a credential.
 

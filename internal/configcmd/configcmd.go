@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -376,6 +377,11 @@ func (m *Module) effective(key string) (string, settings.Source, bool) {
 	if !ok {
 		return "", "", false
 	}
+	if key == settings.KeyLLMBaseURL {
+		// Display only: a base URL may embed a credential in its userinfo or
+		// query, so neither is ever shown.
+		return redactURL(value), source, true
+	}
 	if m.llm == nil {
 		return value, source, true
 	}
@@ -398,6 +404,33 @@ func (m *Module) effective(key string) (string, settings.Source, bool) {
 		}
 	}
 	return value, source, true
+}
+
+// redactURL masks the userinfo, query and fragment of a URL, which is where a
+// credential can hide (https://user:key@host/v1?api_key=...). A value that does
+// not parse as an absolute URL is masked whole unless it is empty.
+func redactURL(raw string) string {
+	if raw == "" {
+		return ""
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return "***"
+	}
+	var sb strings.Builder
+	sb.WriteString(u.Scheme + "://")
+	if u.User != nil {
+		sb.WriteString("***@")
+	}
+	sb.WriteString(u.Host)
+	sb.WriteString(u.EscapedPath())
+	if u.RawQuery != "" || u.ForceQuery {
+		sb.WriteString("?***")
+	}
+	if u.Fragment != "" {
+		sb.WriteString("#***")
+	}
+	return sb.String()
 }
 
 // unknownKeyMessage is deliberately identical for an unknown key and for a
