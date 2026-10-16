@@ -13,6 +13,12 @@ permissions:
 jobs:
     detect_changes:
         name: Detect file changes
+        # Skip PRs from forks; only PRs from branches in this repository run CI.
+        if: >-
+            ${{
+                github.event_name != 'pull_request' ||
+                github.event.pull_request.head.repo.full_name == github.repository
+            }}
         runs-on: ubuntu-latest
 
         outputs:
