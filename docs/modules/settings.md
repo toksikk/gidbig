@@ -121,6 +121,13 @@ fixed. `Unset` applies the same check and refuses a
 removal that would *introduce* an invalid combination, so an already-invalid
 state can always be cleared.
 
+`OnChange(key, fn)` registers a callback for a consumer that cannot re-read the
+value on every use (the slog level for `dev_mode`). It fires synchronously after
+a successful `Set`, `Unset`, `Add` or `Remove` of that key — after the new
+snapshot is published and outside the write lock, so `fn` reads the new value
+through the typed getters. A rejected or failed write never fires it. A panicking callback is recovered and
+logged with its key; the write stays committed and the remaining callbacks run.
+
 ## Key flow
 
 ```mermaid
