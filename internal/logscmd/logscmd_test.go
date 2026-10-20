@@ -1,6 +1,7 @@
 package logscmd
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/toksikk/gidbig/internal/bot"
+	"github.com/toksikk/gidbig/internal/logwindow"
 )
 
 var _ bot.AdminProvider = (*Module)(nil)
@@ -115,4 +117,82 @@ func TestRenderNeutralisesFences(t *testing.T) {
 	if strings.Count(got[0], "```") != 2 {
 		t.Errorf("fence escaped: %q", got[0])
 	}
+}
+
+type fakeResponder struct {
+	edits     []string
+	followups []*discordgo.WebhookParams
+	editErr   error
+}
+
+func (f *fakeResponder) InteractionResponseEdit(_ *discordgo.Interaction, e *discordgo.WebhookEdit, _ ...discordgo.RequestOption) (*discordgo.Message, error) {
+	if f.editErr != nil {
+		return nil, f.editErr
+	}
+	f.edits = append(f.edits, *e.Content)
+	return &discordgo.Message{}, nil
+}
+
+func (f *fakeResponder) FollowupMessageCreate(_ *discordgo.Interaction, _ bool, p *discordgo.WebhookParams, _ ...discordgo.RequestOption) (*discordgo.Message, error) {
+	f.followups = append(f.followups, p)
+	return &discordgo.Message{}, nil
+}
+
+type staticReader []string
+
+func (r staticReader) Lines(q logwindow.Query) []string { return r }
+
+func interaction() *discordgo.InteractionCreate {
+	return &discordgo.InteractionCreate{Interaction: &discordgo.Interaction{}}
+}
+
+func TestHandleIgnoresOtherSubcommands(t *testing.T) {
+	f := &fakeResponder{}
+	New(staticReader{"x"}).handle(f, interaction(), &discordgo.ApplicationCommandInteractionDataOption{Name: "other"})
+	if len(f.edits)+len(f.followups) != 0 {
+		t.Errorf("sent %v / %v", f.edits, f.followups)
+	}
+}
+
+func TestHandleNilWindowRepliesEmpty(t *testing.T) {
+	f := &fakeResponder{}
+	New(nil).handle(f, interaction(), &discordgo.ApplicationCommandInteractionDataOption{Name: "show"})
+	if len(f.edits) != 1 || f.edits[0] != EmptyMessage || len(f.followups) != 0 {
+		t.Errorf("edits = %v followups = %d", f.edits, len(f.followups))
+	}
+}
+
+func TestHandleStopsOnEditError(t *testing.T) {
+	f := &fakeResponder{editErr: errors.New("boom")}
+	New(staticReader(manyLines(200))).handle(f, interaction(), &discordgo.ApplicationCommandInteractionDataOption{Name: "show"})
+	if len(f.followups) != 0 {
+		t.Errorf("follow-ups sent after an edit error: %d", len(f.followups))
+	}
+}
+
+func TestHandleSendsAtMostOneEphemeralFollowup(t *testing.T) {
+	f := &fakeResponder{}
+	New(staticReader(manyLines(200))).handle(f, interaction(), &discordgo.ApplicationCommandInteractionDataOption{Name: "show"})
+	if len(f.edits) != 1 || len(f.followups) != 1 {
+		t.Fatalf("edits = %d followups = %d", len(f.edits), len(f.followups))
+	}
+	if f.followups[0].Flags&discordgo.MessageFlagsEphemeral == 0 {
+		t.Error("follow-up is not ephemeral")
+	}
+}
+
+func TestSendCapsAtMaxMessages(t *testing.T) {
+	f := &fakeResponder{}
+	send(f, &discordgo.Interaction{}, []string{"a", "b", "c", "d"})
+	if len(f.edits) != 1 || len(f.followups) != MaxMessages-1 {
+		t.Errorf("edits = %d followups = %d", len(f.edits), len(f.followups))
+	}
+}
+
+func manyLines(n int) []string {
+	out := make([]string, n)
+	for i := range out {
+		out[i] = fmt.Sprintf("2026-01-01T00:00:00Z INFO line %03d %s", i, strings.Repeat("x", 40))
+	}
+	return out
 }

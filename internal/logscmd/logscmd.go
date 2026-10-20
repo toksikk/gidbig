@@ -23,8 +23,9 @@ const (
 	MaxCount = 200
 	// MaxMessages caps the reply at this many Discord messages.
 	MaxMessages = 2
-	// maxMessageRunes keeps one message under Discord's 2000 character limit,
-	// with room for the code fence.
+	// maxMessageRunes is the per-message budget Render fills, code block
+	// included. The slack below Discord's 2000 character limit covers the
+	// omission note and its newline on the first message.
 	maxMessageRunes = 1900
 	// fence wraps each message so log text renders verbatim.
 	fence = "```\n"
@@ -124,6 +125,12 @@ func QueryFromOptions(options []*discordgo.ApplicationCommandInteractionDataOpti
 // HandleAdminSubcommand answers /admin logs show. The interaction is already
 // deferred ephemerally by the admin module.
 func (m *Module) HandleAdminSubcommand(s *discordgo.Session, i *discordgo.InteractionCreate, sub *discordgo.ApplicationCommandInteractionDataOption) {
+	m.handle(s, i, sub)
+}
+
+// handle is HandleAdminSubcommand over the narrow responder, so it is testable
+// without a Discord session.
+func (m *Module) handle(s responder, i *discordgo.InteractionCreate, sub *discordgo.ApplicationCommandInteractionDataOption) {
 	if sub.Name != "show" {
 		return
 	}
@@ -131,13 +138,27 @@ func (m *Module) HandleAdminSubcommand(s *discordgo.Session, i *discordgo.Intera
 	if m.window != nil {
 		lines = m.window.Lines(QueryFromOptions(sub.Options))
 	}
-	msgs := Render(lines, MaxMessages, maxMessageRunes)
-	if _, err := s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: &msgs[0]}); err != nil {
+	send(s, i.Interaction, Render(lines, MaxMessages, maxMessageRunes))
+}
+
+// responder is the slice of *discordgo.Session the reply needs.
+type responder interface {
+	InteractionResponseEdit(interaction *discordgo.Interaction, newresp *discordgo.WebhookEdit, options ...discordgo.RequestOption) (*discordgo.Message, error)
+	FollowupMessageCreate(interaction *discordgo.Interaction, wait bool, data *discordgo.WebhookParams, options ...discordgo.RequestOption) (*discordgo.Message, error)
+}
+
+// send edits the deferred response with the first message and posts at most
+// MaxMessages-1 ephemeral follow-ups. It stops at the first error.
+func send(s responder, interaction *discordgo.Interaction, msgs []string) {
+	if len(msgs) > MaxMessages {
+		msgs = msgs[:MaxMessages]
+	}
+	if _, err := s.InteractionResponseEdit(interaction, &discordgo.WebhookEdit{Content: &msgs[0]}); err != nil {
 		slog.Warn("logscmd: failed to edit interaction response", "error", err)
 		return
 	}
 	for _, extra := range msgs[1:] {
-		if _, err := s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
+		if _, err := s.FollowupMessageCreate(interaction, true, &discordgo.WebhookParams{
 			Content: extra,
 			Flags:   discordgo.MessageFlagsEphemeral,
 		}); err != nil {
@@ -183,9 +204,6 @@ func Render(lines []string, maxMessages, limit int) []string {
 			}
 			groups = append(groups, cur)
 			cur, curLen, n = nil, 0, runeLen(l)
-			if len(groups) == maxMessages-1 && n > body-reserve {
-				break
-			}
 		}
 		cur = append([]string{l}, cur...)
 		curLen += n
