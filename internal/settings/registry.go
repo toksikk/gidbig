@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/toksikk/gidbig/internal/cfg"
+	"github.com/toksikk/gidbig/internal/llm"
 )
 
 // Kind is the value type of a setting. It decides how a stored string is
@@ -27,6 +28,10 @@ const (
 	KindString Kind = "string"
 	// KindStringList is a comma-separated list setting.
 	KindStringList Kind = "stringlist"
+	// KindText is a free-form, possibly multi-line text setting. It parses
+	// like KindString; surfaces render it as a text area and truncate it in
+	// short replies.
+	KindText Kind = "text"
 )
 
 // Source names where an effective value came from, lowest precedence first.
@@ -65,6 +70,8 @@ const (
 	KeyLLMBaseURL                      = "llm.base_url"
 	KeyDevMode                         = "dev_mode"
 	KeyLeetoclockDebug                 = "leetoclock.debug"
+	KeyLLMPersonality                  = "llm.personality"
+	KeyLLMPersonalityPreset            = "llm.personality_preset"
 )
 
 // DevModeNote explains that only part of dev_mode is hot.
@@ -277,6 +284,25 @@ var registry = append([]Key{
 		Extract: extractBool(func(c *cfg.Config) *bool { return &c.Leetoclock.Debug }),
 		Apply:   applyBool(func(c *cfg.Config) *bool { return &c.Leetoclock.Debug }),
 	},
+	{
+		// Resolved per LLM request. An empty value means "no override", so a
+		// config.yaml custom personality cannot be switched off at runtime.
+		Name:    KeyLLMPersonality,
+		Kind:    KindText,
+		Hot:     true,
+		Extract: extractString(func(c *cfg.Config) *string { return &c.LLM.Personality }),
+		Apply:   applyString(func(c *cfg.Config) *string { return &c.LLM.Personality }),
+	},
+	{
+		// A non-empty llm.personality wins over any preset. An unknown preset is
+		// rejected at runtime; at boot it only warns and falls back.
+		Name:     KeyLLMPersonalityPreset,
+		Kind:     KindString,
+		Hot:      true,
+		Extract:  extractString(func(c *cfg.Config) *string { return &c.LLM.Preset }),
+		Apply:    applyString(func(c *cfg.Config) *string { return &c.LLM.Preset }),
+		Validate: llm.ValidatePreset,
+	},
 }, coldKeys...)
 
 // coldKeys are the non-secret settings read only at boot.
@@ -301,8 +327,6 @@ var coldKeys = []Key{
 	cold(KeyLLMBaseURL, KindString, extractString(func(c *cfg.Config) *string { return &c.LLM.BaseURL })),
 	cold("llm.http_referer", KindString, extractString(func(c *cfg.Config) *string { return &c.LLM.HTTPReferer })),
 	cold("llm.title", KindString, extractString(func(c *cfg.Config) *string { return &c.LLM.Title })),
-	cold("llm.personality", KindString, extractString(func(c *cfg.Config) *string { return &c.LLM.Personality })),
-	cold("llm.personality_preset", KindString, extractString(func(c *cfg.Config) *string { return &c.LLM.Preset })),
 }
 
 // cold builds a read-only key.

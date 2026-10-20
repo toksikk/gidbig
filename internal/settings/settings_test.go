@@ -750,6 +750,7 @@ func TestEffective_EveryRegisteredKeyIsJudged(t *testing.T) {
 		KindBool:       "not-a-bool",
 		KindString:     "not-a-valid-value",
 		KindStringList: "not-a-valid-value",
+		KindText:       "not-a-valid-value",
 	}
 
 	for _, k := range registry {

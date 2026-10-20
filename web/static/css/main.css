@@ -649,6 +649,7 @@ body {
 .admin-btn.is-secondary:hover { border-color: var(--error); color: var(--error); }
 
 .admin-input.is-number { min-width: 6rem; }
+.admin-textarea { width: 100%; min-width: 16rem; resize: vertical; font-family: inherit; }
 .admin-check {
   width: 16px;
   height: 16px;

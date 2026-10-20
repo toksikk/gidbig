@@ -827,22 +827,78 @@ func TestBaseURLCredentialNeverShown(t *testing.T) {
 	}
 }
 
-// TestRenderList_LongPersonalityIsChunked proves a long llm.personality cannot
-// push one reply past Discord's limit: every chunk fits and nothing is lost.
-func TestRenderList_LongPersonalityIsChunked(t *testing.T) {
-	long := strings.Repeat("zqxw ", 1000) // 8000 runes on one line
+// TestLongPersonality_IsTruncatedInRepliesButFullInEntries proves a long
+// llm.personality does not flood list/get/set replies, while the web panel
+// still gets the full text.
+func TestLongPersonality_IsTruncatedInRepliesButFullInEntries(t *testing.T) {
+	long := strings.Repeat("zqxw ", 1000) // 5000 runes
 	m, _ := newTestModuleWithYAML(t, baseYAML+"llm:\n  personality: \""+long+"\"\n")
-	list := m.renderList()
-	chunks := chunkContent(list, maxMessageRunes)
-	if len(chunks) < 3 {
-		t.Fatalf("got %d chunks, want the list split", len(chunks))
+	want := "… (5000 chars)"
+	surfaces := map[string]string{
+		"list": m.renderList(),
+		"get":  m.renderGet(settings.KeyLLMPersonality),
 	}
-	for i, c := range chunks {
-		if n := len([]rune(c)); n > maxMessageRunes {
-			t.Errorf("chunk %d has %d runes, limit %d", i, n, maxMessageRunes)
+	msg, ok := m.ApplySet(settings.KeyLLMPersonality, long+"!", "owner")
+	if !ok {
+		t.Fatalf("ApplySet failed: %s", msg)
+	}
+	surfaces["set"] = msg
+	for name, out := range surfaces {
+		if strings.Count(out, "zqxw") > 100 {
+			t.Errorf("%s reply is not truncated (%d words)", name, strings.Count(out, "zqxw"))
+		}
+		if name != "set" && !strings.Contains(out, want) {
+			t.Errorf("%s reply lacks %q", name, want)
 		}
 	}
-	if got := strings.Count(strings.Join(chunks, ""), "zqxw"); got != 1000 {
-		t.Errorf("chunks carry %d zqxw words, want 1000", got)
+	if !strings.Contains(surfaces["set"], "… (5001 chars)") {
+		t.Errorf("set reply lacks the length marker: %s", surfaces["set"])
+	}
+	entries, _ := m.Entries()
+	for _, e := range entries {
+		if e.Name == settings.KeyLLMPersonality && e.Value != long+"!" {
+			t.Errorf("Entries value has %d runes, want the full text", len([]rune(e.Value)))
+		}
+	}
+}
+
+func TestDisplayValue(t *testing.T) {
+	if got := DisplayValue(settings.KindString, strings.Repeat("a", 500)); len(got) != 500 {
+		t.Errorf("non-text value was changed")
+	}
+	if got := DisplayValue(settings.KindText, "a\nb"); got != "a b" {
+		t.Errorf("DisplayValue(text, a\\nb) = %q", got)
+	}
+	got := DisplayValue(settings.KindText, strings.Repeat("é", 201))
+	if got != strings.Repeat("é", 200)+"… (201 chars)" {
+		t.Errorf("DisplayValue truncation = %q", got)
+	}
+}
+
+func TestSetPreset_WarnsWhenCustomPersonalityIsInForce(t *testing.T) {
+	m, _ := newTestModuleWithYAML(t, baseYAML+"llm:\n  personality: \"be a pirate\"\n")
+	msg, ok := m.ApplySet(settings.KeyLLMPersonalityPreset, "dry", "owner")
+	if !ok {
+		t.Fatalf("ApplySet failed: %s", msg)
+	}
+	if !strings.Contains(msg, "warning: llm.personality (custom, source `yaml`) is in force") {
+		t.Errorf("reply lacks the custom-wins warning: %s", msg)
+	}
+
+	m2, _ := newTestModule(t)
+	msg, ok = m2.ApplySet(settings.KeyLLMPersonalityPreset, "dry", "owner")
+	if !ok || strings.Contains(msg, "warning") {
+		t.Errorf("reply = %q (ok=%v), want success without warning", msg, ok)
+	}
+}
+
+func TestSetPreset_UnknownListsValidNames(t *testing.T) {
+	m, _ := newTestModule(t)
+	msg, ok := m.ApplySet(settings.KeyLLMPersonalityPreset, "nope", "owner")
+	if ok {
+		t.Fatalf("unknown preset accepted: %s", msg)
+	}
+	if !strings.Contains(msg, "dry, genalpha, hal, schemer") {
+		t.Errorf("reply does not list the valid presets: %s", msg)
 	}
 }

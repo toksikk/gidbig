@@ -275,7 +275,7 @@ func applicable(k Key, value string) bool {
 		if _, err := strconv.Atoi(strings.TrimSpace(value)); err != nil {
 			return false
 		}
-	case KindString, KindStringList:
+	case KindString, KindText, KindStringList:
 		// Any string is usable; a list is split leniently.
 	}
 	if k.Validate != nil && k.Validate(value) != nil {

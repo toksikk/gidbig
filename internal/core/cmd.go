@@ -207,6 +207,10 @@ func StartGidbig() {
 		ModelOverride:       func() (string, bool) { return settingsStore.Override(settings.KeyLLMModel) },
 		VisionModelOverride: func() (string, bool) { return settingsStore.Override(settings.KeyLLMVisionModel) },
 		MaxTokensOverride:   func() (int, bool) { return settingsStore.OverrideInt(settings.KeyLLMMaxTokens) },
+		// The persona is resolved per request too, so /admin config set
+		// llm.personality / llm.personality_preset applies without a restart.
+		PersonalityOverride: func() (string, bool) { return settingsStore.Override(settings.KeyLLMPersonality) },
+		PresetOverride:      func() (string, bool) { return settingsStore.Override(settings.KeyLLMPersonalityPreset) },
 	})
 	if err != nil {
 		slog.Error("llm: init failed", "error", err)

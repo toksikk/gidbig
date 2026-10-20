@@ -30,6 +30,14 @@ Messages longer than Discord's per-message limit are split on line boundaries
 and sent as ephemeral follow-ups, so a long `list` (a `classifier_names` value,
 for example) is not truncated.
 
+`llm.personality` is a `KindText` key. Discord `list`, `get`, `set` and `unset`
+replies show at most 200 characters of it (newlines flattened) followed by
+`… (N chars)`. The web panel's value column shows the same shortened preview;
+`Entries` keeps the full text, which the panel's textarea holds for editing. Setting `llm.personality_preset` while a non-empty
+`llm.personality` is in force succeeds, but the reply warns that the custom
+personality wins until it is unset. An unknown preset is rejected with the list
+of valid presets.
+
 The effective value of `llm.model`, `llm.vision_model` and `llm.max_tokens` is
 rendered through `Deps.LLM`, because their real fallback lives in the llm client:
 an empty `llm.model` means the client's built-in default, an empty
