@@ -709,6 +709,8 @@ func TestValidate_RejectsInvalidConfigs(t *testing.T) {
 		{"invalid reasoning effort", func(c *Config) { c.Gippity.Tools.ReasoningEffort = "bogus" }, "reasoning_effort"},
 		{"non-positive queue depth", func(c *Config) { c.Soundboard.QueueMaxDepth = 0 }, "queue_max_depth"},
 		{"non-positive max tokens", func(c *Config) { c.LLM.MaxTokens = 0 }, "llm.max_tokens"},
+		{"negative log window", func(c *Config) { c.Logs.WindowLines = -1 }, "logs.window_lines"},
+		{"oversized log window", func(c *Config) { c.Logs.WindowLines = 100001 }, "logs.window_lines"},
 	}
 
 	if err := Validate(valid()); err != nil {
@@ -787,5 +789,26 @@ func TestValidate_ShortSessionSecretWarns(t *testing.T) {
 		if got := strings.Contains(logs.String(), "web.session_secret is short"); got != tt.wantWarn {
 			t.Errorf("len %d: warned = %v, want %v (logs: %s)", len(tt.secret), got, tt.wantWarn, logs.String())
 		}
+	}
+}
+
+func TestLogWindowLines(t *testing.T) {
+	c := &Config{}
+	if got := c.LogWindowLines(); got != DefaultLogWindowLines {
+		t.Errorf("unset = %d, want %d", got, DefaultLogWindowLines)
+	}
+	c.Logs.WindowLines = 500
+	if got := c.LogWindowLines(); got != 500 {
+		t.Errorf("explicit = %d, want 500", got)
+	}
+	c.Logs.WindowLines = 100000
+	c.Discord.Token = "tok"
+	c.Gippity.AllowedGuilds = []string{"g"}
+	c.Gippity.RateLimitMessagesPerHour = 1
+	c.Gippity.ClassifierRateLimitPerHour = 1
+	c.Soundboard.QueueMaxDepth = 1
+	c.LLM.MaxTokens = 1
+	if err := Validate(c); err != nil {
+		t.Errorf("Validate(max window) = %v", err)
 	}
 }
