@@ -19,6 +19,8 @@ Required: `discord.token`, non-empty `gippity.allowed_guilds`. `web.session_secr
 
 Optional `web.eso` tunes the `/api/eso` guards (`rate_limit_burst` 5, `rate_limit_per_minute` 30, `max_concurrent_requests` 4, `request_timeout_seconds` 15). Nothing is validated: an omitted or non-positive key keeps the default, which the web server resolves in `resolveEsoLimits`.
 
+Optional `logs.window_lines` sizes the in-memory log window (`logwindow`) behind `/admin logs show` and `/admin/logs`; zero or absent means 2000 (`LogWindowLines()`), values below 0 or above 100000 fail `Validate`. Read at boot only; a change needs a restart.
+
 ## Load flow
 
 ```mermaid

@@ -21,6 +21,8 @@ import (
 	"github.com/toksikk/gidbig/internal/gippity"
 	"github.com/toksikk/gidbig/internal/leetoclock"
 	"github.com/toksikk/gidbig/internal/llm"
+	"github.com/toksikk/gidbig/internal/logscmd"
+	"github.com/toksikk/gidbig/internal/logwindow"
 	"github.com/toksikk/gidbig/internal/settings"
 	"github.com/toksikk/gidbig/internal/shareddb"
 	"github.com/toksikk/gidbig/internal/soundboard"
@@ -85,19 +87,24 @@ func wireDevModeLevel(store *settings.Store, lv *slog.LevelVar) {
 	store.OnChange(settings.KeyDevMode, func() { apply("log level updated from dev_mode") })
 }
 
-func setupLogging(config *cfg.Config) {
+// setupLogging installs the process logger and returns the in-memory log
+// window that tees every record it accepts, for /admin logs show and the
+// /admin/logs page.
+func setupLogging(config *cfg.Config) *logwindow.Window {
+	window := logwindow.New(config.LogWindowLines())
 	opts := &slog.HandlerOptions{Level: &logLevel}
 	applyDevModeLevel(&logLevel, config.DevMode)
 	var logger *slog.Logger
 	if config.DevMode {
 		opts.AddSource = true
 		slog.Debug("Dev Mode", "devMode", config.DevMode)
-		logger = slog.New(slog.NewTextHandler(os.Stdout, opts))
+		logger = slog.New(window.Handler(slog.NewTextHandler(os.Stdout, opts)))
 	} else {
-		logger = slog.New(slog.NewJSONHandler(os.Stdout, opts))
+		logger = slog.New(window.Handler(slog.NewJSONHandler(os.Stdout, opts)))
 	}
 
 	slog.SetDefault(logger)
+	return window
 }
 
 // newDiscordSession creates the Discord session and applies the transport and
@@ -143,7 +150,7 @@ func registerOrLog(b *bot.Bot, m bot.Module) bool {
 func StartGidbig() {
 	processStart := time.Now()
 	conf := cfg.GetConfig()
-	setupLogging(conf)
+	logWindow := setupLogging(conf)
 	LogVersion()
 
 	if conf.Database.Path != "" {
@@ -256,6 +263,10 @@ func StartGidbig() {
 	// both it would be dead code.
 	configMod := configcmd.New()
 	configReady := registerOrLog(b, configMod)
+	// logscmd owns the /admin logs group; like configcmd it needs both the
+	// registration and the admin.New entry below.
+	logsMod := logscmd.New(logWindow)
+	logsReady := registerOrLog(b, logsMod)
 
 	// Admin aggregates the provider modules under /admin. Adding a new
 	// AdminProvider module needs no edits inside internal/admin.
@@ -268,6 +279,9 @@ func StartGidbig() {
 	}
 	if configReady {
 		adminProviders = append(adminProviders, configMod)
+	}
+	if logsReady {
+		adminProviders = append(adminProviders, logsMod)
 	}
 	adminMod := admin.New(adminProviders...)
 	adminMod.SetInfoText(coreMod.statsMessage)
@@ -284,7 +298,7 @@ func StartGidbig() {
 		slog.Info("Starting web server", "port", conf.Web.Port)
 		// configMod is passed even when it failed to register: the panel then
 		// reports the missing store instead of hiding the reason behind a 404.
-		go startWebServer(conf, session, soundboardMod, esoMod, configMod)
+		go startWebServer(conf, session, soundboardMod, esoMod, configMod, logWindow)
 	} else {
 		slog.Info("Required web server arguments missing or invalid. Skipping web server start.")
 	}

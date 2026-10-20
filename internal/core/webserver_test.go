@@ -186,7 +186,7 @@ func TestNewWebServer_NilModulesAreNilInterfaces(t *testing.T) {
 	// A nil *eso.Module / *soundboard.Module must become a nil interface so the
 	// handlers' nil checks still work; a typed nil in an interface would not be
 	// caught by `ws.eso == nil`.
-	ws := newWebServer(&cfg.Config{}, nil, nil, nil, nil)
+	ws := newWebServer(&cfg.Config{}, nil, nil, nil, nil, nil)
 	if ws.soundboard != nil {
 		t.Error("nil soundboard module should be a nil interface")
 	}
@@ -412,7 +412,7 @@ func TestNewWebServer_AppliesEsoConfig(t *testing.T) {
 	config.Web.Eso.MaxConcurrentRequests = 1
 	config.Web.Eso.RequestTimeoutSeconds = 3
 
-	ws := newWebServer(config, nil, nil, nil, nil)
+	ws := newWebServer(config, nil, nil, nil, nil, nil)
 
 	if ws.esoLimiter.burst != 2 {
 		t.Errorf("burst = %v, want 2", ws.esoLimiter.burst)
@@ -448,7 +448,7 @@ func TestNewWebServer_AppliesEsoConfig(t *testing.T) {
 }
 
 func TestNewWebServer_DefaultsEsoLimitsWhenUnset(t *testing.T) {
-	ws := newWebServer(&cfg.Config{}, nil, nil, nil, nil)
+	ws := newWebServer(&cfg.Config{}, nil, nil, nil, nil, nil)
 
 	if ws.esoLimiter.burst != esoRateLimitBurst || ws.esoLimiter.refillRate != esoRateLimitPerSecond {
 		t.Errorf("unset config changed the rate limit: burst=%v refill=%v",
@@ -580,7 +580,7 @@ func TestNewWebServer_WiresTheAdminPanel(t *testing.T) {
 	config.Discord.OwnerID = "owner-9"
 	config.Web.Oauth.RedirectURI = "https://gidbig.example"
 
-	ws := newWebServer(config, nil, nil, nil, configcmd.New())
+	ws := newWebServer(config, nil, nil, nil, configcmd.New(), nil)
 
 	if ws.config == nil {
 		t.Error("the settings module was not wired into the panel")
@@ -600,7 +600,7 @@ func TestNewWebServer_WiresTheAdminPanel(t *testing.T) {
 // module, or without a parseable redirect URI, from producing a half-wired
 // panel.
 func TestNewWebServer_AdminPanelDefaults(t *testing.T) {
-	ws := newWebServer(&cfg.Config{}, nil, nil, nil, nil)
+	ws := newWebServer(&cfg.Config{}, nil, nil, nil, nil, nil)
 	if ws.config != nil {
 		t.Error("a nil settings module should stay a nil interface")
 	}
@@ -610,7 +610,7 @@ func TestNewWebServer_AdminPanelDefaults(t *testing.T) {
 
 	config := &cfg.Config{}
 	config.Web.Oauth.RedirectURI = "localhost:8080"
-	ws = newWebServer(config, nil, nil, nil, nil)
+	ws = newWebServer(config, nil, nil, nil, nil, nil)
 	if ws.uiOrigin != "" {
 		t.Errorf("uiOrigin = %q for a redirect URI without a scheme, want empty", ws.uiOrigin)
 	}
@@ -705,7 +705,7 @@ func TestNewHTTPServer_Timeouts(t *testing.T) {
 }
 
 func TestFinishDiscordLogin_UserLookupFailure(t *testing.T) {
-	ws := newWebServer(&cfg.Config{}, nil, nil, nil, nil)
+	ws := newWebServer(&cfg.Config{}, nil, nil, nil, nil, nil)
 	ws.fetchDiscordUser = func(string) (*discordgo.User, error) { return nil, errors.New("boom") }
 	sess := &sessionData{}
 	rec := httptest.NewRecorder()
@@ -722,7 +722,7 @@ func TestFinishDiscordLogin_UserLookupFailure(t *testing.T) {
 }
 
 func TestFinishDiscordLogin_Success(t *testing.T) {
-	ws := newWebServer(&cfg.Config{}, nil, nil, nil, nil)
+	ws := newWebServer(&cfg.Config{}, nil, nil, nil, nil, nil)
 	ws.store = newSessionStore("test-secret-test-secret-test-secret", false)
 	ws.fetchDiscordUser = func(string) (*discordgo.User, error) {
 		return &discordgo.User{ID: "42", Username: "alice"}, nil
@@ -741,7 +741,7 @@ func TestFinishDiscordLogin_Success(t *testing.T) {
 // TestDiscordLogin_StateIsPerSession checks that each login keeps its OAuth
 // state in its own cookie and nowhere shared.
 func TestDiscordLogin_StateIsPerSession(t *testing.T) {
-	ws := newWebServer(&cfg.Config{}, nil, nil, nil, nil)
+	ws := newWebServer(&cfg.Config{}, nil, nil, nil, nil, nil)
 
 	login := func() (string, string) {
 		rec := httptest.NewRecorder()
@@ -785,7 +785,7 @@ func callbackRequest(t *testing.T, ws *webServer, sessionState, queryState strin
 
 func TestDiscordCallback_RejectsStateMismatch(t *testing.T) {
 	logs := captureLogs(t)
-	ws := newWebServer(&cfg.Config{}, nil, nil, nil, nil)
+	ws := newWebServer(&cfg.Config{}, nil, nil, nil, nil, nil)
 	rec := httptest.NewRecorder()
 	ws.handleDiscordCallback(rec, callbackRequest(t, ws, "expected-state-value", "attacker-state-value"))
 	if rec.Code != http.StatusForbidden {
@@ -797,7 +797,7 @@ func TestDiscordCallback_RejectsStateMismatch(t *testing.T) {
 }
 
 func TestDiscordCallback_RejectsEmptyState(t *testing.T) {
-	ws := newWebServer(&cfg.Config{}, nil, nil, nil, nil)
+	ws := newWebServer(&cfg.Config{}, nil, nil, nil, nil, nil)
 	rec := httptest.NewRecorder()
 	ws.handleDiscordCallback(rec, callbackRequest(t, ws, "", ""))
 	if rec.Code != http.StatusForbidden {
@@ -833,7 +833,7 @@ func TestNewWebServer_SecureFromRedirectURI(t *testing.T) {
 	} {
 		config := &cfg.Config{}
 		config.Web.Oauth.RedirectURI = uri
-		if got := newWebServer(config, nil, nil, nil, nil).store.secure; got != want {
+		if got := newWebServer(config, nil, nil, nil, nil, nil).store.secure; got != want {
 			t.Errorf("%q: secure = %v, want %v", uri, got, want)
 		}
 	}

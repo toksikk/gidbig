@@ -1,0 +1,34 @@
+{{ define "sessionHandler" }}
+<div class="inner-wrap">
+  <div class="admin-panel">
+    <h1 class="admin-title">Logs</h1>
+    <p class="admin-sub">Recent log lines kept in memory (window of {{ .Logs.Cap }} records, cleared on restart). The same lines as <code>/admin logs show</code>. <a href="/admin">Back to runtime settings</a></p>
+
+    <form method="get" action="/admin/logs" class="admin-form">
+      <label>Level
+        <select name="level" class="admin-input">
+          <option value="debug"{{ if eq .Logs.Level "debug" }} selected{{ end }}>debug</option>
+          <option value="info"{{ if eq .Logs.Level "info" }} selected{{ end }}>info</option>
+          <option value="warn"{{ if eq .Logs.Level "warn" }} selected{{ end }}>warn</option>
+          <option value="error"{{ if eq .Logs.Level "error" }} selected{{ end }}>error</option>
+        </select>
+      </label>
+      <label>Filter
+        <input type="text" name="filter" value="{{ .Logs.Filter }}" class="admin-input">
+      </label>
+      <label>Count
+        <input type="number" name="count" min="1" max="{{ .Logs.Cap }}" value="{{ .Logs.Count }}" class="admin-input">
+      </label>
+      <button type="submit" class="admin-btn">Show</button>
+      <a class="admin-btn" href="{{ .Logs.DownloadURL }}">Download</a>
+    </form>
+
+    <p class="admin-sub">{{ .Logs.Lines }} lines</p>
+    {{ if .Logs.Text }}
+    <pre class="admin-logs">{{ .Logs.Text }}</pre>
+    {{ else }}
+    <p>No matching log lines.</p>
+    {{ end }}
+  </div>
+</div>
+{{ end }}

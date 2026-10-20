@@ -127,6 +127,12 @@ llm:
 # restart.
 dev_mode: true
 
+# logs.window_lines is how many recent log records the bot keeps in memory for
+# /admin logs show and the owner-only /admin/logs web page (0 or absent = 2000,
+# max 100000). Nothing is written to disk. A change needs a restart.
+# logs:
+#   window_lines: 2000
+
 # Runtime settings
 #
 # The owner can change the settings below at runtime with /admin config

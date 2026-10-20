@@ -171,6 +171,28 @@ type Config struct {
 		MaxTokens int `yaml:"max_tokens,omitempty"`
 	} `yaml:"llm,omitempty"`
 	DevMode bool `yaml:"dev_mode,omitempty" default:"false"`
+	// Logs sizes the in-memory log window behind /admin logs show and the
+	// /admin/logs web page. A change needs a restart.
+	Logs struct {
+		// WindowLines is how many recent log records are kept. Zero or absent
+		// means DefaultLogWindowLines.
+		WindowLines int `yaml:"window_lines,omitempty"`
+	} `yaml:"logs,omitempty"`
+}
+
+// DefaultLogWindowLines is the log window size when logs.window_lines is unset.
+const DefaultLogWindowLines = 2000
+
+// maxLogWindowLines bounds logs.window_lines so a typo cannot exhaust memory.
+const maxLogWindowLines = 100000
+
+// LogWindowLines returns the configured log window size, or
+// DefaultLogWindowLines when unset.
+func (c *Config) LogWindowLines() int {
+	if c.Logs.WindowLines == 0 {
+		return DefaultLogWindowLines
+	}
+	return c.Logs.WindowLines
 }
 
 var initializedConfig *Config
@@ -257,6 +279,9 @@ func Validate(cfg *Config) error {
 	}
 	if cfg.LLM.MaxTokens <= 0 {
 		return errors.New("llm.max_tokens must be greater than zero")
+	}
+	if cfg.Logs.WindowLines < 0 || cfg.Logs.WindowLines > maxLogWindowLines {
+		return fmt.Errorf("logs.window_lines must be between 0 and %d", maxLogWindowLines)
 	}
 	return nil
 }

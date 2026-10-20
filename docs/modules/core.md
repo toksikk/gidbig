@@ -15,6 +15,13 @@ Package `gidbig`, directory `internal/core`. Composition root and core module.
   `adminMaxSessionAge` (12h); every refusal is a plain 404 so the panel cannot be
   discovered. A submission needs the per-session form token and a matching
   `Origin`, and is a POST that redirects back to the table.
+- `webadmin_logs.go` – the owner-only, read-only `/admin/logs` page over the
+  in-memory log window (`logwindow`): same `isOwner` gate and 404-on-refusal as
+  `/admin`, GET only (405 with `Allow: GET` otherwise). Query `level`
+  (debug/info/warn/error, default info), `filter` (case-insensitive substring)
+  and `count` (default and maximum: the window size); `download=1` returns the
+  same text as `text/plain` attachment `gidbig-logs.txt`. Routes are registered
+  in `webServer.routes`.
 - `ratelimit.go` – per-IP token bucket and global concurrency cap guarding the unauthenticated, token-billed `/api/eso`, tuned through the optional `web.eso` config (`resolveEsoLimits`).
 - `wsdeadline.go` – read/write deadlines on discordgo websockets.
 - `version.go`, `discordlog.go`, `structs.go`.
@@ -30,6 +37,12 @@ boot-only (pinned fork). The level is a package `slog.LevelVar`. Once the
 settings store exists, `wireDevModeLevel` applies the effective `dev_mode`
 (a stored override wins) and registers `settings.Store.OnChange`, so
 `/admin config set dev_mode` flips only the level between Debug and Info.
+
+`setupLogging` also builds the in-memory `logwindow.Window` (sized by
+`logs.window_lines`, default 2000) and wraps the chosen handler in its tee, so
+every record the level accepts is kept in the window as well as written to
+stdout. It returns the window; `StartGidbig` hands it to `logscmd`
+(`/admin logs show`) and to the web server (`/admin/logs`).
 
 ## Startup sequence
 
@@ -59,9 +72,9 @@ sequenceDiagram
     core->>bot: RegisterModule(core) before Open
     core->>dg: Open()
     dg-->>core: READY
-    core->>bot: RegisterModule(soundboard/coffee/eso/gamerstatus/gippity/admin/leetoclock/anticheat/stoll/wardogs/wttrin)
+    core->>bot: RegisterModule(soundboard/coffee/eso/gamerstatus/gippity/configcmd/logscmd/admin/leetoclock/anticheat/stoll/wardogs/wttrin)
     bot-->>core: module handlers registered, stats registered
-    core->>web: go startWebServer(config, session, soundboard, eso, configcmd) (if configured)
+    core->>web: go startWebServer(config, session, soundboard, eso, configcmd, logWindow) (if configured)
     core->>bot: Run(ctx) — bulk overwrite commands, start background, block
     core->>core: wait SIGINT/SIGTERM, cancel ctx
     bot-->>core: ctx done

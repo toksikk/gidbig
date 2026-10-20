@@ -31,6 +31,7 @@ import (
 	"github.com/toksikk/gidbig/internal/cfg"
 	"github.com/toksikk/gidbig/internal/configcmd"
 	"github.com/toksikk/gidbig/internal/eso"
+	"github.com/toksikk/gidbig/internal/logwindow"
 	"github.com/toksikk/gidbig/internal/soundboard"
 	"golang.org/x/oauth2"
 )
@@ -197,6 +198,8 @@ type webServer struct {
 	// config is the runtime settings store behind the /admin panel, and ownerID
 	// is the caller it gates on.
 	config configAdmin
+	// logs is the in-memory log window behind /admin/logs; nil hides the page.
+	logs logReader
 	// ownerID is the Discord user allowed into /admin; empty denies everyone,
 	// which mirrors the bot-side gate.
 	ownerID string
@@ -227,7 +230,7 @@ type webServer struct {
 // newWebServer builds a web server around the injected session and modules. A
 // nil module is stored as a nil interface so the handlers' nil checks (for
 // example the /api/eso 503) still work for a nil *Module.
-func newWebServer(config *cfg.Config, session *discordgo.Session, sb *soundboard.Module, esoMod *eso.Module, configMod *configcmd.Module) *webServer {
+func newWebServer(config *cfg.Config, session *discordgo.Session, sb *soundboard.Module, esoMod *eso.Module, configMod *configcmd.Module, logs *logwindow.Window) *webServer {
 	esoBurst, esoRefillPerSecond, esoMaxConcurrent, esoTimeout := resolveEsoLimits(config.Web.Eso)
 
 	ws := &webServer{
@@ -260,6 +263,9 @@ func newWebServer(config *cfg.Config, session *discordgo.Session, sb *soundboard
 	if configMod != nil {
 		ws.config = configMod
 	}
+	if logs != nil {
+		ws.logs = logs
+	}
 	if u, err := url.Parse(config.Web.Oauth.RedirectURI); err == nil && u.Scheme != "" && u.Host != "" {
 		ws.uiOrigin = u.Scheme + "://" + u.Host
 		ws.store.secure = u.Scheme == "https"
@@ -283,6 +289,7 @@ func (ws *webServer) loadTemplates() {
 	ws.tmpls["internal.html"] = template.Must(template.ParseFiles(templateDir+"internal.html", header, footer))
 	ws.tmpls["admin.html"] = template.Must(template.New("admin").Funcs(templateFuncs).
 		ParseFiles(templateDir+"admin.html", header, footer))
+	ws.tmpls["admin_logs.html"] = template.Must(template.ParseFiles(templateDir+"admin_logs.html", header, footer))
 	ws.tmpls["item.html"] = template.Must(template.ParseFiles(templateDir + "item.html"))
 	ws.tmpls["itemrowstart.html"] = template.Must(template.ParseFiles(templateDir + "itemrowstart.html"))
 	ws.tmpls["itemrowend.html"] = template.Must(template.ParseFiles(templateDir + "itemrowend.html"))
@@ -291,13 +298,25 @@ func (ws *webServer) loadTemplates() {
 }
 
 // startWebServer starts the HTTP UI around the injected session and modules.
-func startWebServer(config *cfg.Config, session *discordgo.Session, sb *soundboard.Module, esoMod *eso.Module, configMod *configcmd.Module) {
-	ws := newWebServer(config, session, sb, esoMod, configMod)
+func startWebServer(config *cfg.Config, session *discordgo.Session, sb *soundboard.Module, esoMod *eso.Module, configMod *configcmd.Module, logs *logwindow.Window) {
+	ws := newWebServer(config, session, sb, esoMod, configMod, logs)
 	ws.loadTemplates()
 
 	mux := http.NewServeMux()
+	ws.routes(mux)
+
+	err := newHTTPServer(config.Web.Port, securityHeaders(mux), ws.esoTimeout).ListenAndServe()
+	if err != nil {
+		slog.Error("could not start webserver", "error", err)
+		os.Exit(1)
+	}
+}
+
+// routes registers every HTTP route on mux.
+func (ws *webServer) routes(mux *http.ServeMux) {
 	mux.HandleFunc("/", ws.handleMain)
 	mux.HandleFunc("/admin", ws.handleAdmin)
+	mux.HandleFunc("/admin/logs", ws.handleAdminLogs)
 	mux.HandleFunc("/logout", ws.handleLogout)
 	mux.HandleFunc("/discordLogin", ws.handleDiscordLogin)
 	mux.HandleFunc("/discordCallback", ws.handleDiscordCallback)
@@ -306,12 +325,6 @@ func startWebServer(config *cfg.Config, session *discordgo.Session, sb *soundboa
 	mux.HandleFunc("/api/eso", ws.handleAPIEso)
 	mux.HandleFunc("/health", handleHealth)
 	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("web/static"))))
-
-	err := newHTTPServer(config.Web.Port, securityHeaders(mux), ws.esoTimeout).ListenAndServe()
-	if err != nil {
-		slog.Error("could not start webserver", "error", err)
-		os.Exit(1)
-	}
 }
 
 // contentSecurityPolicy fits the current templates: they use an inline script,

@@ -19,6 +19,7 @@ One file per internal package. Each doc: what it does + sequence diagram of the 
 | [gamerstatus](gamerstatus.md) | – | Rotating bot game status |
 | [admin](admin.md) | `/admin` | Owner-only admin dispatch, aggregates providers |
 | [configcmd](configcmd.md) | `/admin config` | Owner-only runtime settings: list/get/set/unset/add/remove hot keys; cold keys read-only |
+| [logscmd](logscmd.md) | `/admin logs show` | Owner-only recent log lines from the in-memory window (also `/admin/logs` web page) |
 
 ## Shared infra
 
@@ -30,4 +31,5 @@ One file per internal package. Each doc: what it does + sequence diagram of the 
 | [settings](settings.md) | Runtime setting overrides in the shared database (`Deps.Settings`) |
 | [llm](llm.md) | OpenAI/OpenRouter client, personalities, language detect |
 | [tool](tool.md) | Provider-agnostic LLM tool registry (`Deps.Tools`) |
+| [logwindow](logwindow.md) | In-memory ring of recent log records; slog tee + shared line renderer |
 | [util](util.md) | Discord helpers, AI responder, reactions, season logic |
