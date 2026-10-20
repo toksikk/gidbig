@@ -51,6 +51,14 @@ config.yaml". They are listed and readable with their value and source, but
 `ErrUnknownKey`. A stored row for a cold key (hand-edited) is ignored with a
 warning on reload, so it can never look in force.
 
+`llm.personality` and `llm.personality_preset` are hot: the llm client
+resolves them per request through `Store.Override`, and an empty override means
+"no override" (a config.yaml custom personality cannot be switched off at
+runtime). `llm.personality` has kind `text` (`KindText`): parsed like `string`,
+but possibly multi-line, so the web panel renders a textarea and Discord replies
+truncate it. `llm.personality_preset` is validated with `llm.ValidatePreset`, so
+an unknown preset is rejected at write time (at boot a yaml typo only warns).
+
 `Note` is an optional per-key warning that every surface renders the same way.
 The hot `dev_mode` uses it to say that only the log level (debug/info) follows a
 runtime change; the log format, source locations and discordgo logging are fixed
