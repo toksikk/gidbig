@@ -568,3 +568,50 @@ func TestFormatUptime(t *testing.T) {
 		}
 	}
 }
+
+// TestModuleLLMStatusFollowsRuntimePersonality proves /status reports the
+// persona source in force after /admin config set, without a restart.
+func TestModuleLLMStatusFollowsRuntimePersonality(t *testing.T) {
+	db, err := shareddb.Open(filepath.Join(t.TempDir(), shareddb.Filename))
+	if err != nil {
+		t.Fatalf("open test database: %v", err)
+	}
+	sqlDB, _ := db.DB()
+	t.Cleanup(func() { _ = sqlDB.Close() })
+	base, err := cfg.Decode(strings.NewReader("discord:\n  token: t\ngippity:\n  allowed_guilds: [guild]\n"))
+	if err != nil {
+		t.Fatalf("decode base config: %v", err)
+	}
+	store, err := settings.New(db, base)
+	if err != nil {
+		t.Fatalf("settings.New: %v", err)
+	}
+	// Same wiring as the composition root.
+	client, err := llm.New(llm.Options{
+		APIKey:              "test-key",
+		PersonalityOverride: func() (string, bool) { return store.Override(settings.KeyLLMPersonality) },
+		PresetOverride:      func() (string, bool) { return store.Override(settings.KeyLLMPersonalityPreset) },
+	})
+	if err != nil {
+		t.Fatalf("llm.New: %v", err)
+	}
+	m := &Module{conf: base, llm: client, settings: store}
+	if got := m.llmStatus().Info.PersonalitySource; got != "default" {
+		t.Fatalf("boot source = %q, want default", got)
+	}
+	if err := store.Set(settings.KeyLLMPersonalityPreset, "dry", "owner"); err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+	if got := m.llmStatus().Info.PersonalitySource; got != "preset:dry" {
+		t.Errorf("source after set = %q, want preset:dry", got)
+	}
+	if !strings.Contains(renderStatusText(statusSnapshot{LLM: m.llmStatus()}, statusViewSummary, discordMessageLimit), "personality preset:dry") {
+		t.Error("/status text does not show the runtime preset")
+	}
+	if err := store.Unset(settings.KeyLLMPersonalityPreset, "owner"); err != nil {
+		t.Fatalf("Unset: %v", err)
+	}
+	if got := m.llmStatus().Info.PersonalitySource; got != "default" {
+		t.Errorf("source after unset = %q, want default", got)
+	}
+}

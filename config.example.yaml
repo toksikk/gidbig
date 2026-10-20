@@ -120,6 +120,8 @@ llm:
     # fall back to the default. (hal = calm, logical, eerily polite
     # superintelligence; schemer = fake-friendly sarcastic manipulator;
     # dry = monotone, few words; genalpha = hyper Gen Alpha teen slang.)
+    # Both personality and personality_preset can be changed at runtime with
+    # /admin config (or the web admin panel); an unknown preset is rejected there.
     personality_preset: ""
 # dev_mode picks the log format (text with source locations vs. JSON) and the
 # discordgo log level at boot. The owner can flip it at runtime with

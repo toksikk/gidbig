@@ -42,6 +42,8 @@
               <input type="hidden" name="value" value="false">
               {{ else if eq .Kind "int" }}
               <input type="number" step="1" name="value" value="{{ .Value }}" class="admin-input is-number" aria-label="New value for {{ .Name }}">
+              {{ else if eq .Kind "text" }}
+              <textarea name="value" class="admin-input admin-textarea" rows="6" aria-label="New value for {{ .Name }}">{{ .Value }}</textarea>
               {{ else }}
               <input type="text" name="value" value="{{ .Value }}" class="admin-input" aria-label="New value for {{ .Name }}">
               {{ end }}
