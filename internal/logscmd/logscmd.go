@@ -147,12 +147,11 @@ type responder interface {
 	FollowupMessageCreate(interaction *discordgo.Interaction, wait bool, data *discordgo.WebhookParams, options ...discordgo.RequestOption) (*discordgo.Message, error)
 }
 
-// send edits the deferred response with the first message and posts at most
-// MaxMessages-1 ephemeral follow-ups. It stops at the first error.
+// send edits the deferred response with the first message and posts the rest
+// as ephemeral follow-ups, stopping at the first error. It does not cap the
+// count: Render already returns at most MaxMessages, and trimming here would
+// drop the newest lines while the omission note kept the wrong count.
 func send(s responder, interaction *discordgo.Interaction, msgs []string) {
-	if len(msgs) > MaxMessages {
-		msgs = msgs[:MaxMessages]
-	}
 	if _, err := s.InteractionResponseEdit(interaction, &discordgo.WebhookEdit{Content: &msgs[0]}); err != nil {
 		slog.Warn("logscmd: failed to edit interaction response", "error", err)
 		return

@@ -1,6 +1,7 @@
 package logscmd
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -123,6 +124,9 @@ type fakeResponder struct {
 	edits     []string
 	followups []*discordgo.WebhookParams
 	editErr   error
+	followErr error
+	// followAttempts counts every follow-up call, failed ones included.
+	followAttempts int
 }
 
 func (f *fakeResponder) InteractionResponseEdit(_ *discordgo.Interaction, e *discordgo.WebhookEdit, _ ...discordgo.RequestOption) (*discordgo.Message, error) {
@@ -134,6 +138,10 @@ func (f *fakeResponder) InteractionResponseEdit(_ *discordgo.Interaction, e *dis
 }
 
 func (f *fakeResponder) FollowupMessageCreate(_ *discordgo.Interaction, _ bool, p *discordgo.WebhookParams, _ ...discordgo.RequestOption) (*discordgo.Message, error) {
+	f.followAttempts++
+	if f.followErr != nil {
+		return nil, f.followErr
+	}
 	f.followups = append(f.followups, p)
 	return &discordgo.Message{}, nil
 }
@@ -181,11 +189,19 @@ func TestHandleSendsAtMostOneEphemeralFollowup(t *testing.T) {
 	}
 }
 
-func TestSendCapsAtMaxMessages(t *testing.T) {
-	f := &fakeResponder{}
-	send(f, &discordgo.Interaction{}, []string{"a", "b", "c", "d"})
-	if len(f.edits) != 1 || len(f.followups) != MaxMessages-1 {
-		t.Errorf("edits = %d followups = %d", len(f.edits), len(f.followups))
+func TestSendStopsAndLogsOnFollowupError(t *testing.T) {
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	f := &fakeResponder{followErr: errors.New("boom")}
+	send(f, &discordgo.Interaction{}, []string{"a", "b", "c"})
+	if len(f.edits) != 1 || f.followAttempts != 1 {
+		t.Errorf("edits = %d follow-up attempts = %d, want 1 and 1", len(f.edits), f.followAttempts)
+	}
+	if !strings.Contains(buf.String(), "logscmd: failed to send follow-up") || !strings.Contains(buf.String(), "boom") {
+		t.Errorf("failure not logged: %q", buf.String())
 	}
 }
 
