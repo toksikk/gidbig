@@ -4,6 +4,7 @@ import (
 	"html/template"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -93,8 +94,11 @@ func (ws *webServer) handleAdminLogs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	dl := r.URL.Query()
+	dl := url.Values{}
 	dl.Set("level", level)
+	if q.Filter != "" {
+		dl.Set("filter", q.Filter)
+	}
 	dl.Set("count", strconv.Itoa(q.Count))
 	dl.Set("download", "1")
 	page := &adminLogsPage{

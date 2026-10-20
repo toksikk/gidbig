@@ -176,9 +176,12 @@ func TestHandleAdminLogs_DownloadLinkKeepsTheQuery(t *testing.T) {
 	ws, _ := newLogsTestServer(t, now)
 	ws.loadTemplates()
 	w := httptest.NewRecorder()
-	ws.handleAdminLogs(w, formRequest(t, ws, adminSession(testOwnerID, time.Minute, now), http.MethodGet, "/admin/logs?level=warn&filter=a+b&count=3", nil))
+	ws.handleAdminLogs(w, formRequest(t, ws, adminSession(testOwnerID, time.Minute, now), http.MethodGet, "/admin/logs?level=warn&filter=a+b&count=3&evil=x&download=0", nil))
 	want := `href="/admin/logs?count=3&amp;download=1&amp;filter=a&#43;b&amp;level=warn"`
 	if !strings.Contains(w.Body.String(), want) {
 		t.Errorf("download link missing %s in:\n%s", want, w.Body.String())
+	}
+	if strings.Contains(w.Body.String(), "evil") {
+		t.Error("unknown query parameter leaked into the download link")
 	}
 }
