@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/url"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -76,6 +77,12 @@ type Options struct {
 	// runtime settings change applies without a restart. Returning false, or a
 	// non-positive value, keeps MaxTokens.
 	MaxTokensOverride func() (int, bool)
+	// PersonalityOverride and PresetOverride supply the runtime
+	// llm.personality and llm.personality_preset values per request, so a
+	// settings change applies without a restart. Returning false, or an empty
+	// value, keeps the boot-time Personality and Preset.
+	PersonalityOverride func() (string, bool)
+	PresetOverride      func() (string, bool)
 }
 
 // Client is the shared LLM connection and its resolved configuration. It
@@ -84,7 +91,14 @@ type Client struct {
 	client      *openai.Client
 	textModel   string
 	visionModel string
-	personality string
+
+	// customPersonality and preset are the boot-time llm.personality and
+	// llm.personality_preset values; the override funcs resolve runtime values
+	// per request. See Options.
+	customPersonality   string
+	preset              string
+	personalityOverride func() (string, bool)
+	presetOverride      func() (string, bool)
 
 	// visionExplicit records whether llm.vision_model was set at boot. When it
 	// was not, the vision model follows the text model, including a runtime
@@ -105,10 +119,9 @@ type Client struct {
 	// Resolved, non-secret configuration surfaced through Info. provider and
 	// baseURL are the effective values after defaults are applied; keySource
 	// names where the credential came from, never the credential itself.
-	provider          string
-	baseURL           string
-	keySource         string
-	personalitySource string
+	provider  string
+	baseURL   string
+	keySource string
 
 	// generateFn is the underlying completion call, swappable in tests.
 	generateFn func(ctx context.Context, systemPrompt, userPrompt string) (string, error)
@@ -142,7 +155,7 @@ func (c *Client) Info() Info {
 		VisionModel:       c.VisionModel(),
 		BaseURL:           c.baseURL,
 		KeySource:         c.keySource,
-		PersonalitySource: c.personalitySource,
+		PersonalitySource: c.PersonalitySource(),
 		Timeout:           llmTimeout,
 		MaxTokens:         c.MaxTokens(),
 	}
@@ -229,7 +242,7 @@ func New(opts Options) (*Client, error) {
 	}
 	openaiClient := openai.NewClient(requestOpts...)
 
-	personality, personalitySource := resolvePersonality(opts.Personality, opts.Preset)
+	resolvePersonality(opts.Personality, opts.Preset)
 	c := &Client{
 		client:              &openaiClient,
 		textModel:           model,
@@ -239,11 +252,13 @@ func New(opts Options) (*Client, error) {
 		visionModelOverride: opts.VisionModelOverride,
 		maxTokens:           maxTokens,
 		maxTokensOverride:   opts.MaxTokensOverride,
-		personality:         personality,
+		customPersonality:   opts.Personality,
+		preset:              opts.Preset,
+		personalityOverride: opts.PersonalityOverride,
+		presetOverride:      opts.PresetOverride,
 		provider:            provider,
 		baseURL:             strings.TrimRight(baseURL, "/"),
 		keySource:           keySource,
-		personalitySource:   personalitySource,
 	}
 	c.generateFn = c.generateMessage
 	slog.Info("llm: client initialized", "provider", provider, "model", c.textModel, "vision_model", c.visionModel, "api_key_source", keySource)
@@ -341,33 +356,87 @@ func resolveOverride(fn func() (string, bool)) (string, bool) {
 }
 
 // Personality returns the active bot persona for inclusion in system prompts.
+// It is resolved per call so a runtime llm.personality or
+// llm.personality_preset change applies without a restart.
 func (c *Client) Personality() string {
 	if c == nil {
 		return ""
 	}
-	return c.personality
+	p, _ := c.effectivePersonality()
+	return p
 }
 
-// resolvePersonality picks the persona from config and labels its source. A
-// non-empty custom string wins; otherwise a known preset key is used; otherwise
-// the built-in default is kept. An unknown preset logs a warning and falls back
-// to the default. The source label is reported in status output, so it never
-// contains the persona text itself.
-func resolvePersonality(custom, preset string) (persona, source string) {
-	switch {
-	case strings.TrimSpace(custom) != "":
-		slog.Info("llm: using custom personality from config")
-		return custom, "custom"
-	case preset != "":
-		if p, ok := PersonalityPresets[preset]; ok {
-			slog.Info("llm: using personality preset", "preset", preset)
-			return p, "preset:" + preset
-		}
-		slog.Warn("llm: unknown personality_preset, falling back to default", "preset", preset)
-		return defaultPersonality, "default"
-	default:
-		return defaultPersonality, "default"
+// PersonalitySource labels where the active persona comes from: "custom",
+// "preset:<name>" or "default". It never contains the persona text.
+func (c *Client) PersonalitySource() string {
+	if c == nil {
+		return ""
 	}
+	_, src := c.effectivePersonality()
+	return src
+}
+
+// effectivePersonality applies the runtime overrides over the boot values and
+// picks the persona without logging, so it is safe per request.
+func (c *Client) effectivePersonality() (persona, source string) {
+	custom := c.customPersonality
+	if v, ok := resolveOverride(c.personalityOverride); ok {
+		custom = v
+	}
+	preset := c.preset
+	if v, ok := resolveOverride(c.presetOverride); ok {
+		preset = v
+	}
+	return pickPersonality(custom, preset)
+}
+
+// pickPersonality picks the persona and labels its source. A non-empty custom
+// string wins; otherwise a known preset key is used; otherwise the built-in
+// default is kept, including for an unknown preset. It does not log.
+func pickPersonality(custom, preset string) (persona, source string) {
+	if strings.TrimSpace(custom) != "" {
+		return custom, "custom"
+	}
+	if p, ok := PersonalityPresets[preset]; ok && preset != "" {
+		return p, "preset:" + preset
+	}
+	return defaultPersonality, "default"
+}
+
+// resolvePersonality is pickPersonality plus the boot-time log lines. It runs
+// once in New; an unknown preset logs a warning and falls back to the default.
+// The source label is reported in status output, so it never contains the
+// persona text itself.
+func resolvePersonality(custom, preset string) (persona, source string) {
+	persona, source = pickPersonality(custom, preset)
+	switch {
+	case source == "custom":
+		slog.Info("llm: using custom personality from config")
+	case strings.HasPrefix(source, "preset:"):
+		slog.Info("llm: using personality preset", "preset", preset)
+	case preset != "":
+		slog.Warn("llm: unknown personality_preset, falling back to default", "preset", preset)
+	}
+	return persona, source
+}
+
+// ValidatePreset reports whether name is a known personality preset. Empty is
+// allowed and means "no preset". An unknown name returns an error listing the
+// valid presets.
+func ValidatePreset(name string) error {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return nil
+	}
+	if _, ok := PersonalityPresets[name]; ok {
+		return nil
+	}
+	names := make([]string, 0, len(PersonalityPresets))
+	for k := range PersonalityPresets {
+		names = append(names, k)
+	}
+	sort.Strings(names)
+	return fmt.Errorf("unknown personality preset %q (valid: %s)", name, strings.Join(names, ", "))
 }
 
 // generateMessage is the real completion call.

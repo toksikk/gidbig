@@ -16,8 +16,16 @@ a `*llm.Client` through `bot.Deps.LLM`. Not user-facing.
   the non-mention classifier.
 - `Client.DetectChannelLanguage` – LLM language detect over last 20 channel
   messages, 1h cache held on the client.
-- `Client.Personality` – custom string > preset (`hal`, `schemer`, `dry`,
-  `genalpha`) > built-in default (resolved once in `New`).
+- `Client.Personality` / `Client.PersonalitySource` – custom string > preset
+  (`hal`, `schemer`, `dry`, `genalpha`) > built-in default. Resolved on every
+  call: `Options.PersonalityOverride`/`PresetOverride` (runtime
+  `llm.personality`/`llm.personality_preset`) win over the boot values, and an
+  empty override means "no override". The per-call path (`pickPersonality`)
+  does not log; the custom/preset/unknown-preset log lines are emitted once in
+  `New`. An unknown preset falls back to the default.
+- `ValidatePreset` – accepts empty or a known preset; an unknown name returns
+  an error listing the valid presets. The settings registry uses it to reject
+  a runtime `llm.personality_preset` typo.
 - `Client.Model`, `Client.VisionModel`, `Client.GetClient` – effective
   configuration and the raw client for direct calls (gippity). `Model` and
   `VisionModel` resolve `Options.ModelOverride`/`VisionModelOverride` on every
@@ -53,10 +61,13 @@ sequenceDiagram
     alt key still missing / bad provider / bad base URL
         L-->>Core: error (fatal)
     else ok
-        L->>L: openai.NewClient(opts) + resolve persona
+        L->>L: openai.NewClient(opts) + log boot persona
         L-->>Core: *llm.Client
     end
     Core->>Mod: Deps.LLM = client
+    Mod->>L: client.Personality()
+    L->>L: PersonalityOverride / PresetOverride ?? boot values
+    L-->>Mod: persona (custom > preset > default)
     Mod->>L: client.GenerateMessage(ctx, system, user)
     L->>L: WithTimeout(30s)
     L->>API: Chat.Completions.New
