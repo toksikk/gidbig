@@ -20,7 +20,7 @@
         <input type="number" name="count" min="1" max="{{ .Logs.Cap }}" value="{{ .Logs.Count }}" class="admin-input">
       </label>
       <button type="submit" class="admin-btn">Show</button>
-      <a class="admin-btn" href="/admin/logs?{{ .Logs.DownloadQuery }}">Download</a>
+      <a class="admin-btn" href="{{ .Logs.DownloadURL }}">Download</a>
     </form>
 
     <p class="admin-sub">{{ .Logs.Lines }} lines</p>

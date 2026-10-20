@@ -1,6 +1,7 @@
 package gidbig
 
 import (
+	"html/template"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -27,8 +28,9 @@ type adminLogsPage struct {
 	Text string
 	// Lines is how many lines Text holds.
 	Lines int
-	// DownloadQuery is the encoded query for the download link.
-	DownloadQuery string
+	// DownloadURL is the download link for the same query. It is built from
+	// url.Values.Encode on a fixed path, so it is safe as a template.URL.
+	DownloadURL template.URL
 }
 
 // logsQuery parses level, filter and count from the request. Invalid values
@@ -96,13 +98,13 @@ func (ws *webServer) handleAdminLogs(w http.ResponseWriter, r *http.Request) {
 	dl.Set("count", strconv.Itoa(q.Count))
 	dl.Set("download", "1")
 	page := &adminLogsPage{
-		Level:         level,
-		Filter:        q.Filter,
-		Count:         q.Count,
-		Cap:           ws.logs.Cap(),
-		Text:          text,
-		Lines:         len(lines),
-		DownloadQuery: dl.Encode(),
+		Level:       level,
+		Filter:      q.Filter,
+		Count:       q.Count,
+		Cap:         ws.logs.Cap(),
+		Text:        text,
+		Lines:       len(lines),
+		DownloadURL: template.URL("/admin/logs?" + dl.Encode()),
 	}
 	td := templateData{
 		Username:  session.DiscordUsername,

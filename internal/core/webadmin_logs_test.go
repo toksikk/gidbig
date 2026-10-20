@@ -169,3 +169,16 @@ func TestSetupLoggingCapturesIntoWindow(t *testing.T) {
 		t.Errorf("lines = %v", lines)
 	}
 }
+
+func TestHandleAdminLogs_DownloadLinkKeepsTheQuery(t *testing.T) {
+	t.Chdir("../..")
+	now := time.Now()
+	ws, _ := newLogsTestServer(t, now)
+	ws.loadTemplates()
+	w := httptest.NewRecorder()
+	ws.handleAdminLogs(w, formRequest(t, ws, adminSession(testOwnerID, time.Minute, now), http.MethodGet, "/admin/logs?level=warn&filter=a+b&count=3", nil))
+	want := `href="/admin/logs?count=3&amp;download=1&amp;filter=a&#43;b&amp;level=warn"`
+	if !strings.Contains(w.Body.String(), want) {
+		t.Errorf("download link missing %s in:\n%s", want, w.Body.String())
+	}
+}
