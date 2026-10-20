@@ -232,7 +232,7 @@ func (m *Module) renderList() string {
 		if e.Cold {
 			continue
 		}
-		fmt.Fprintf(&sb, "%-42s %-8s %s\n", e.Name, e.Source, e.Value)
+		fmt.Fprintf(&sb, "%-42s %-8s %s\n", e.Name, e.Source, displayValue(e.Kind, e.Value))
 		if e.Note != "" {
 			fmt.Fprintf(&sb, "  ! %s\n", e.Note)
 		}
@@ -262,7 +262,7 @@ func (m *Module) renderGet(key string) string {
 	if k.Cold {
 		return fmt.Sprintf("`%s`\neffective: `%s`\nsource: `%s`\napplies: %s", k.Name, value, source, settings.RestartRequiredNote)
 	}
-	msg := fmt.Sprintf("`%s`\neffective: `%s`\nsource: `%s`\napplies: to the next message; no restart needed", k.Name, value, source)
+	msg := fmt.Sprintf("`%s`\neffective: `%s`\nsource: `%s`\napplies: to the next message; no restart needed", k.Name, displayValue(k.Kind, value), source)
 	if k.Note != "" {
 		msg += "\nwarning: " + k.Note
 	}
@@ -289,10 +289,34 @@ func (m *Module) ApplySet(key, value, updatedBy string) (string, bool) {
 			return unknownKeyMessage(key), false
 		}
 		current, source, _ := m.effective(k.Name)
-		return fmt.Sprintf("Rejected `%s=%s`.\nreason: %v\nunchanged: `%s` (source: `%s`)", k.Name, value, err, current, source), false
+		return fmt.Sprintf("Rejected `%s=%s`.\nreason: %v\nunchanged: `%s` (source: `%s`)", k.Name, displayValue(k.Kind, value), err, displayValue(k.Kind, current), source), false
 	}
 	effective, source, _ := m.effective(k.Name)
-	return fmt.Sprintf("Set `%s=%s`.\neffective: `%s` (source: `%s`)\nTakes effect on the next message; no restart needed.", k.Name, value, effective, source), true
+	msg := fmt.Sprintf("Set `%s=%s`.\neffective: `%s` (source: `%s`)\nTakes effect on the next message; no restart needed.", k.Name, displayValue(k.Kind, value), displayValue(k.Kind, effective), source)
+	if k.Name == settings.KeyLLMPersonalityPreset {
+		if custom, csrc, ok := m.effective(settings.KeyLLMPersonality); ok && strings.TrimSpace(custom) != "" {
+			msg += fmt.Sprintf("\nwarning: %s (custom, source `%s`) is in force; the preset has no effect until it is unset", settings.KeyLLMPersonality, csrc)
+		}
+	}
+	return msg, true
+}
+
+// maxDisplayRunes caps a KindText value in Discord replies, so a long persona
+// does not flood list/get/set output. The web panel shows the full text.
+const maxDisplayRunes = 200
+
+// displayValue shortens a KindText value for a Discord reply: newlines become
+// spaces and anything past maxDisplayRunes is cut, followed by the full length.
+// Other kinds are returned unchanged.
+func displayValue(kind settings.Kind, v string) string {
+	if kind != settings.KindText {
+		return v
+	}
+	r := []rune(v)
+	if len(r) <= maxDisplayRunes {
+		return strings.ReplaceAll(v, "\n", " ")
+	}
+	return strings.ReplaceAll(string(r[:maxDisplayRunes]), "\n", " ") + fmt.Sprintf("… (%d chars)", len(r))
 }
 
 // ApplyUnset removes an override so the config.yaml value applies again. The
@@ -316,6 +340,7 @@ func (m *Module) ApplyUnset(key, updatedBy string) (string, bool) {
 		return fmt.Sprintf("Could not remove the override for `%s`: %v", k.Name, err), false
 	}
 	effective, source, _ := m.effective(k.Name)
+	effective = displayValue(k.Kind, effective)
 	if !had {
 		return fmt.Sprintf("No runtime override is set for `%s`; nothing to remove.\neffective: `%s` (source: `%s`)", k.Name, effective, source), false
 	}
