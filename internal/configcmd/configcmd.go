@@ -301,8 +301,9 @@ func (m *Module) ApplySet(key, value, updatedBy string) (string, bool) {
 	return msg, true
 }
 
-// maxDisplayRunes caps a KindText value in Discord replies, so a long persona
-// does not flood list/get/set output. The web panel shows the full text.
+// maxDisplayRunes caps a KindText value in Discord replies and the web panel
+// value column, so a long persona does not flood the output. Entries keeps the
+// full text, which the web panel's textarea holds.
 const maxDisplayRunes = 200
 
 // DisplayValue shortens a KindText value for a Discord reply or the web
