@@ -863,15 +863,15 @@ func TestLongPersonality_IsTruncatedInRepliesButFullInEntries(t *testing.T) {
 }
 
 func TestDisplayValue(t *testing.T) {
-	if got := displayValue(settings.KindString, strings.Repeat("a", 500)); len(got) != 500 {
+	if got := DisplayValue(settings.KindString, strings.Repeat("a", 500)); len(got) != 500 {
 		t.Errorf("non-text value was changed")
 	}
-	if got := displayValue(settings.KindText, "a\nb"); got != "a b" {
-		t.Errorf("displayValue(text, a\\nb) = %q", got)
+	if got := DisplayValue(settings.KindText, "a\nb"); got != "a b" {
+		t.Errorf("DisplayValue(text, a\\nb) = %q", got)
 	}
-	got := displayValue(settings.KindText, strings.Repeat("é", 201))
+	got := DisplayValue(settings.KindText, strings.Repeat("é", 201))
 	if got != strings.Repeat("é", 200)+"… (201 chars)" {
-		t.Errorf("displayValue truncation = %q", got)
+		t.Errorf("DisplayValue truncation = %q", got)
 	}
 }
 

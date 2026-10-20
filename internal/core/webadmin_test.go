@@ -891,6 +891,38 @@ func TestHandleAdmin_TextKindRendersAnEscapedTextarea(t *testing.T) {
 	if strings.Contains(body, "<script>x</script>") {
 		t.Error("text value is not escaped")
 	}
+	if !strings.Contains(body, `<td class="admin-value">line one &lt;script&gt;x&lt;/script&gt;</td>`) {
+		t.Error("value column does not show the flattened preview")
+	}
+}
+
+// TestHandleAdmin_LongTextValueColumnIsAPreview proves a long persona is shown
+// as a short preview in the value column while the textarea keeps it in full.
+func TestHandleAdmin_LongTextValueColumnIsAPreview(t *testing.T) {
+	t.Chdir("../..")
+	now := time.Now()
+	long := strings.Repeat("zqxw ", 100) // 500 runes
+	admin := &stubConfigAdmin{
+		entries: []configcmd.Entry{
+			{Name: settings.KeyLLMPersonality, Kind: settings.KindText, Value: long, Source: settings.SourceDB},
+		},
+	}
+	ws := newAdminTestServer(admin, testOwnerID, "", now)
+	ws.loadTemplates()
+	session := adminSession(testOwnerID, time.Minute, now)
+
+	w := httptest.NewRecorder()
+	ws.handleAdmin(w, formRequest(t, ws, session, http.MethodGet, "/admin", nil))
+	body := w.Body.String()
+	if !strings.Contains(body, "… (500 chars)</td>") {
+		t.Error("value column is not a truncated preview")
+	}
+	if !strings.Contains(body, ">"+long+"</textarea>") {
+		t.Error("textarea does not carry the full text")
+	}
+	if got := strings.Count(body, "zqxw"); got != 100+40 {
+		t.Errorf("page carries %d zqxw words, want 100 (textarea) + 40 (preview)", got)
+	}
 }
 
 // TestHandleAdmin_PostStoresMultiLinePersonality proves a multi-line value

@@ -32,6 +32,7 @@ import (
 	"github.com/toksikk/gidbig/internal/configcmd"
 	"github.com/toksikk/gidbig/internal/eso"
 	"github.com/toksikk/gidbig/internal/logwindow"
+	"github.com/toksikk/gidbig/internal/settings"
 	"github.com/toksikk/gidbig/internal/soundboard"
 	"golang.org/x/oauth2"
 )
@@ -280,6 +281,11 @@ var templateFuncs = template.FuncMap{
 	"isTrue": func(value string) bool {
 		b, err := strconv.ParseBool(strings.TrimSpace(value))
 		return err == nil && b
+	},
+	// preview shortens a long text setting for the value column; the edit
+	// control keeps the full value.
+	"preview": func(kind settings.Kind, value string) string {
+		return configcmd.DisplayValue(kind, value)
 	},
 }
 
