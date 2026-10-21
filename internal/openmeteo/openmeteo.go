@@ -185,7 +185,7 @@ func (m *Module) onInteractionCreate(s *discordgo.Session, i *discordgo.Interact
 		return
 	}
 	if !m.startReply(func() { m.replyWeather(s, i, location, forecast, days) }) {
-		editReply(s, i, "Bot fährt gerade herunter, bitte später erneut versuchen.")
+		editReply(s, i, "Bot is shutting down, try again later.")
 	}
 }
 
@@ -217,7 +217,7 @@ func invalidLocationResponse() *discordgo.InteractionResponse {
 	return &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseChannelMessageWithSource,
 		Data: &discordgo.InteractionResponseData{
-			Content: fmt.Sprintf("Bitte einen Ort mit 1–%d Zeichen angeben.", maxLocationLen),
+			Content: fmt.Sprintf("Please give a location of 1–%d characters.", maxLocationLen),
 			Flags:   discordgo.MessageFlagsEphemeral,
 		},
 	}
@@ -231,14 +231,14 @@ func (m *Module) composeDiscord(ctx context.Context, location string, forecast b
 	shown := strings.ReplaceAll(location, "`", "'")
 	p, fc, err := m.lookup(ctx, location, false, 0, 0, days)
 	if errors.Is(err, errNotFound) {
-		return "Ort nicht gefunden: `" + shown + "`"
+		return "Location not found: `" + shown + "`"
 	}
 	if err != nil {
 		slog.Error("openmeteo: weather lookup failed", "Location", location, "error", err)
-		return "Wetter für `" + shown + "` konnte nicht abgerufen werden"
+		return "Failed to get weather for `" + shown + "`"
 	}
 	if forecast {
-		return buildDiscordForecast(p, fc, discordMaxLen)
+		return buildDiscordForecast(p, fc)
 	}
 	return buildDiscordCurrent(p, fc)
 }

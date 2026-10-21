@@ -35,8 +35,18 @@ func fixtureForecast(days int) forecastResponse {
 		fc.Daily.GustsMax = append(fc.Daily.GustsMax, 41)
 		fc.Daily.WindDir = append(fc.Daily.WindDir, 225)
 		fc.Daily.UVMax = append(fc.Daily.UVMax, 1)
+		fc.Daily.SnowSum = append(fc.Daily.SnowSum, 0)
 		fc.Daily.Sunrise = append(fc.Daily.Sunrise, date+"T07:58")
 		fc.Daily.Sunset = append(fc.Daily.Sunset, date+"T18:21")
+		if d == 1 {
+			// Day 2: dry, partly cloudy, westerly wind.
+			last := len(fc.Daily.Time) - 1
+			fc.Daily.WeatherCode[last] = 2
+			fc.Daily.TempMax[last], fc.Daily.TempMin[last] = 9, 2
+			fc.Daily.PrecipSum[last], fc.Daily.PrecipProbMax[last] = 0, 5
+			fc.Daily.Sunshine[last] = 24480
+			fc.Daily.WindMax[last], fc.Daily.GustsMax[last], fc.Daily.WindDir[last] = 12, 30, 270
+		}
 		for h := 0; h < 24; h++ {
 			fc.Hourly.Time = append(fc.Hourly.Time, fmt.Sprintf("%sT%02d:00", date, h))
 			fc.Hourly.Temperature = append(fc.Hourly.Temperature, 4)

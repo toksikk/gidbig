@@ -113,15 +113,15 @@ func TestComposeDiscord(t *testing.T) {
 	m, f := newTestModule(t)
 	ctx := context.Background()
 	out := m.composeDiscord(ctx, "Winterberg", true, 10)
-	if !strings.Contains(out, "Nordrhein-Westfalen") || strings.Count(out, "🌡️") != 10 || !strings.HasSuffix(out, attribution) {
+	if !strings.Contains(out, "Nordrhein-Westfalen") || strings.Count(out, "km/h ") != 10 || !strings.HasSuffix(out, attribution) {
 		t.Errorf("forecast:\n%s", out)
 	}
 	f.geocodeBody = `{}`
-	if out := m.composeDiscord(ctx, "No`where", false, 7); out != "Ort nicht gefunden: `No'where`" {
+	if out := m.composeDiscord(ctx, "No`where", false, 7); out != "Location not found: `No'where`" {
 		t.Errorf("not found = %q", out)
 	}
 	f.forecastStatus = 500
-	if out := m.composeDiscord(ctx, "Winterberg", false, 7); !strings.Contains(out, "konnte nicht abgerufen") {
+	if out := m.composeDiscord(ctx, "Winterberg", false, 7); out != "Failed to get weather for `Winterberg`" {
 		t.Errorf("error = %q", out)
 	}
 }

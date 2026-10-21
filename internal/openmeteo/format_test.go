@@ -56,38 +56,122 @@ func TestCompass(t *testing.T) {
 	}
 }
 
-func TestDiscordForecastTruncates(t *testing.T) {
-	out := buildDiscordForecast(testPlace, fixtureForecast(16), 900)
-	if n := utf8.RuneCountInString(out); n > 900 {
-		t.Fatalf("len %d > 900", n)
-	}
-	if !strings.Contains(out, truncatedHint) || !strings.HasSuffix(out, attribution) {
-		t.Errorf("missing hint or attribution:\n%s", out)
+const testHeader = "## 📍 [Winterberg, Deutschland (Nordrhein-Westfalen)](<https://www.google.com/maps/place/51.19,8.53>)\n"
+
+var discordPlace = place{Name: "Winterberg", Admin1: "Nordrhein-Westfalen", Country: "Deutschland", CountryCode: "DE", Latitude: 51.19, Longitude: 8.53}
+
+func TestDiscordCurrentGolden(t *testing.T) {
+	want := testHeader + "```\n" +
+		"🌡️ 6°C (feels like 3°C)\n" +
+		"💧 90% humidity\n" +
+		"🌬️ ↙️ 14km/h\n" +
+		"🌦️ Light rain\n" +
+		"📅 Today: 7°C / 3°C, 🌧️ 3.3mm (63%), ☀️ 3.2h\n" +
+		"⚠️ 🌧️ 63%\n" +
+		"```\n-# Data: Open-Meteo.com (CC BY 4.0)"
+	if got := buildDiscordCurrent(discordPlace, fixtureForecast(1)); got != want {
+		t.Errorf("got:\n%s\nwant:\n%s", got, want)
 	}
 }
 
-func TestDiscordForecast16DaysFitsOrTruncates(t *testing.T) {
-	out := buildDiscordForecast(testPlace, fixtureForecast(16), discordMaxLen)
-	if n := utf8.RuneCountInString(out); n > discordMaxLen {
-		t.Fatalf("len %d > %d", n, discordMaxLen)
-	}
-	if !strings.Contains(out, "Nordrhein-Westfalen") || !strings.HasSuffix(out, attribution) {
-		t.Errorf("output:\n%s", out)
+func TestDiscordForecastBlocksGolden(t *testing.T) {
+	want := testHeader +
+		"### 📅 Thu 2026-10-22\n```\n" +
+		"🌡️ 7°C / 3°C\n" +
+		"🌬️ ↙️ 18km/h (gusts 41km/h)\n" +
+		"🌦️ Light rain\n" +
+		"🌧️ 3.3mm (63%)\n" +
+		"☀️ 3.2h sun\n" +
+		"⚠️ 🌧️ 63%\n" +
+		"```\n" +
+		"### 📅 Fri 2026-10-23\n```\n" +
+		"🌡️ 9°C / 2°C\n" +
+		"🌬️ ⬅️ 12km/h (gusts 30km/h)\n" +
+		"⛅ Partly cloudy\n" +
+		"☀️ 6.8h sun\n" +
+		"```\n-# Data: Open-Meteo.com (CC BY 4.0)"
+	if got := buildDiscordForecast(discordPlace, fixtureForecast(2)); got != want {
+		t.Errorf("got:\n%s\nwant:\n%s", got, want)
 	}
 }
 
-func TestDiscordForecastNoTruncation(t *testing.T) {
-	out := buildDiscordForecast(testPlace, fixtureForecast(3), discordMaxLen)
-	if strings.Contains(out, truncatedHint) || strings.Count(out, "🌡️") != 3 {
-		t.Errorf("output:\n%s", out)
+func TestDiscordForecastTableGolden(t *testing.T) {
+	out := buildDiscordForecast(discordPlace, fixtureForecast(16))
+	lines := strings.Split(out, "\n")
+	want := []string{
+		strings.TrimSuffix(testHeader, "\n"),
+		"```",
+		"Day             °C     Rain    %    Sun     Wind",
+		"Thu 10-22      7/3    3.3mm  63%   3.2h   18km/h ↙️ 🌦️",
+		"Fri 10-23      9/2    0.0mm   5%   6.8h   12km/h ⬅️ ⛅",
 	}
-}
-
-func TestDiscordCurrent(t *testing.T) {
-	out := buildDiscordCurrent(testPlace, fixtureForecast(1))
-	for _, want := range []string{"Winterberg", "6°C", "2026-10-22", attribution} {
-		if !strings.Contains(out, want) {
-			t.Errorf("missing %q:\n%s", want, out)
+	for i, w := range want {
+		if lines[i] != w {
+			t.Errorf("line %d = %q, want %q", i, lines[i], w)
 		}
+	}
+	// header + ``` + column row + 16 days + ``` + footer
+	if len(lines) != 3+16+2 || lines[len(lines)-1] != "-# "+attribution {
+		t.Errorf("table output:\n%s", out)
+	}
+}
+
+func TestDiscordForecastSwitchesToTableAfter7Days(t *testing.T) {
+	if out := buildDiscordForecast(discordPlace, fixtureForecast(7)); strings.Count(out, "### 📅") != 7 {
+		t.Errorf("7 days should be blocks:\n%s", out)
+	}
+	if out := buildDiscordForecast(discordPlace, fixtureForecast(8)); strings.Contains(out, "### 📅") {
+		t.Errorf("8 days should be a table:\n%s", out)
+	}
+}
+
+func TestDiscordForecastWithinLimit(t *testing.T) {
+	worst := fixtureForecast(16)
+	for i := range worst.Daily.Time {
+		worst.Daily.SnowSum[i] = 12.5
+		worst.Daily.GustsMax[i] = 120
+		worst.Daily.WeatherCode[i] = 99
+		worst.Daily.PrecipSum[i] = 123.4
+		worst.Daily.PrecipProbMax[i] = 100
+		worst.Daily.TempMax[i], worst.Daily.TempMin[i] = -12, -25
+	}
+	long := discordPlace
+	long.Name, long.Admin1, long.Country = strings.Repeat("x", 100), strings.Repeat("y", 60), strings.Repeat("z", 40)
+	for _, days := range []int{7, 16} {
+		fc := worst
+		fc.Daily.Time = worst.Daily.Time[:days]
+		if n := utf8.RuneCountInString(buildDiscordForecast(long, fc)); n > discordMaxLen {
+			t.Errorf("%d days: %d runes > %d", days, n, discordMaxLen)
+		}
+	}
+}
+
+func TestDiscordDayBlockOptionalLines(t *testing.T) {
+	fc := fixtureForecast(2)
+	dry := discordDayBlock(fc, 1)
+	if strings.Contains(dry, "🌧️") || strings.Contains(dry, "❄️") || strings.Contains(dry, "⚠️") {
+		t.Errorf("dry day has rain/snow/warn lines:\n%s", dry)
+	}
+	fc.Daily.SnowSum[1], fc.Daily.GustsMax[1], fc.Daily.WeatherCode[1] = 2.5, 55, 95
+	got := discordDayBlock(fc, 1)
+	for _, want := range []string{"❄️ 2.5cm\n", "⚠️ 💨 55km/h ⛈️ ❄️ 2.5cm\n"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestWindArrow(t *testing.T) {
+	for deg, want := range map[float64]string{0: "⬆️", 22: "⬆️", 23: "↗️", 90: "➡️", 225: "↙️", 270: "⬅️", 300: "↖️", 359: "⬆️", -90: "⬅️"} {
+		if got := windArrow(deg); got != want {
+			t.Errorf("windArrow(%v) = %q, want %q", deg, got, want)
+		}
+	}
+}
+
+func TestDiscordHeaderCoordinatePlace(t *testing.T) {
+	got := discordHeader(place{Name: "Sauerland", Latitude: 51.2, Longitude: 8.4})
+	if got != "## 📍 [Sauerland](<https://www.google.com/maps/place/51.20,8.40>)\n" {
+		t.Errorf("header = %q", got)
 	}
 }

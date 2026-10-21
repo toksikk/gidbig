@@ -5,13 +5,17 @@ import (
 	"math"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 )
 
 const (
 	discordMaxLen = 2000
 	detailDays    = 3
-	attribution   = "Daten: Open-Meteo.com (CC BY 4.0)"
-	truncatedHint = "… (gekürzt)"
+	attribution   = "Data: Open-Meteo.com (CC BY 4.0)"
+	maxBlockDays  = 7
+	// tableRow lays out the compact forecast columns, right-aligned.
+	tableRow = "%-9s  %7s  %7s %4s  %5s  %7s"
 )
 
 var compassPoints = []string{"N", "NE", "E", "SE", "S", "SW", "W", "NW"}
@@ -151,64 +155,166 @@ func buildToolText(p place, fc forecastResponse, forecast bool) string {
 	return strings.TrimRight(b.String(), "\n")
 }
 
+// discordHeader mirrors wttrin's location heading, including the maps link.
 func discordHeader(p place) string {
-	return fmt.Sprintf("**%s** (%.2f, %.2f)\n", placeLabel(p), p.Latitude, p.Longitude)
+	label := p.Name
+	if p.Country != "" {
+		label += ", " + p.Country
+	}
+	if p.Admin1 != "" && p.Admin1 != p.Name {
+		label += " (" + p.Admin1 + ")"
+	}
+	return fmt.Sprintf("## 📍 [%s](<https://www.google.com/maps/place/%.2f,%.2f>)\n", label, p.Latitude, p.Longitude)
 }
 
 func discordFooter() string {
 	return "-# " + attribution
 }
 
-// buildDiscordCurrent renders current conditions plus today for /weather.
+// capitalize upper-cases the first letter of a WMO description for display.
+func capitalize(s string) string {
+	r, n := utf8.DecodeRuneInString(s)
+	if n == 0 {
+		return s
+	}
+	return string(unicode.ToUpper(r)) + s[n:]
+}
+
+// windArrow maps a wind direction in degrees to wttrin's arrow emojis.
+func windArrow(deg float64) string {
+	d := math.Mod(math.Round(deg), 360)
+	if d < 0 {
+		d += 360
+	}
+	switch {
+	case d >= 337 || d <= 22:
+		return "⬆️"
+	case d <= 67:
+		return "↗️"
+	case d <= 112:
+		return "➡️"
+	case d <= 157:
+		return "↘️"
+	case d <= 202:
+		return "⬇️"
+	case d <= 247:
+		return "↙️"
+	case d <= 292:
+		return "⬅️"
+	default:
+		return "↖️"
+	}
+}
+
+// warnLine lists notable risks for day i, like wttrin's high-chance line.
+// It returns "" when nothing applies.
+func warnLine(fc forecastResponse, i int) string {
+	d := fc.Daily
+	var parts []string
+	if p := at(d.PrecipProbMax, i); p > 50 {
+		parts = append(parts, fmt.Sprintf("🌧️ %.0f%%", p))
+	}
+	if g := at(d.GustsMax, i); g >= 50 {
+		parts = append(parts, fmt.Sprintf("💨 %.0fkm/h", g))
+	}
+	if c := at(d.WeatherCode, i); c >= 95 && c <= 99 {
+		parts = append(parts, "⛈️")
+	}
+	if sn := at(d.SnowSum, i); sn > 0 {
+		parts = append(parts, fmt.Sprintf("❄️ %.1fcm", sn))
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return "⚠️ " + strings.Join(parts, " ")
+}
+
+// buildDiscordCurrent renders current conditions plus a today line for /weather.
 func buildDiscordCurrent(p place, fc forecastResponse) string {
 	c := fc.Current
 	w := wmo(c.WeatherCode)
 	var b strings.Builder
 	b.WriteString(discordHeader(p))
-	fmt.Fprintf(&b, "%s %s, 🌡️ %.0f°C (gefühlt %.0f°C), 💧 %.0f%%, ☁️ %.0f%%, 🌧️ %.1f mm, 💨 %.0f km/h %s\n",
-		w.emoji, w.desc, c.Temperature, c.Apparent, c.Humidity, c.CloudCover, c.Precipitation, c.WindSpeed, compass(c.WindDirection))
+	b.WriteString("```\n")
+	fmt.Fprintf(&b, "🌡️ %.0f°C (feels like %.0f°C)\n", c.Temperature, c.Apparent)
+	fmt.Fprintf(&b, "💧 %.0f%% humidity\n", c.Humidity)
+	fmt.Fprintf(&b, "🌬️ %s %.0fkm/h\n", windArrow(c.WindDirection), c.WindSpeed)
+	fmt.Fprintf(&b, "%s %s\n", w.emoji, capitalize(w.desc))
 	if len(fc.Daily.Time) > 0 {
-		b.WriteString(discordDay(fc, 0))
+		d := fc.Daily
+		fmt.Fprintf(&b, "📅 Today: %.0f°C / %.0f°C, 🌧️ %.1fmm (%.0f%%), ☀️ %s\n",
+			at(d.TempMax, 0), at(d.TempMin, 0), at(d.PrecipSum, 0), at(d.PrecipProbMax, 0), sunHours(at(d.Sunshine, 0)))
+		if warn := warnLine(fc, 0); warn != "" {
+			b.WriteString(warn + "\n")
+		}
 	}
+	b.WriteString("```\n")
 	b.WriteString(discordFooter())
 	return b.String()
 }
 
-func discordDay(fc forecastResponse, i int) string {
+// discordDayBlock renders one wttrin-style forecast day.
+func discordDayBlock(fc forecastResponse, i int) string {
 	d := fc.Daily
 	date := at(d.Time, i)
 	w := wmo(at(d.WeatherCode, i))
-	return fmt.Sprintf("**%s %s** %s %s\n🌡️ %.0f–%.0f°C · 🌧️ %.1f mm (%.0f%%) · ☀️ %s · 💨 %.0f km/h (Böen %.0f) %s\n",
-		weekday(date), date, w.emoji, w.desc,
-		at(d.TempMin, i), at(d.TempMax, i),
-		at(d.PrecipSum, i), at(d.PrecipProbMax, i),
-		sunHours(at(d.Sunshine, i)),
-		at(d.WindMax, i), at(d.GustsMax, i), compass(at(d.WindDir, i)))
+	var b strings.Builder
+	fmt.Fprintf(&b, "### 📅 %s %s\n```\n", weekday(date), date)
+	fmt.Fprintf(&b, "🌡️ %.0f°C / %.0f°C\n", at(d.TempMax, i), at(d.TempMin, i))
+	fmt.Fprintf(&b, "🌬️ %s %.0fkm/h (gusts %.0fkm/h)\n", windArrow(at(d.WindDir, i)), at(d.WindMax, i), at(d.GustsMax, i))
+	fmt.Fprintf(&b, "%s %s\n", w.emoji, capitalize(w.desc))
+	if rain := at(d.PrecipSum, i); rain > 0 {
+		fmt.Fprintf(&b, "🌧️ %.1fmm (%.0f%%)\n", rain, at(d.PrecipProbMax, i))
+	}
+	if snow := at(d.SnowSum, i); snow > 0 {
+		fmt.Fprintf(&b, "❄️ %.1fcm\n", snow)
+	}
+	fmt.Fprintf(&b, "☀️ %s sun\n", sunHours(at(d.Sunshine, i)))
+	if warn := warnLine(fc, i); warn != "" {
+		b.WriteString(warn + "\n")
+	}
+	b.WriteString("```\n")
+	return b.String()
 }
 
-// buildDiscordForecast renders one block per day, truncated after the last
-// complete day that fits into maxLen runes including the footer.
-func buildDiscordForecast(p place, fc forecastResponse, maxLen int) string {
-	header := discordHeader(p)
-	footer := discordFooter()
-	hint := truncatedHint + "\n"
+// buildDiscordTable renders one aligned line per day for long forecasts.
+// Emojis sit at the line end so the monospace columns stay aligned.
+func buildDiscordTable(fc forecastResponse) string {
+	d := fc.Daily
 	var b strings.Builder
-	b.WriteString(header)
-	used := len([]rune(header)) + len([]rune(footer))
-	for i := range fc.Daily.Time {
-		day := discordDay(fc, i)
-		n := len([]rune(day))
-		reserve := 0
-		if i < len(fc.Daily.Time)-1 {
-			reserve = len([]rune(hint))
+	b.WriteString("```\n")
+	fmt.Fprintf(&b, tableRow+"\n", "Day", "°C", "Rain", "%", "Sun", "Wind")
+	for i, date := range d.Time {
+		short := date
+		if len(date) == len("2006-01-02") {
+			short = date[5:]
 		}
-		if used+n+reserve > maxLen {
-			b.WriteString(hint)
-			break
-		}
-		b.WriteString(day)
-		used += n
+		w := wmo(at(d.WeatherCode, i))
+		fmt.Fprintf(&b, tableRow+" %s %s\n",
+			weekday(date)+" "+short,
+			fmt.Sprintf("%.0f/%.0f", at(d.TempMax, i), at(d.TempMin, i)),
+			fmt.Sprintf("%.1fmm", at(d.PrecipSum, i)),
+			fmt.Sprintf("%.0f%%", at(d.PrecipProbMax, i)),
+			sunHours(at(d.Sunshine, i)),
+			fmt.Sprintf("%.0fkm/h", at(d.WindMax, i)),
+			windArrow(at(d.WindDir, i)), w.emoji)
 	}
-	b.WriteString(footer)
+	b.WriteString("```\n")
+	return b.String()
+}
+
+// buildDiscordForecast renders wttrin-style day blocks for up to
+// maxBlockDays days and a compact table for longer forecasts.
+func buildDiscordForecast(p place, fc forecastResponse) string {
+	var b strings.Builder
+	b.WriteString(discordHeader(p))
+	if len(fc.Daily.Time) <= maxBlockDays {
+		for i := range fc.Daily.Time {
+			b.WriteString(discordDayBlock(fc, i))
+		}
+	} else {
+		b.WriteString(buildDiscordTable(fc))
+	}
+	b.WriteString(discordFooter())
 	return b.String()
 }

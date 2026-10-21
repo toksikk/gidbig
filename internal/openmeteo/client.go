@@ -18,7 +18,7 @@ const (
 	maxBodyBytes       = 1 << 20
 	httpTimeout        = 15 * time.Second
 
-	dailyVars   = "weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,precipitation_probability_max,sunshine_duration,wind_speed_10m_max,wind_gusts_10m_max,wind_direction_10m_dominant,uv_index_max,sunrise,sunset"
+	dailyVars   = "weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,snowfall_sum,precipitation_probability_max,sunshine_duration,wind_speed_10m_max,wind_gusts_10m_max,wind_direction_10m_dominant,uv_index_max,sunrise,sunset"
 	hourlyVars  = "temperature_2m,precipitation,precipitation_probability,weather_code,cloud_cover,wind_speed_10m"
 	currentVars = "temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,wind_speed_10m,wind_direction_10m,precipitation,cloud_cover"
 )
@@ -61,6 +61,7 @@ type forecastResponse struct {
 		TempMax       []float64 `json:"temperature_2m_max"`
 		TempMin       []float64 `json:"temperature_2m_min"`
 		PrecipSum     []float64 `json:"precipitation_sum"`
+		SnowSum       []float64 `json:"snowfall_sum"`
 		PrecipProbMax []float64 `json:"precipitation_probability_max"`
 		Sunshine      []float64 `json:"sunshine_duration"`
 		WindMax       []float64 `json:"wind_speed_10m_max"`

@@ -37,7 +37,7 @@ func TestToolCoordsSkipGeocode(t *testing.T) {
 	if f.geocodeCalls.Load() != 0 {
 		t.Error("geocode called despite coordinates")
 	}
-	if !strings.HasPrefix(out, "Location: Sauerland (51.20,8.40") || strings.Count(out, "sun 3.2h") != 7 {
+	if !strings.HasPrefix(out, "Location: Sauerland (51.20,8.40") || strings.Count(out, ", sun ") != 7 {
 		t.Errorf("output:\n%s", out)
 	}
 }
