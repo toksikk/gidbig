@@ -58,6 +58,13 @@ func (c *flightCache[V]) get(ctx context.Context, key string, fetch func(context
 	}
 	cl, ok := c.inflight[key]
 	if !ok {
+		// After shutdown no new fetch starts, so wg.Go never races wait().
+		if err := c.base.Err(); err != nil {
+			c.errors++
+			c.mu.Unlock()
+			var zero V
+			return zero, err
+		}
 		cl = &call[V]{done: make(chan struct{})}
 		c.inflight[key] = cl
 		c.wg.Go(func() { c.run(key, cl, fetch) })

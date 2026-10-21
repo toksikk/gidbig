@@ -192,3 +192,19 @@ func TestCallerCancelDoesNotWaitForFetch(t *testing.T) {
 		t.Fatalf("cached v=%d err=%v", v, err)
 	}
 }
+
+func TestGetAfterBaseCancelStartsNoFetch(t *testing.T) {
+	base, cancel := context.WithCancel(context.Background())
+	cancel()
+	c := newFlightCache[int](base, time.Minute, 4, time.Now)
+	_, err := c.get(context.Background(), "k", func(context.Context) (int, error) {
+		t.Error("fetch started after shutdown")
+		return 0, nil
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v", err)
+	}
+	if s := c.stats(); s.inflight != 0 || s.errors != 1 {
+		t.Fatalf("stats = %+v", s)
+	}
+}

@@ -18,7 +18,7 @@ func TestStats(t *testing.T) {
 	for _, s := range append(st.Summary, st.Detail...) {
 		got[s.Name] = s.Value
 	}
-	want := map[string]string{"lookups": "2", "cache": "1", "cache hits": "1", "geocode hits": "1", "fetch errors": "0", "in flight": "0"}
+	want := map[string]string{"forecast lookups": "2", "geocode lookups": "2", "cache": "1", "cache hits": "1", "geocode hits": "1", "fetch errors": "0", "in flight": "0"}
 	for k, v := range want {
 		if got[k] != v {
 			t.Errorf("%s = %q, want %q", k, got[k], v)
