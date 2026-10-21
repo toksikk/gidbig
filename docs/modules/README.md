@@ -12,6 +12,7 @@ One file per internal package. Each doc: what it does + sequence diagram of the 
 | [gippity](gippity.md) | `/gippity` | LLM chat over Discord messages, vision, privacy, optional thread replies, opt-in non-mention classifier |
 | [leetoclock](leetoclock.md) | `/leetoclock` | Daily reaction-time game + scoreboard |
 | [wttrin](wttrin.md) | `/wttr` `/wttrf` | Weather + forecast via wttr.in + LLM outro |
+| [openmeteo](openmeteo.md) | `/weather` | Weather + up to 16-day forecast via Open-Meteo; owns the LLM `weather` tool |
 | [eso](eso.md) | `/eso` | Esoteric nonsense generator (LLM, fallback) |
 | [stoll](stoll.md) | `/stoll` | Random Dr. Axel Stoll quote |
 | [anticheat](anticheat.md) | `/anticheat` | GamingOnLinux anti-cheat compatibility lookup (cached CSV) |

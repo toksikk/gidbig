@@ -7,7 +7,7 @@ Commands `/wttr` (current) and `/wttrf` (multi-day forecast). Fetches JSON from 
 - Cache: 10 min TTL per location, single-flight dedup, max 256 entries (expired entries are swept when full; new results are not cached while full of live entries).
 - Fetch: non-200 responses are errors; bodies are capped at 1 MiB.
 - LLM: injected via `Deps.LLM` (`*llm.Client`), see `internal/llm`.
-- LLM tool: `weather` returns the cached current conditions or forecast; it skips the LLM outro. Locations over 100 characters are rejected.
+- LLM tool: none; the `weather` tool lives in [openmeteo](openmeteo.md).
 
 ## Weather flow
 
