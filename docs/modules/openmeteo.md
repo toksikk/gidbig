@@ -13,7 +13,7 @@ Command `/weather location:<name> [forecast:<bool>] [days:<1-16>]` and the LLM t
 
 ## `/weather` output
 
-Formatted like wttrin (`/wttr`, `/wttrf`): H2 location heading with a Google Maps link, values in code blocks, English labels. The ⚠️ line lists rain probability > 50 %, gusts ≥ 50 km/h, thunderstorms and snow; it is omitted when nothing applies. Rain and snow lines appear only when non-zero.
+Formatted like wttrin (`/wttr`, `/wttrf`): H2 location heading with a Google Maps link, values in code blocks, English labels. The ⚠️ line lists rain probability > 50 %, gusts ≥ 50 km/h, thunderstorms (⛈️) and snow (❄️, amount on its own line); it is omitted when nothing applies. Rain and snow lines appear only when non-zero.
 
 Current conditions (`/weather location:Winterberg`):
 

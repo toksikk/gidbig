@@ -220,8 +220,8 @@ func warnLine(fc forecastResponse, i int) string {
 	if c := at(d.WeatherCode, i); c >= 95 && c <= 99 {
 		parts = append(parts, "⛈️")
 	}
-	if sn := at(d.SnowSum, i); sn > 0 {
-		parts = append(parts, fmt.Sprintf("❄️ %.1fcm", sn))
+	if at(d.SnowSum, i) > 0 {
+		parts = append(parts, "❄️")
 	}
 	if len(parts) == 0 {
 		return ""

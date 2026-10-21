@@ -185,7 +185,7 @@ func (m *Module) onInteractionCreate(s *discordgo.Session, i *discordgo.Interact
 		return
 	}
 	if !m.startReply(func() { m.replyWeather(s, i, location, forecast, days) }) {
-		editReply(s, i, "Bot is shutting down, try again later.")
+		editReply(s, i, msgShuttingDown)
 	}
 }
 
@@ -211,6 +211,9 @@ func editReply(s *discordgo.Session, i *discordgo.InteractionCreate, body string
 		slog.Error("openmeteo: failed to edit interaction response", "ChannelID", i.ChannelID, "error", err)
 	}
 }
+
+// msgShuttingDown answers a /weather request that arrives during shutdown.
+const msgShuttingDown = "Bot is shutting down, try again later."
 
 // invalidLocationResponse is the ephemeral reply for an empty or overlong location.
 func invalidLocationResponse() *discordgo.InteractionResponse {

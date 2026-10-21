@@ -154,7 +154,7 @@ func TestDiscordDayBlockOptionalLines(t *testing.T) {
 	}
 	fc.Daily.SnowSum[1], fc.Daily.GustsMax[1], fc.Daily.WeatherCode[1] = 2.5, 55, 95
 	got := discordDayBlock(fc, 1)
-	for _, want := range []string{"❄️ 2.5cm\n", "⚠️ 💨 55km/h ⛈️ ❄️ 2.5cm\n"} {
+	for _, want := range []string{"❄️ 2.5cm\n", "⚠️ 💨 55km/h ⛈️ ❄️\n"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("missing %q:\n%s", want, got)
 		}

@@ -131,6 +131,9 @@ func TestInvalidLocationResponseEphemeral(t *testing.T) {
 	if r.Data.Flags&discordgo.MessageFlagsEphemeral == 0 || r.Type != discordgo.InteractionResponseChannelMessageWithSource {
 		t.Fatalf("response = %+v", r)
 	}
+	if r.Data.Content != "Please give a location of 1–100 characters." {
+		t.Errorf("content = %q", r.Data.Content)
+	}
 }
 
 func TestFetchSurvivesFirstCallerCancel(t *testing.T) {
@@ -174,6 +177,9 @@ func TestStartReplyAfterShutdown(t *testing.T) {
 	}
 	if m.startReply(func() { t.Error("ran after shutdown") }) {
 		t.Fatal("startReply accepted after shutdown")
+	}
+	if msgShuttingDown != "Bot is shutting down, try again later." {
+		t.Errorf("shutdown text = %q", msgShuttingDown)
 	}
 }
 
