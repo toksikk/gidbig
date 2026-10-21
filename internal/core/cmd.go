@@ -23,6 +23,7 @@ import (
 	"github.com/toksikk/gidbig/internal/llm"
 	"github.com/toksikk/gidbig/internal/logscmd"
 	"github.com/toksikk/gidbig/internal/logwindow"
+	"github.com/toksikk/gidbig/internal/openmeteo"
 	"github.com/toksikk/gidbig/internal/settings"
 	"github.com/toksikk/gidbig/internal/shareddb"
 	"github.com/toksikk/gidbig/internal/soundboard"
@@ -296,6 +297,7 @@ func StartGidbig() {
 	registerOrLog(b, stoll.New())
 	registerOrLog(b, wardogs.New())
 	registerOrLog(b, wttrin.New())
+	registerOrLog(b, openmeteo.New())
 
 	// Start Webserver if a valid port is provided and if ClientID and ClientSecret are set
 	if conf.Web.Port != 0 && conf.Web.Port >= 1 && conf.Web.Oauth.ClientID != "" && conf.Web.Oauth.ClientSecret != "" && conf.Web.Oauth.RedirectURI != "" {

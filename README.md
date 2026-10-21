@@ -32,6 +32,7 @@ Gidbig is a Discord bot written in Go — soundboard playback in voice channels,
 | 🧌 **stoll** | `/stoll` — Stoll-related commands |
 | 🐧 **wardogs** | `/wardogs` — reports whether WARDOGS officially supports Linux/Proton, read from the community tracker doeswardogshavelinux.support (10 min cache) |
 | 🌤️ **wttrin** | `/wttr location:<location>` / `/wttrf location:<location>` — current weather / forecast with an LLM-generated outro |
+| 🌦️ **openmeteo** | `/weather location:<location> [forecast] [days]` — Open-Meteo weather and up to 16-day forecast (also the LLM `weather` tool) |
 
 ## 🚀 Quickstart
 
