@@ -206,6 +206,9 @@ func windArrow(deg float64) string {
 	}
 }
 
+// shown reports whether v is non-zero at the one-decimal display precision.
+func shown(v float64) bool { return math.Round(v*10) > 0 }
+
 // warnLine lists notable risks for day i, like wttrin's high-chance line.
 // It returns "" when nothing applies.
 func warnLine(fc forecastResponse, i int) string {
@@ -220,7 +223,7 @@ func warnLine(fc forecastResponse, i int) string {
 	if c := at(d.WeatherCode, i); c >= 95 && c <= 99 {
 		parts = append(parts, "⛈️")
 	}
-	if at(d.SnowSum, i) > 0 {
+	if shown(at(d.SnowSum, i)) {
 		parts = append(parts, "❄️")
 	}
 	if len(parts) == 0 {
@@ -263,10 +266,10 @@ func discordDayBlock(fc forecastResponse, i int) string {
 	fmt.Fprintf(&b, "🌡️ %.0f°C / %.0f°C\n", at(d.TempMax, i), at(d.TempMin, i))
 	fmt.Fprintf(&b, "🌬️ %s %.0fkm/h (gusts %.0fkm/h)\n", windArrow(at(d.WindDir, i)), at(d.WindMax, i), at(d.GustsMax, i))
 	fmt.Fprintf(&b, "%s %s\n", w.emoji, capitalize(w.desc))
-	if rain := at(d.PrecipSum, i); rain > 0 {
+	if rain := at(d.PrecipSum, i); shown(rain) {
 		fmt.Fprintf(&b, "🌧️ %.1fmm (%.0f%%)\n", rain, at(d.PrecipProbMax, i))
 	}
-	if snow := at(d.SnowSum, i); snow > 0 {
+	if snow := at(d.SnowSum, i); shown(snow) {
 		fmt.Fprintf(&b, "❄️ %.1fcm\n", snow)
 	}
 	fmt.Fprintf(&b, "☀️ %s sun\n", sunHours(at(d.Sunshine, i)))

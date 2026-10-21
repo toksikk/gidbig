@@ -152,6 +152,10 @@ func TestDiscordDayBlockOptionalLines(t *testing.T) {
 	if strings.Contains(dry, "🌧️") || strings.Contains(dry, "❄️") || strings.Contains(dry, "⚠️") {
 		t.Errorf("dry day has rain/snow/warn lines:\n%s", dry)
 	}
+	fc.Daily.PrecipSum[1], fc.Daily.SnowSum[1] = 0.04, 0.04
+	if tiny := discordDayBlock(fc, 1); strings.Contains(tiny, "🌧️") || strings.Contains(tiny, "❄️") {
+		t.Errorf("sub-0.05 rain/snow shown:\n%s", tiny)
+	}
 	fc.Daily.SnowSum[1], fc.Daily.GustsMax[1], fc.Daily.WeatherCode[1] = 2.5, 55, 95
 	got := discordDayBlock(fc, 1)
 	for _, want := range []string{"❄️ 2.5cm\n", "⚠️ 💨 55km/h ⛈️ ❄️\n"} {
