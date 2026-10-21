@@ -10,6 +10,7 @@ import (
 // mutex is never held while fetch runs.
 type flightCache[V any] struct {
 	mu       sync.Mutex
+	wg       sync.WaitGroup
 	base     context.Context
 	ttl      time.Duration
 	max      int
@@ -55,36 +56,43 @@ func (c *flightCache[V]) get(ctx context.Context, key string, fetch func(context
 		}
 		delete(c.entries, key)
 	}
-	if cl, ok := c.inflight[key]; ok {
-		c.mu.Unlock()
-		select {
-		case <-cl.done:
-			return cl.value, cl.err
-		case <-ctx.Done():
-			var zero V
-			return zero, ctx.Err()
-		}
+	cl, ok := c.inflight[key]
+	if !ok {
+		cl = &call[V]{done: make(chan struct{})}
+		c.inflight[key] = cl
+		c.wg.Go(func() { c.run(key, cl, fetch) })
 	}
-	cl := &call[V]{done: make(chan struct{})}
-	c.inflight[key] = cl
 	c.mu.Unlock()
 
-	// The shared fetch runs under the cache's base context, not the first
-	// caller's, so one caller's cancellation does not fail the waiters. The base
-	// context is cancelled on module shutdown; the HTTP timeout bounds the rest.
-	cl.value, cl.err = fetch(c.base)
+	select {
+	case <-cl.done:
+		return cl.value, cl.err
+	case <-ctx.Done():
+		var zero V
+		return zero, ctx.Err()
+	}
+}
+
+// run performs the shared fetch under the cache's base context, not a
+// caller's, so one caller's cancellation does not fail the others. The base
+// context is cancelled on module shutdown; the HTTP timeout bounds the rest.
+func (c *flightCache[V]) run(key string, cl *call[V], fetch func(context.Context) (V, error)) {
+	value, err := fetch(c.base)
 
 	c.mu.Lock()
-	if cl.err == nil {
-		c.storeLocked(key, cl.value)
+	cl.value, cl.err = value, err
+	if err == nil {
+		c.storeLocked(key, value)
 	} else {
 		c.errors++
 	}
 	delete(c.inflight, key)
 	close(cl.done)
 	c.mu.Unlock()
-	return cl.value, cl.err
 }
+
+// wait blocks until all running fetches have finished.
+func (c *flightCache[V]) wait() { c.wg.Wait() }
 
 // storeLocked caches value. When full it sweeps expired entries and skips the
 // insert if still full. mu must be held.

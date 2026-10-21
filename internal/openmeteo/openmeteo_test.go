@@ -137,7 +137,9 @@ func TestFetchSurvivesFirstCallerCancel(t *testing.T) {
 	c := newFlightCache[int](context.Background(), time.Minute, 4, time.Now)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	v, err := c.get(ctx, "k", func(fctx context.Context) (int, error) { return 7, fctx.Err() })
+	_, _ = c.get(ctx, "k", func(fctx context.Context) (int, error) { return 7, fctx.Err() })
+	c.wait()
+	v, err := c.get(context.Background(), "k", nil)
 	if err != nil || v != 7 {
 		t.Fatalf("v=%d err=%v", v, err)
 	}
@@ -172,5 +174,21 @@ func TestStartReplyAfterShutdown(t *testing.T) {
 	}
 	if m.startReply(func() { t.Error("ran after shutdown") }) {
 		t.Fatal("startReply accepted after shutdown")
+	}
+}
+
+func TestCallerCancelDoesNotWaitForFetch(t *testing.T) {
+	c := newFlightCache[int](context.Background(), time.Minute, 4, time.Now)
+	release := make(chan struct{})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := c.get(ctx, "k", func(context.Context) (int, error) { <-release; return 1, nil })
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v", err)
+	}
+	close(release)
+	c.wait()
+	if v, err := c.get(context.Background(), "k", nil); err != nil || v != 1 {
+		t.Fatalf("cached v=%d err=%v", v, err)
 	}
 }

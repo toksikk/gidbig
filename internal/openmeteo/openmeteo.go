@@ -113,6 +113,8 @@ func (m *Module) Shutdown() error {
 	m.mu.Unlock()
 	m.cancel()
 	m.wg.Wait()
+	m.forecasts.wait()
+	m.geocodes.wait()
 	return nil
 }
 
