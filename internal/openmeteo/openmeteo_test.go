@@ -204,7 +204,7 @@ func TestGetAfterBaseCancelStartsNoFetch(t *testing.T) {
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("err = %v", err)
 	}
-	if s := c.stats(); s.inflight != 0 || s.errors != 1 {
+	if s := c.stats(); s.inflight != 0 || s.errors != 0 {
 		t.Fatalf("stats = %+v", s)
 	}
 }

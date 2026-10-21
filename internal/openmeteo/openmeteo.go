@@ -96,7 +96,7 @@ func (m *Module) Commands() []*discordgo.ApplicationCommand {
 			{
 				Type:        discordgo.ApplicationCommandOptionInteger,
 				Name:        "days",
-				Description: "Forecast days (1-16, default 7)",
+				Description: "Forecast days (1-16, default 7); only used with forecast:true",
 				MinValue:    &minD,
 				MaxValue:    maxD,
 			},
