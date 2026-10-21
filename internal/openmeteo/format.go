@@ -28,6 +28,15 @@ func compass(deg float64) string {
 	return compassPoints[int(math.Round(d/45))%8]
 }
 
+// deg rounds a temperature to whole degrees without producing -0.
+func deg(v float64) float64 {
+	r := math.Round(v)
+	if r == 0 {
+		return 0
+	}
+	return r
+}
+
 // sunHours formats sunshine seconds as hours with one decimal.
 func sunHours(sec float64) string {
 	return fmt.Sprintf("%.1fh", sec/3600)
@@ -115,7 +124,7 @@ func dayLine(fc forecastResponse, i int) string {
 	date := at(d.Time, i)
 	return fmt.Sprintf("%s %s: %s, %.0f–%.0f°C, rain %.1fmm (max %.0f%%), sun %s, wind %.0f km/h gusts %.0f %s, uv %.0f, sunrise %s sunset %s",
 		weekday(date), date, wmo(at(d.WeatherCode, i)).desc,
-		at(d.TempMin, i), at(d.TempMax, i),
+		deg(at(d.TempMin, i)), deg(at(d.TempMax, i)),
 		at(d.PrecipSum, i), at(d.PrecipProbMax, i),
 		sunHours(at(d.Sunshine, i)),
 		at(d.WindMax, i), at(d.GustsMax, i), compass(at(d.WindDir, i)),
@@ -125,7 +134,7 @@ func dayLine(fc forecastResponse, i int) string {
 func nowLine(fc forecastResponse) string {
 	c := fc.Current
 	return fmt.Sprintf("Now: %.0f°C (feels %.0f°C), %s, humidity %.0f%%, cloud %.0f%%, precipitation %.1fmm, wind %.0f km/h %s",
-		c.Temperature, c.Apparent, wmo(c.WeatherCode).desc, c.Humidity, c.CloudCover, c.Precipitation, c.WindSpeed, compass(c.WindDirection))
+		deg(c.Temperature), deg(c.Apparent), wmo(c.WeatherCode).desc, c.Humidity, c.CloudCover, c.Precipitation, c.WindSpeed, compass(c.WindDirection))
 }
 
 // buildToolText renders plain text for the LLM tool. Without forecast it
@@ -148,7 +157,7 @@ func buildToolText(p place, fc forecastResponse, forecast bool) string {
 		}
 		for _, s := range slotsForDay(fc, fc.Daily.Time[i]) {
 			fmt.Fprintf(&b, "  %02dh %.0f°C %s, cloud %.0f%%, rain %.1fmm %.0f%%\n",
-				s.hour, s.temp, wmo(s.code).desc, s.cloud, s.precip, s.precipProb)
+				s.hour, deg(s.temp), wmo(s.code).desc, s.cloud, s.precip, s.precipProb)
 		}
 	}
 	return strings.TrimRight(b.String(), "\n")
@@ -239,14 +248,14 @@ func buildDiscordCurrent(p place, fc forecastResponse) string {
 	var b strings.Builder
 	b.WriteString(discordHeader(p))
 	b.WriteString("```\n")
-	fmt.Fprintf(&b, "🌡️ %.0f°C (feels like %.0f°C)\n", c.Temperature, c.Apparent)
+	fmt.Fprintf(&b, "🌡️ %.0f°C (feels like %.0f°C)\n", deg(c.Temperature), deg(c.Apparent))
 	fmt.Fprintf(&b, "💧 %.0f%% humidity\n", c.Humidity)
 	fmt.Fprintf(&b, "🌬️ %s %.0fkm/h\n", windArrow(c.WindDirection), c.WindSpeed)
 	fmt.Fprintf(&b, "%s %s\n", w.emoji, capitalize(w.desc))
 	if len(fc.Daily.Time) > 0 {
 		d := fc.Daily
 		fmt.Fprintf(&b, "📅 Today: %.0f°C / %.0f°C, 🌧️ %.1fmm (%.0f%%), ☀️ %s\n",
-			at(d.TempMax, 0), at(d.TempMin, 0), at(d.PrecipSum, 0), at(d.PrecipProbMax, 0), sunHours(at(d.Sunshine, 0)))
+			deg(at(d.TempMax, 0)), deg(at(d.TempMin, 0)), at(d.PrecipSum, 0), at(d.PrecipProbMax, 0), sunHours(at(d.Sunshine, 0)))
 		if warn := warnLine(fc, 0); warn != "" {
 			b.WriteString(warn + "\n")
 		}
@@ -263,7 +272,7 @@ func discordDayBlock(fc forecastResponse, i int) string {
 	w := wmo(at(d.WeatherCode, i))
 	var b strings.Builder
 	fmt.Fprintf(&b, "### 📅 %s %s\n```\n", weekday(date), date)
-	fmt.Fprintf(&b, "🌡️ %.0f°C / %.0f°C\n", at(d.TempMax, i), at(d.TempMin, i))
+	fmt.Fprintf(&b, "🌡️ %.0f°C / %.0f°C\n", deg(at(d.TempMax, i)), deg(at(d.TempMin, i)))
 	fmt.Fprintf(&b, "🌬️ %s %.0fkm/h (gusts %.0fkm/h)\n", windArrow(at(d.WindDir, i)), at(d.WindMax, i), at(d.GustsMax, i))
 	fmt.Fprintf(&b, "%s %s\n", w.emoji, capitalize(w.desc))
 	if rain := at(d.PrecipSum, i); shown(rain) {
@@ -295,7 +304,7 @@ func buildDiscordTable(fc forecastResponse) string {
 		w := wmo(at(d.WeatherCode, i))
 		fmt.Fprintf(&b, tableRow+" %s %s\n",
 			weekday(date)+" "+short,
-			fmt.Sprintf("%.0f/%.0f", at(d.TempMax, i), at(d.TempMin, i)),
+			fmt.Sprintf("%.0f/%.0f", deg(at(d.TempMax, i)), deg(at(d.TempMin, i))),
 			fmt.Sprintf("%.1fmm", at(d.PrecipSum, i)),
 			fmt.Sprintf("%.0f%%", at(d.PrecipProbMax, i)),
 			sunHours(at(d.Sunshine, i)),

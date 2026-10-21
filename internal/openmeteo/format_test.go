@@ -189,3 +189,30 @@ func TestDiscordHeaderCoordinatePlace(t *testing.T) {
 		t.Errorf("header = %q", got)
 	}
 }
+
+func TestNoNegativeZeroTemperatures(t *testing.T) {
+	fc := fixtureForecast(8)
+	fc.Current.Temperature, fc.Current.Apparent = -0.3, -0.4
+	for i := range fc.Daily.Time {
+		fc.Daily.TempMax[i], fc.Daily.TempMin[i] = -0.2, -0.49
+	}
+	for i := range fc.Hourly.Temperature {
+		fc.Hourly.Temperature[i] = -0.1
+	}
+	outs := []string{
+		buildDiscordCurrent(discordPlace, fc),
+		buildDiscordForecast(discordPlace, fc),
+		buildDiscordForecast(discordPlace, fixtureForecast(0)),
+		buildToolText(discordPlace, fc, true),
+	}
+	fc.Daily.Time = fc.Daily.Time[:2]
+	outs = append(outs, buildDiscordForecast(discordPlace, fc))
+	for _, out := range outs {
+		if strings.Contains(out, "-0") {
+			t.Errorf("negative zero in:\n%s", out)
+		}
+	}
+	if !strings.Contains(outs[0], "🌡️ 0°C (feels like 0°C)") {
+		t.Errorf("current:\n%s", outs[0])
+	}
+}
