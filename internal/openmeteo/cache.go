@@ -97,8 +97,14 @@ func (c *flightCache[V]) run(key string, cl *call[V], fetch func(context.Context
 	c.mu.Unlock()
 }
 
-// wait blocks until all running fetches have finished.
-func (c *flightCache[V]) wait() { c.wg.Wait() }
+// wait blocks until all running fetches have finished. Call it after the base
+// context is cancelled. Taking mu first lets any get that already passed the
+// base check finish its wg.Go, so Add never races Wait.
+func (c *flightCache[V]) wait() {
+	c.mu.Lock()
+	c.mu.Unlock() //nolint:staticcheck // empty critical section is a barrier
+	c.wg.Wait()
+}
 
 // storeLocked caches value. When full it sweeps expired entries and skips the
 // insert if still full. mu must be held.
