@@ -10,10 +10,9 @@ import (
 )
 
 const (
-	discordMaxLen = 2000
-	detailDays    = 3
-	attribution   = "Data: Open-Meteo.com (CC BY 4.0)"
-	maxBlockDays  = 7
+	detailDays   = 3
+	attribution  = "Data: Open-Meteo.com (CC BY 4.0)"
+	maxBlockDays = 7
 	// tableRow lays out the compact forecast columns, right-aligned.
 	tableRow = "%-9s  %7s  %7s %4s  %5s  %7s"
 )
@@ -164,6 +163,7 @@ func discordHeader(p place) string {
 	if p.Admin1 != "" && p.Admin1 != p.Name {
 		label += " (" + p.Admin1 + ")"
 	}
+	label = strings.NewReplacer("[", "(", "]", ")").Replace(label)
 	return fmt.Sprintf("## 📍 [%s](<https://www.google.com/maps/place/%.2f,%.2f>)\n", label, p.Latitude, p.Longitude)
 }
 
@@ -307,7 +307,9 @@ func buildDiscordTable(fc forecastResponse) string {
 }
 
 // buildDiscordForecast renders wttrin-style day blocks for up to
-// maxBlockDays days and a compact table for longer forecasts.
+// maxBlockDays days and a compact table for longer forecasts. Both layouts
+// stay under Discord's 2000-character limit by design, so nothing is truncated
+// (pinned by TestDiscordForecastWithinLimit).
 func buildDiscordForecast(p place, fc forecastResponse) string {
 	var b strings.Builder
 	b.WriteString(discordHeader(p))

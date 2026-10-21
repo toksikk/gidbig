@@ -56,6 +56,9 @@ func TestCompass(t *testing.T) {
 	}
 }
 
+// discordMaxLen is Discord's message content limit.
+const discordMaxLen = 2000
+
 const testHeader = "## 📍 [Winterberg, Deutschland (Nordrhein-Westfalen)](<https://www.google.com/maps/place/51.19,8.53>)\n"
 
 var discordPlace = place{Name: "Winterberg", Admin1: "Nordrhein-Westfalen", Country: "Deutschland", CountryCode: "DE", Latitude: 51.19, Longitude: 8.53}
@@ -166,10 +169,17 @@ func TestDiscordDayBlockOptionalLines(t *testing.T) {
 }
 
 func TestWindArrow(t *testing.T) {
-	for deg, want := range map[float64]string{0: "⬆️", 22: "⬆️", 23: "↗️", 90: "➡️", 225: "↙️", 270: "⬅️", 300: "↖️", 359: "⬆️", -90: "⬅️"} {
+	for deg, want := range map[float64]string{0: "⬆️", 22: "⬆️", 22.4: "⬆️", 22.6: "↗️", 359.6: "⬆️", 23: "↗️", 90: "➡️", 225: "↙️", 270: "⬅️", 300: "↖️", 359: "⬆️", -90: "⬅️"} {
 		if got := windArrow(deg); got != want {
 			t.Errorf("windArrow(%v) = %q, want %q", deg, got, want)
 		}
+	}
+}
+
+func TestDiscordHeaderEscapesBrackets(t *testing.T) {
+	got := discordHeader(place{Name: "A[b]c", Latitude: 1, Longitude: 2})
+	if got != "## 📍 [A(b)c](<https://www.google.com/maps/place/1.00,2.00>)\n" {
+		t.Errorf("header = %q", got)
 	}
 }
 
