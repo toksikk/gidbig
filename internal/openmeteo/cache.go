@@ -67,7 +67,9 @@ func (c *flightCache[V]) get(ctx context.Context, key string, fetch func(context
 	c.inflight[key] = cl
 	c.mu.Unlock()
 
-	cl.value, cl.err = fetch(ctx)
+	// Detach from the first caller's cancellation so waiters are not failed by it;
+	// the HTTP client timeout still bounds the fetch.
+	cl.value, cl.err = fetch(context.WithoutCancel(ctx))
 
 	c.mu.Lock()
 	if cl.err == nil {

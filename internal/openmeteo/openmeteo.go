@@ -175,13 +175,14 @@ func (m *Module) composeDiscord(ctx context.Context, location string, forecast b
 	if !forecast {
 		days = 1
 	}
+	shown := strings.ReplaceAll(location, "`", "'")
 	p, fc, err := m.lookup(ctx, location, false, 0, 0, days)
 	if errors.Is(err, errNotFound) {
-		return "Ort nicht gefunden: `" + location + "`"
+		return "Ort nicht gefunden: `" + shown + "`"
 	}
 	if err != nil {
 		slog.Error("openmeteo: weather lookup failed", "Location", location, "error", err)
-		return "Wetter für `" + location + "` konnte nicht abgerufen werden"
+		return "Wetter für `" + shown + "` konnte nicht abgerufen werden"
 	}
 	if forecast {
 		return buildDiscordForecast(p, fc, discordMaxLen)

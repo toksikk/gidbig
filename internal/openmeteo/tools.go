@@ -70,7 +70,7 @@ func (m *Module) weatherToolHandler(ctx context.Context, _ tool.Env, args json.R
 		return "no location given", nil
 	}
 	if utf8.RuneCountInString(location) > maxLocationLen {
-		return "", fmt.Errorf("weather: location too long (max %d characters)", maxLocationLen)
+		return fmt.Sprintf("location too long (max %d characters)", maxLocationLen), nil
 	}
 	if (in.Latitude == nil) != (in.Longitude == nil) {
 		return "latitude and longitude must be given together", nil

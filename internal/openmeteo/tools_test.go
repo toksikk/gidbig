@@ -83,8 +83,8 @@ func TestToolInputErrors(t *testing.T) {
 func TestToolLocationTooLong(t *testing.T) {
 	m, f := newTestModule(t)
 	args, _ := json.Marshal(map[string]any{"location": strings.Repeat("ä", maxLocationLen+1)})
-	if _, err := callTool(t, m, string(args)); err == nil {
-		t.Fatal("expected error")
+	if out, err := callTool(t, m, string(args)); err != nil || !strings.HasPrefix(out, "location too long") {
+		t.Fatalf("out=%q err=%v", out, err)
 	}
 	args, _ = json.Marshal(map[string]any{"location": strings.Repeat("ä", maxLocationLen), "latitude": 1, "longitude": 1})
 	if _, err := callTool(t, m, string(args)); err != nil {

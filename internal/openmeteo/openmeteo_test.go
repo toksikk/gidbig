@@ -117,7 +117,7 @@ func TestComposeDiscord(t *testing.T) {
 		t.Errorf("forecast:\n%s", out)
 	}
 	f.geocodeBody = `{}`
-	if out := m.composeDiscord(ctx, "Nowhere", false, 7); out != "Ort nicht gefunden: `Nowhere`" {
+	if out := m.composeDiscord(ctx, "No`where", false, 7); out != "Ort nicht gefunden: `No'where`" {
 		t.Errorf("not found = %q", out)
 	}
 	f.forecastStatus = 500
