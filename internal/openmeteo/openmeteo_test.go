@@ -65,7 +65,7 @@ func TestSingleFlight(t *testing.T) {
 
 func TestCacheLimit(t *testing.T) {
 	now := time.Now()
-	c := newFlightCache[int](time.Minute, maxCacheEntries, func() time.Time { return now })
+	c := newFlightCache[int](context.Background(), time.Minute, maxCacheEntries, func() time.Time { return now })
 	var calls atomic.Int64
 	fetch := func(context.Context) (int, error) { calls.Add(1); return 1, nil }
 	for i := range maxCacheEntries + 10 {
@@ -82,7 +82,7 @@ func TestCacheLimit(t *testing.T) {
 }
 
 func TestCacheErrorsNotCached(t *testing.T) {
-	c := newFlightCache[int](time.Minute, 4, time.Now)
+	c := newFlightCache[int](context.Background(), time.Minute, 4, time.Now)
 	n := 0
 	fetch := func(context.Context) (int, error) { n++; return 0, errors.New("boom") }
 	_, _ = c.get(context.Background(), "k", fetch)
@@ -123,5 +123,39 @@ func TestComposeDiscord(t *testing.T) {
 	f.forecastStatus = 500
 	if out := m.composeDiscord(ctx, "Winterberg", false, 7); !strings.Contains(out, "konnte nicht abgerufen") {
 		t.Errorf("error = %q", out)
+	}
+}
+
+func TestInvalidLocationResponseEphemeral(t *testing.T) {
+	r := invalidLocationResponse()
+	if r.Data.Flags&discordgo.MessageFlagsEphemeral == 0 || r.Type != discordgo.InteractionResponseChannelMessageWithSource {
+		t.Fatalf("response = %+v", r)
+	}
+}
+
+func TestFetchSurvivesFirstCallerCancel(t *testing.T) {
+	c := newFlightCache[int](context.Background(), time.Minute, 4, time.Now)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	v, err := c.get(ctx, "k", func(fctx context.Context) (int, error) { return 7, fctx.Err() })
+	if err != nil || v != 7 {
+		t.Fatalf("v=%d err=%v", v, err)
+	}
+}
+
+func TestShutdownCancelsLookups(t *testing.T) {
+	m, f := newTestModule(t)
+	f.delay = 200 * time.Millisecond
+	errc := make(chan error, 1)
+	go func() {
+		_, _, err := m.lookup(context.Background(), "x", true, 1, 1, 7)
+		errc <- err
+	}()
+	time.Sleep(20 * time.Millisecond)
+	if err := m.Shutdown(); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-errc; !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want canceled", err)
 	}
 }

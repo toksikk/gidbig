@@ -10,6 +10,7 @@ import (
 // mutex is never held while fetch runs.
 type flightCache[V any] struct {
 	mu       sync.Mutex
+	base     context.Context
 	ttl      time.Duration
 	max      int
 	now      func() time.Time
@@ -31,8 +32,9 @@ type call[V any] struct {
 	err   error
 }
 
-func newFlightCache[V any](ttl time.Duration, maxEntries int, now func() time.Time) *flightCache[V] {
+func newFlightCache[V any](base context.Context, ttl time.Duration, maxEntries int, now func() time.Time) *flightCache[V] {
 	return &flightCache[V]{
+		base:     base,
 		ttl:      ttl,
 		max:      maxEntries,
 		now:      now,
@@ -67,9 +69,10 @@ func (c *flightCache[V]) get(ctx context.Context, key string, fetch func(context
 	c.inflight[key] = cl
 	c.mu.Unlock()
 
-	// Detach from the first caller's cancellation so waiters are not failed by it;
-	// the HTTP client timeout still bounds the fetch.
-	cl.value, cl.err = fetch(context.WithoutCancel(ctx))
+	// The shared fetch runs under the cache's base context, not the first
+	// caller's, so one caller's cancellation does not fail the waiters. The base
+	// context is cancelled on module shutdown; the HTTP timeout bounds the rest.
+	cl.value, cl.err = fetch(c.base)
 
 	c.mu.Lock()
 	if cl.err == nil {

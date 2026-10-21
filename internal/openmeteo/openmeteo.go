@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"math"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -42,14 +43,20 @@ type Module struct {
 	forecasts *flightCache[forecastResponse]
 	geocodes  *flightCache[geoResult]
 	tools     *tool.Registry
+
+	// ctx is cancelled by Shutdown; wg tracks in-flight /weather replies.
+	ctx    context.Context
+	cancel context.CancelFunc
+	wg     sync.WaitGroup
 }
 
 // New returns a Module using the public Open-Meteo endpoints.
 func New() *Module {
-	m := &Module{client: newClient(), now: time.Now}
+	ctx, cancel := context.WithCancel(context.Background())
+	m := &Module{client: newClient(), now: time.Now, ctx: ctx, cancel: cancel}
 	clock := func() time.Time { return m.now() }
-	m.forecasts = newFlightCache[forecastResponse](forecastCacheTTL, maxCacheEntries, clock)
-	m.geocodes = newFlightCache[geoResult](geocodeCacheTTL, maxCacheEntries, clock)
+	m.forecasts = newFlightCache[forecastResponse](ctx, forecastCacheTTL, maxCacheEntries, clock)
+	m.geocodes = newFlightCache[geoResult](ctx, geocodeCacheTTL, maxCacheEntries, clock)
 	return m
 }
 
@@ -95,7 +102,13 @@ func (m *Module) Commands() []*discordgo.ApplicationCommand {
 }
 
 func (m *Module) Background() []bot.BackgroundTask { return nil }
-func (m *Module) Shutdown() error                  { return nil }
+
+// Shutdown cancels in-flight lookups and waits for pending /weather replies.
+func (m *Module) Shutdown() error {
+	m.cancel()
+	m.wg.Wait()
+	return nil
+}
 
 func clampDays(d int) int {
 	return max(minDays, min(maxDays, d))
@@ -144,6 +157,9 @@ func (m *Module) onInteractionCreate(s *discordgo.Session, i *discordgo.Interact
 	}
 	location := strings.TrimSpace(opt.StringValue())
 	if location == "" || utf8.RuneCountInString(location) > maxLocationLen {
+		if err := s.InteractionRespond(i.Interaction, invalidLocationResponse()); err != nil {
+			slog.Error("openmeteo: failed to respond to interaction", "error", err)
+		}
 		return
 	}
 	forecast := false
@@ -160,14 +176,25 @@ func (m *Module) onInteractionCreate(s *discordgo.Session, i *discordgo.Interact
 		slog.Error("openmeteo: failed to respond to interaction", "error", err)
 		return
 	}
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 2*httpTimeout)
+	m.wg.Go(func() {
+		ctx, cancel := context.WithTimeout(m.ctx, 2*httpTimeout)
 		defer cancel()
 		body := m.composeDiscord(ctx, location, forecast, days)
 		if _, err := s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: &body, AllowedMentions: util.NoMentions()}); err != nil {
 			slog.Error("openmeteo: failed to edit interaction response", "ChannelID", i.ChannelID, "error", err)
 		}
-	}()
+	})
+}
+
+// invalidLocationResponse is the ephemeral reply for an empty or overlong location.
+func invalidLocationResponse() *discordgo.InteractionResponse {
+	return &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Content: fmt.Sprintf("Bitte einen Ort mit 1–%d Zeichen angeben.", maxLocationLen),
+			Flags:   discordgo.MessageFlagsEphemeral,
+		},
+	}
 }
 
 // composeDiscord renders the /weather reply, including user-facing errors.

@@ -8,7 +8,8 @@ Command `/weather location:<name> [forecast:<bool>] [days:<1-16>]` and the LLM t
 - Forecast: one `api.open-meteo.com/v1/forecast` request with `timezone=auto`, `forecast_days=N`, `current`, `hourly` and `daily` variables (daily precipitation sum, max precipitation probability, sunshine duration, dominant wind direction, gusts, UV, sunrise/sunset).
 - Days: 1–16, default 7; out-of-range values are clamped. Current conditions fetch one day.
 - Cache: forecasts 10 min TTL keyed by `lat,lon` rounded to 2 decimals + days; geocodes 24 h TTL. Both single-flight, max 256 entries (expired entries swept when full; errors not cached).
-- Fetch: 15 s HTTP timeout, non-200 is an error, bodies capped at 1 MiB.
+- Fetch: shared single-flight fetches run under the module context (cancelled by `Shutdown`, which also waits for pending `/weather` replies), not the first caller's; 15 s HTTP timeout, non-200 is an error, bodies capped at 1 MiB.
+- `/weather` with an empty or overlong location gets an ephemeral hint.
 - `/weather` output: current conditions + today, or one block per day (no hourly breakdown); truncated after the last complete day with `… (gekürzt)` to stay within 2000 characters.
 
 ## LLM tool `weather`
