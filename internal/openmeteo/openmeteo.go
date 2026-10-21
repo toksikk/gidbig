@@ -48,6 +48,9 @@ type Module struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
+	// mu guards closed and wg.Go so no reply starts while Shutdown waits.
+	mu     sync.Mutex
+	closed bool
 }
 
 // New returns a Module using the public Open-Meteo endpoints.
@@ -105,6 +108,9 @@ func (m *Module) Background() []bot.BackgroundTask { return nil }
 
 // Shutdown cancels in-flight lookups and waits for pending /weather replies.
 func (m *Module) Shutdown() error {
+	m.mu.Lock()
+	m.closed = true
+	m.mu.Unlock()
 	m.cancel()
 	m.wg.Wait()
 	return nil
@@ -176,14 +182,32 @@ func (m *Module) onInteractionCreate(s *discordgo.Session, i *discordgo.Interact
 		slog.Error("openmeteo: failed to respond to interaction", "error", err)
 		return
 	}
-	m.wg.Go(func() {
-		ctx, cancel := context.WithTimeout(m.ctx, 2*httpTimeout)
-		defer cancel()
-		body := m.composeDiscord(ctx, location, forecast, days)
-		if _, err := s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: &body, AllowedMentions: util.NoMentions()}); err != nil {
-			slog.Error("openmeteo: failed to edit interaction response", "ChannelID", i.ChannelID, "error", err)
-		}
-	})
+	if !m.startReply(func() { m.replyWeather(s, i, location, forecast, days) }) {
+		editReply(s, i, "Bot fährt gerade herunter, bitte später erneut versuchen.")
+	}
+}
+
+// startReply runs fn in a tracked goroutine unless the module is shutting down.
+func (m *Module) startReply(fn func()) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.closed {
+		return false
+	}
+	m.wg.Go(fn)
+	return true
+}
+
+func (m *Module) replyWeather(s *discordgo.Session, i *discordgo.InteractionCreate, location string, forecast bool, days int) {
+	ctx, cancel := context.WithTimeout(m.ctx, 2*httpTimeout)
+	defer cancel()
+	editReply(s, i, m.composeDiscord(ctx, location, forecast, days))
+}
+
+func editReply(s *discordgo.Session, i *discordgo.InteractionCreate, body string) {
+	if _, err := s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: &body, AllowedMentions: util.NoMentions()}); err != nil {
+		slog.Error("openmeteo: failed to edit interaction response", "ChannelID", i.ChannelID, "error", err)
+	}
 }
 
 // invalidLocationResponse is the ephemeral reply for an empty or overlong location.

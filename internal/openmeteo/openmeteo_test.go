@@ -159,3 +159,18 @@ func TestShutdownCancelsLookups(t *testing.T) {
 		t.Fatalf("err = %v, want canceled", err)
 	}
 }
+
+func TestStartReplyAfterShutdown(t *testing.T) {
+	m := New()
+	ran := make(chan struct{})
+	if !m.startReply(func() { close(ran) }) {
+		t.Fatal("startReply refused before shutdown")
+	}
+	<-ran
+	if err := m.Shutdown(); err != nil {
+		t.Fatal(err)
+	}
+	if m.startReply(func() { t.Error("ran after shutdown") }) {
+		t.Fatal("startReply accepted after shutdown")
+	}
+}
