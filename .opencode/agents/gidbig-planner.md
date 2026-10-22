@@ -281,8 +281,8 @@ Quality:
 - **Pinned discordgo**: keep `github.com/bwmarrin/discordgo` replaced by
   `yeongaori/discordgo-fork@94d3e03d` in `go.mod`. A plan that bumps that pin
   must include live DAVE playback verification in a DAVE-enabled voice channel
-  per `docs/discord-gateway-recovery.md` (silent-audio regression #113); flag
-  that the pin's live check is still pending before deploy.
+  per `docs/discord-gateway-recovery.md` (silent-audio regression #113) before
+  deploy. `94d3e03d` is the current live-verified baseline.
 - **Tests are not optional**: every behavior change — including bug fixes — gets
   tests in the affected package. Most packages already have local `*_test.go`.
   CGO and a C compiler are required (`mattn/go-sqlite3`).
