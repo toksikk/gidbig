@@ -14,7 +14,7 @@
         {
             "matchPackageNames": ["github.com/yeongaori/discordgo-fork", "github.com/bwmarrin/discordgo"],
             "enabled": false,
-            "description": "Pinned to 930441e7 — later commits break DAVE voice encryption (see go.mod comment and issue #113)"
+            "description": "Pinned to 94d3e03d (live DAVE playback verified) — pin changes need live voice testing (see go.mod comment, docs/discord-gateway-recovery.md and issue #113)"
         },
         {
             "matchUpdateTypes": ["minor", "patch", "pin", "digest"],

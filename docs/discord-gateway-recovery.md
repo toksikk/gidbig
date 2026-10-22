@@ -46,8 +46,10 @@ separate fix/test of that method rather than assuming its deadline is reliable.
 ### Live verification required before deployment
 
 Automated gateway and DAVE transition tests cannot prove audible Discord
-playback. **Live playback on the new pin is still pending**; `930441e7` remains
-the previous live-verified baseline.
+playback. **Live playback on `94d3e03d` was verified on 2026-10-22**: named and
+random sounds played audibly after a fresh join and after disconnect/rejoin in a
+DAVE-enabled voice channel. `94d3e03d` is now the live-verified baseline
+(previously `930441e7`). Repeat the check below for any future pin change.
 
 In a DAVE-enabled voice channel, verify a named sound and random sound after a
 fresh join, then repeat after disconnect/rejoin (including a short sound whose
