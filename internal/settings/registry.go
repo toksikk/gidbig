@@ -72,6 +72,8 @@ const (
 	KeyLeetoclockDebug                 = "leetoclock.debug"
 	KeyLLMPersonality                  = "llm.personality"
 	KeyLLMPersonalityPreset            = "llm.personality_preset"
+	KeyTMDBRegion                      = "tmdb.region"
+	KeyTMDBLanguage                    = "tmdb.language"
 )
 
 // DevModeNote explains that only part of dev_mode is hot.
@@ -116,7 +118,8 @@ type Key struct {
 
 // registry is the set of known keys: hot runtime-editable ones plus the
 // read-only cold ones appended from coldKeys. Secrets (discord.token,
-// web.oauth.client_secret, web.session_secret, llm.api_key) are deliberately
+// web.oauth.client_secret, web.session_secret, llm.api_key,
+// tmdb.read_access_token) are deliberately
 // absent, so they stay unknown everywhere.
 var registry = append([]Key{
 	{
@@ -302,6 +305,25 @@ var registry = append([]Key{
 		Extract:  extractString(func(c *cfg.Config) *string { return &c.LLM.Preset }),
 		Apply:    applyString(func(c *cfg.Config) *string { return &c.LLM.Preset }),
 		Validate: llm.ValidatePreset,
+	},
+	{
+		// Default watch-provider region for /wheretostream and the
+		// streaming_providers tool. tmdb.read_access_token is a secret and is
+		// deliberately not registered.
+		Name:     KeyTMDBRegion,
+		Kind:     KindString,
+		Hot:      true,
+		Extract:  extractString(func(c *cfg.Config) *string { return &c.TMDB.Region }),
+		Apply:    applyString(func(c *cfg.Config) *string { return &c.TMDB.Region }),
+		Validate: cfg.ValidateTMDBRegion,
+	},
+	{
+		Name:     KeyTMDBLanguage,
+		Kind:     KindString,
+		Hot:      true,
+		Extract:  extractString(func(c *cfg.Config) *string { return &c.TMDB.Language }),
+		Apply:    applyString(func(c *cfg.Config) *string { return &c.TMDB.Language }),
+		Validate: cfg.ValidateTMDBLanguage,
 	},
 }, coldKeys...)
 

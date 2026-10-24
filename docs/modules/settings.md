@@ -59,6 +59,11 @@ but possibly multi-line, so the web panel renders a textarea and Discord replies
 truncate it. `llm.personality_preset` is validated with `llm.ValidatePreset`, so
 an unknown preset is rejected at write time (at boot a yaml typo only warns).
 
+`tmdb.region` and `tmdb.language` are hot: the tmdb module reads them per
+request and falls back to `cfg.TMDBRegion()`/`cfg.TMDBLanguage()` (`DE`/`de-DE`)
+when empty. Both are validated with the `cfg.ValidateTMDB*` rules. The token
+`tmdb.read_access_token` is a secret and is not registered, so it stays unknown.
+
 `Note` is an optional per-key warning that every surface renders the same way.
 The hot `dev_mode` uses it to say that only the log level (debug/info) follows a
 runtime change; the log format, source locations and discordgo logging are fixed

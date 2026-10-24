@@ -135,6 +135,7 @@ func TestSet_UnknownAndNonEditableKeysAreRejected(t *testing.T) {
 		"web.session_secret",
 		"web.oauth.client_secret",
 		"llm.api_key",
+		"tmdb.read_access_token",
 	}
 	for _, key := range keys {
 		if err := store.Set(key, "value", "owner"); err == nil {
@@ -244,7 +245,7 @@ func TestRegistry_NoSecretKeys(t *testing.T) {
 			t.Errorf("cold key %q must not have Apply or Validate", k.Name)
 		}
 	}
-	for _, secret := range []string{"discord.token", "web.session_secret", "web.oauth.client_secret", "llm.api_key"} {
+	for _, secret := range []string{"discord.token", "web.session_secret", "web.oauth.client_secret", "llm.api_key", "tmdb.read_access_token"} {
 		if _, ok := byName[secret]; ok {
 			t.Errorf("secret %q is registered", secret)
 		}
@@ -941,5 +942,35 @@ gippity:
 	}
 	if got := store.Int(KeySoundboardQueueMaxDepth); got != 9 {
 		t.Errorf("value after panic = %d; want 9 (write committed)", got)
+	}
+}
+
+func TestTMDBKeys_SetUnsetAndValidate(t *testing.T) {
+	store := newTestStore(t, openTestDB(t), baseYAML)
+	if got := store.String(KeyTMDBRegion); got != "" {
+		t.Errorf("default tmdb.region = %q, want empty (cfg accessor supplies DE)", got)
+	}
+	if err := store.Set(KeyTMDBRegion, "AT", "owner"); err != nil {
+		t.Fatalf("Set region: %v", err)
+	}
+	if err := store.Set(KeyTMDBLanguage, "en-US", "owner"); err != nil {
+		t.Fatalf("Set language: %v", err)
+	}
+	if got := store.String(KeyTMDBRegion); got != "AT" {
+		t.Errorf("tmdb.region = %q, want AT", got)
+	}
+	if got := store.String(KeyTMDBLanguage); got != "en-US" {
+		t.Errorf("tmdb.language = %q, want en-US", got)
+	}
+	for key, bad := range map[string]string{KeyTMDBRegion: "at", KeyTMDBLanguage: "english"} {
+		if err := store.Set(key, bad, "owner"); err == nil {
+			t.Errorf("Set(%s, %q) = nil, want validation error", key, bad)
+		}
+	}
+	if err := store.Unset(KeyTMDBRegion, "owner"); err != nil {
+		t.Fatalf("Unset: %v", err)
+	}
+	if got := store.String(KeyTMDBRegion); got != "" {
+		t.Errorf("tmdb.region after unset = %q, want empty", got)
 	}
 }
