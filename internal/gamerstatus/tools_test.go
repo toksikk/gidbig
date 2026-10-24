@@ -70,7 +70,7 @@ func TestStatusHandlerConcurrent(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			got, err := m.statusHandler(context.Background(), tool.Env{}, nil)
-			if err != nil || got == "" {
+			if err != nil || (got != "No game status is currently set." && !strings.Contains(got, "Tetris")) {
 				t.Errorf("statusHandler = %q, %v", got, err)
 			}
 		}()
