@@ -159,6 +159,13 @@ Never assert a finding you have not verified. Before reporting:
   `discord.token`, a non-empty `gippity.allowed_guilds`, and
   `web.session_secret` whenever `web.port` is nonzero. New optional config must
   have a safe zero-value default and an entry in `config.example.yaml`.
+- A new `cfg.Config` field must be registered in
+  `internal/settings/registry.go` (hot, or `cold(...)` when read only at boot),
+  or listed with a reason in `unregisteredConfigKeys` (secrets, dead fields); otherwise
+  it is missing from `/admin config` and the admin web panel. A new module,
+  command, or LLM tool must appear in the `README.md` module table,
+  `docs/modules/README.md`, and (for tools) the `config.example.yaml` tool list.
+  Flag a miss as MEDIUM.
 - Web endpoints: owner/session-gated routes must check the session;
   unauthenticated token-billed endpoints (`/api/eso`) must stay behind the rate
   limiter and concurrency cap in `internal/core/ratelimit.go`. IPs are

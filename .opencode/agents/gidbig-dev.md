@@ -97,7 +97,27 @@ The rule summaries later in this file are a convenience; on any conflict,
    full gate: `make lint && make test`. CGO and a C compiler are required
    (`mattn/go-sqlite3`). Both `make lint` and `make test` must pass before you
    claim done.
-5. **Docs.** If a described flow changed, update `docs/modules/<pkg>.md`.
+5. **Docs and surfaces.** If a described flow changed, update
+   `docs/modules/<pkg>.md`. A new module, slash command, LLM tool, or config
+   key is not done until every place that lists it is updated — this has been
+   missed repeatedly, so check each one explicitly:
+   - `README.md`: the module table under "🔌 Modules" (commands, tools, and
+     whether it is optional), plus a config snippet for any new config section.
+   - `docs/modules/README.md`: the module table row and a new
+     `docs/modules/<pkg>.md`.
+   - `config.example.yaml`: the new section, and the registered-tools comment
+     under `gippity.tools.allowed` for a new LLM tool.
+   - `internal/settings/registry.go`: every new `cfg.Config` field as a hot key
+     (with `Apply`/`Validate`, when the module re-reads it at runtime) or a
+     `cold(...)` key (read once at boot). This one registry feeds both
+     `/admin config` and the admin web settings panel; a field missing here is
+     invisible to admins. Secrets are never registered; list them in
+     `unregisteredConfigKeys` in `internal/settings/coverage_test.go` with a
+     reason. `TestRegistry_CoversEveryConfigField` fails on a missed field.
+   - `docs/modules/cfg.md` and `docs/modules/settings.md` for new config and
+     settings keys.
+   Grep for an existing sibling (for example `tmdb`) across `README.md`,
+   `docs/`, `config.example.yaml`, and `internal/settings` to find every list.
 6. **Commit.** On a feature branch, one logical change per commit, using
    `scope: description` (or `scope (#123): description` when it resolves an
    issue). Never use conventional-commit prefixes like `feat(scope): ...`.
@@ -190,8 +210,10 @@ A plan is transient working context, not documentation; it never enters git.
   `go func()` that outlives shutdown. Watch for goroutine leaks and races.
 - **Config** goes through `internal/cfg`. Validation requires `discord.token`, a
   non-empty `gippity.allowed_guilds`, and `web.session_secret` whenever
-  `web.port` is nonzero. New optional config needs a safe zero-value default and
-  an entry in `config.example.yaml`.
+  `web.port` is nonzero. New optional config needs a safe zero-value default,
+  an entry in `config.example.yaml`, a `README.md` snippet, and a hot or cold
+  key in `internal/settings/registry.go` so `/admin config` and the admin web
+  panel show it (secrets excepted; see the Docs and surfaces step).
 - **Web** uses the standard library (`net/http` `ServeMux`) plus an AES-GCM
   cookie store keyed from `web.session_secret`; Discord OAuth2 (identify +
   guilds). IPs are anonymized to `/16` (IPv4) or `/64` (IPv6). Session-gated
@@ -228,7 +250,10 @@ A plan is transient working context, not documentation; it never enters git.
 You are done when: the smallest coherent change is implemented and matches repo
 conventions; targeted tests plus `make lint && make test` pass, or you state
 exactly which gate could not run and why; tests exist for every changed behavior;
-affected `docs/modules/<pkg>.md` is updated; and the change is committed with a
+affected `docs/modules/<pkg>.md` is updated; every surface from the Docs and
+surfaces step (`README.md`, `docs/modules/README.md`, `config.example.yaml`,
+the settings registry) lists any new module, command, tool, or config key; and
+the change is committed with a
 scoped message on a branch ready for a labeled PR, with no plan file committed.
 After the merge into `master`, a followed `.plans/<slug>.md` is deleted.
 
