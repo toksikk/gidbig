@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"regexp"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -181,7 +182,11 @@ type Config struct {
 		// Language is the default TMDB language. Empty means DefaultTMDBLanguage.
 		Language string `yaml:"language,omitempty"`
 	} `yaml:"tmdb,omitempty"`
-	DevMode bool `yaml:"dev_mode,omitempty" default:"false"`
+	// TV enables the optional /tv module and the tv_program LLM tool, backed
+	// by the free-epg.de German XMLTV feed. Off by default; changes need a
+	// restart.
+	TV      TVConfig `yaml:"tv,omitempty"`
+	DevMode bool     `yaml:"dev_mode,omitempty" default:"false"`
 	// Logs sizes the in-memory log window behind /admin logs show and the
 	// /admin/logs web page. A change needs a restart.
 	Logs struct {
@@ -189,6 +194,45 @@ type Config struct {
 		// means DefaultLogWindowLines.
 		WindowLines int `yaml:"window_lines,omitempty"`
 	} `yaml:"logs,omitempty"`
+}
+
+// TVConfig configures the optional tv module. Every field has a safe zero
+// value: disabled, the built-in channel list, DefaultTVCacheDir and
+// DefaultTVRefreshInterval.
+type TVConfig struct {
+	Enabled bool `yaml:"enabled,omitempty"`
+	// Channels replaces the built-in XMLTV channel ID list when non-empty.
+	Channels []string `yaml:"channels,omitempty"`
+	// CacheDir holds the downloaded feed. Empty means DefaultTVCacheDir.
+	CacheDir string `yaml:"cache_dir,omitempty"`
+	// RefreshInterval is the conditional-fetch period. Zero means
+	// DefaultTVRefreshInterval; a set value must be at least MinTVRefreshInterval.
+	RefreshInterval time.Duration `yaml:"refresh_interval,omitempty"`
+}
+
+// DefaultTVCacheDir is the feed cache directory when tv.cache_dir is unset.
+const DefaultTVCacheDir = "cache"
+
+// DefaultTVRefreshInterval is the fetch period when tv.refresh_interval is unset.
+const DefaultTVRefreshInterval = 6 * time.Hour
+
+// MinTVRefreshInterval is the shortest accepted tv.refresh_interval.
+const MinTVRefreshInterval = time.Hour
+
+// TVCacheDir returns tv.cache_dir or DefaultTVCacheDir.
+func (c *Config) TVCacheDir() string {
+	if c.TV.CacheDir == "" {
+		return DefaultTVCacheDir
+	}
+	return c.TV.CacheDir
+}
+
+// TVRefreshInterval returns tv.refresh_interval or DefaultTVRefreshInterval.
+func (c *Config) TVRefreshInterval() time.Duration {
+	if c.TV.RefreshInterval == 0 {
+		return DefaultTVRefreshInterval
+	}
+	return c.TV.RefreshInterval
 }
 
 // DefaultTMDBRegion is the watch-provider region when tmdb.region is unset.
@@ -343,6 +387,9 @@ func Validate(cfg *Config) error {
 	}
 	if err := ValidateTMDBLanguage(cfg.TMDB.Language); err != nil {
 		return fmt.Errorf("tmdb.language %w", err)
+	}
+	if cfg.TV.Enabled && cfg.TV.RefreshInterval != 0 && cfg.TV.RefreshInterval < MinTVRefreshInterval {
+		return fmt.Errorf("tv.refresh_interval must be at least %s when tv.enabled is true", MinTVRefreshInterval)
 	}
 	return nil
 }

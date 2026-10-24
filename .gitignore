@@ -16,3 +16,6 @@ bin
 
 # Local implementation plans from gidbig-planner; never committed.
 .plans/
+
+# Downloaded feed caches (tv module).
+cache/

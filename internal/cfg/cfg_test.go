@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/toksikk/gidbig/internal/llm"
 )
@@ -836,5 +837,29 @@ func TestDecodeConfig_tmdb(t *testing.T) {
 		if _, err := decodeConfig(strings.NewReader(base + bad)); err == nil {
 			t.Errorf("decodeConfig(%q) = nil error, want validation failure", bad)
 		}
+	}
+}
+
+func TestDecodeConfig_tv(t *testing.T) {
+	base := "discord:\n  token: t\ngippity:\n  allowed_guilds: [\"g\"]\n"
+	c, err := decodeConfig(strings.NewReader(base))
+	if err != nil {
+		t.Fatalf("empty tv section: %v", err)
+	}
+	if c.TV.Enabled || len(c.TV.Channels) != 0 || c.TVCacheDir() != DefaultTVCacheDir || c.TVRefreshInterval() != DefaultTVRefreshInterval {
+		t.Errorf("defaults = %+v dir=%q interval=%s", c.TV, c.TVCacheDir(), c.TVRefreshInterval())
+	}
+	c, err = decodeConfig(strings.NewReader(base + "tv:\n  enabled: true\n  channels: [ZDF.de]\n  cache_dir: /tmp/x\n  refresh_interval: 12h\n"))
+	if err != nil {
+		t.Fatalf("valid tv section: %v", err)
+	}
+	if !c.TV.Enabled || len(c.TV.Channels) != 1 || c.TVCacheDir() != "/tmp/x" || c.TVRefreshInterval() != 12*time.Hour {
+		t.Errorf("values = %+v", c.TV)
+	}
+	if _, err := decodeConfig(strings.NewReader(base + "tv:\n  enabled: true\n  refresh_interval: 30m\n")); err == nil {
+		t.Error("refresh_interval 30m accepted, want error")
+	}
+	if _, err := decodeConfig(strings.NewReader(base + "tv:\n  refresh_interval: 30m\n")); err != nil {
+		t.Errorf("disabled tv with short interval rejected: %v", err)
 	}
 }
