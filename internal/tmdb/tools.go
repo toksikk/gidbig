@@ -19,7 +19,7 @@ var streamingProvidersParameters = json.RawMessage(`{
   "properties": {
     "title": {"type": "string", "description": "Movie or series title to look up."},
     "type": {"type": "string", "enum": ["movie", "tv"], "description": "Restrict to movies or series. Omit when unknown."},
-    "year": {"type": "integer", "description": "Release year (movie) or first air year (series) to disambiguate."},
+    "year": {"type": "integer", "description": "Release year (movie) or first air year (series) to disambiguate. Only applied when type is set."},
     "region": {"type": "string", "description": "Two-letter country code, e.g. DE. Omit to use the bot's default region."}
   },
   "required": ["title"]
