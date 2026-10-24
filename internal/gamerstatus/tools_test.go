@@ -80,3 +80,22 @@ func TestStatusHandlerConcurrent(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 }
+
+func TestFormatAgo(t *testing.T) {
+	tests := []struct {
+		d    time.Duration
+		want string
+	}{
+		{-time.Minute, "less than a minute ago"},
+		{0, "less than a minute ago"},
+		{59 * time.Second, "less than a minute ago"},
+		{time.Minute, "1 minute ago"},
+		{time.Minute + 59*time.Second, "1 minute ago"},
+		{2 * time.Minute, "2 minutes ago"},
+	}
+	for _, tt := range tests {
+		if got := formatAgo(tt.d); got != tt.want {
+			t.Errorf("formatAgo(%v) = %q, want %q", tt.d, got, tt.want)
+		}
+	}
+}
