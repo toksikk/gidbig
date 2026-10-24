@@ -51,6 +51,14 @@ config.yaml". They are listed and readable with their value and source, but
 `ErrUnknownKey`. A stored row for a cold key (hand-edited) is ignored with a
 warning on reload, so it can never look in force.
 
+`TestRegistry_CoversEveryConfigField` walks every `cfg.Config` yaml leaf and
+fails when one is neither registered (hot or cold) nor listed in
+`unregisteredConfigKeys` with a reason (secrets, the deprecated
+`database.path`). A new config section therefore cannot silently miss
+`/admin config` and the web settings panel. The `tv.*` keys and
+`logs.window_lines` are cold; `tv.cache_dir`, `tv.refresh_interval` and
+`logs.window_lines` show the effective value including the built-in default.
+
 `llm.personality` and `llm.personality_preset` are hot: the llm client
 resolves them per request through `Store.Override`, and an empty override means
 "no override" (a config.yaml custom personality cannot be switched off at

@@ -349,6 +349,14 @@ var coldKeys = []Key{
 	cold(KeyLLMBaseURL, KindString, extractString(func(c *cfg.Config) *string { return &c.LLM.BaseURL })),
 	cold("llm.http_referer", KindString, extractString(func(c *cfg.Config) *string { return &c.LLM.HTTPReferer })),
 	cold("llm.title", KindString, extractString(func(c *cfg.Config) *string { return &c.LLM.Title })),
+	cold("logs.window_lines", KindInt, func(c *cfg.Config) string { return strconv.Itoa(c.LogWindowLines()) }),
+	// The tv module reads its section once in Init. Empty channels means the
+	// module's built-in list; cache_dir and refresh_interval show the
+	// effective value including the default.
+	cold("tv.enabled", KindBool, extractBool(func(c *cfg.Config) *bool { return &c.TV.Enabled })),
+	cold("tv.channels", KindStringList, extractList(func(c *cfg.Config) *[]string { return &c.TV.Channels })),
+	cold("tv.cache_dir", KindString, func(c *cfg.Config) string { return c.TVCacheDir() }),
+	cold("tv.refresh_interval", KindString, func(c *cfg.Config) string { return c.TVRefreshInterval().String() }),
 }
 
 // cold builds a read-only key.
