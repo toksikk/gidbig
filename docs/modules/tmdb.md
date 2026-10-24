@@ -34,6 +34,9 @@ streams. The reply is public.
   uses `/search/multi`, with `type` it uses `/search/movie` (`year`) or
   `/search/tv` (`first_air_date_year`). It takes the top match and returns
   plain text naming the match, providers, link and attribution.
+- Stats (`bot.StatsProvider`, in-memory since boot): summary `searches`, `picks`,
+  `tool calls`; detail `cache hits`, `cached titles`, `errors`, `rate limited`
+  (429s, also counted in `errors`).
 
 ## Command flow
 

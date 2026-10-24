@@ -67,6 +67,7 @@ func (m *Module) streamingToolHandler(ctx context.Context, _ tool.Env, raw json.
 		return "", err
 	}
 
+	m.stats.toolCalls.Add(1)
 	var matches []Match
 	if args.Type == "" {
 		matches, err = m.client.SearchMulti(ctx, args.Title, m.language())
@@ -74,6 +75,7 @@ func (m *Module) streamingToolHandler(ctx context.Context, _ tool.Env, raw json.
 		matches, err = m.client.Search(ctx, args.Type, args.Title, m.language(), args.Year)
 	}
 	if err != nil {
+		m.stats.recordError(err)
 		return "", fmt.Errorf("search: %w", err)
 	}
 	if len(matches) == 0 {

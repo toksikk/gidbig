@@ -45,6 +45,8 @@ type Module struct {
 
 	mu    sync.Mutex
 	cache map[string]cacheEntry
+
+	stats counters
 }
 
 type cacheEntry struct {
@@ -146,12 +148,14 @@ func (m *Module) details(ctx context.Context, kind string, id int) (Details, err
 	m.mu.Lock()
 	if e, ok := m.cache[key]; ok && now.Before(e.expiresAt) {
 		m.mu.Unlock()
+		m.stats.cacheHits.Add(1)
 		return e.details, nil
 	}
 	m.mu.Unlock()
 
 	d, err := m.client.Details(ctx, kind, id, lang)
 	if err != nil {
+		m.stats.recordError(err)
 		return Details{}, err
 	}
 	m.mu.Lock()
@@ -207,7 +211,9 @@ func (m *Module) onCommand(s *discordgo.Session, i *discordgo.InteractionCreate)
 // searchReply builds the deferred edit for a search: a select menu of matches,
 // a not-found note, or an error note.
 func (m *Module) searchReply(ctx context.Context, title, userID, region string) *discordgo.WebhookEdit {
+	m.stats.searches.Add(1)
 	matches, err := m.client.SearchMulti(ctx, title, m.language())
+	m.stats.recordError(err)
 	var content string
 	var comps []discordgo.MessageComponent
 	switch {
@@ -264,6 +270,7 @@ func (m *Module) onPick(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		slog.Error("tmdb: failed to defer pick", "error", err)
 		return
 	}
+	m.stats.picks.Add(1)
 	go func() {
 		ctx, cancel := context.WithTimeout(m.ctx, workTimeout)
 		defer cancel()
