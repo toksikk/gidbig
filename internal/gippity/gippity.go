@@ -309,6 +309,7 @@ func (m *Module) onMessageCreate(s *discordgo.Session, mc *discordgo.MessageCrea
 			return
 		}
 	}
+	generatedAnswer = stripOuterBrackets(generatedAnswer)
 	slog.Debug("Generated answer", "length", len(generatedAnswer))
 
 	if generatedAnswer != "" {
@@ -473,10 +474,10 @@ func (m *Module) generateAnswer(mc *discordgo.MessageCreate, imageURLs []string)
 	systemMessageBase := `Discord-Chatbot, Name ` + util.GetBotDisplayName(mc, m.session) + `.
 Channel ` + util.GetChannelName(m.session, mc.ChannelID) + `, Server ` + util.GetGuildName(m.session, mc.GuildID) + `. Mehrere Benutzer gleichzeitig.
 ` + membersNote + `---
-Nachrichten kommen so: [Zeitstempel] [Benutzername]: [Nachricht]
+Nachrichten kommen so: Zeitstempel Benutzername: Nachricht
 Reaktionen stehen als [reactions: Emoji×Anzahl] am Ende einer Nachricht; nur Anzahl, keine Namen.
 ---
-Deine Antwort nur: [Deine Nachricht]
+Deine Antwort: nur der reine Nachrichtentext — kein Zeitstempel, kein Benutzername, keine eckigen Klammern um die Antwort.
 ---
 Nicht im Benutzer-Format antworten — nicht mit Zeitstempel beginnen.
 ---
