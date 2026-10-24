@@ -66,7 +66,7 @@ No change to `internal/gippity` or `internal/core` is needed to add a tool.
 | `leetoclock_records` | leetoclock | best players (`top`), one winner per day (`daily`), or one player's records (`player`) for the current guild or globally, over a period preset, one `date`, or an inclusive `from`/`to` day range (accepts an ID, name, nickname or mention) |
 | `anticheat_lookup` | anticheat | a game/vendor match from the cached GamingOnLinux anti-cheat list |
 | `wardogs_status` | wardogs | the cached WARDOGS Linux/Proton support verdict |
-| `weather` | wttrin | current weather or forecast for a location, from the cached wttr.in lookup |
+| `weather` | openmeteo | current weather or daily forecast (up to 16 days) for a location or coordinates, from the cached Open-Meteo lookup |
 | `stoll_quote` | stoll | a random Dr. Axel Stoll quote |
 | `current_game_status` | gamerstatus | the bot's currently shown game and how long ago it was set |
 
@@ -105,5 +105,5 @@ OpenAI `gpt-5.6-luna` on `/v1/chat/completions`). Accepted values: `none`,
   let a name resolve to a member of another guild.
 - **No arbitrary fetches.** A tool may read the owning module's own fixed,
   sanitized source through its existing cache and rate limiter (the anticheat
-  CSV, wttr.in weather, the wardogs tracker). Never fetch a model-supplied URL
+  CSV, Open-Meteo weather, the wardogs tracker). Never fetch a model-supplied URL
   or host (SSRF); the destination is always a module constant.
