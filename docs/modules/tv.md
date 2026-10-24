@@ -58,3 +58,5 @@ sequenceDiagram
     end
     S-->>M: ctx cancelled → return
 ```
+
+All `tv.*` keys are registered as cold settings: `/admin config` and the web settings panel list them read-only, and a change needs a restart.
