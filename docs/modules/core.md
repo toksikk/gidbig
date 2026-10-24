@@ -72,7 +72,7 @@ sequenceDiagram
     core->>bot: RegisterModule(core) before Open
     core->>dg: Open()
     dg-->>core: READY
-    core->>bot: RegisterModule(soundboard/coffee/eso/gamerstatus/gippity/configcmd/logscmd/admin/leetoclock/anticheat/stoll/wardogs/wttrin)
+    core->>bot: RegisterModule(soundboard/coffee/eso/gamerstatus/gippity/configcmd/logscmd/admin/leetoclock/anticheat/stoll/wardogs/wttrin/openmeteo, tmdb when token set)
     bot-->>core: module handlers registered, stats registered
     core->>web: go startWebServer(config, session, soundboard, eso, configcmd, logWindow) (if configured)
     core->>bot: Run(ctx) — bulk overwrite commands, start background, block

@@ -129,6 +129,17 @@ llm:
 # restart.
 dev_mode: true
 
+# tmdb enables the optional /wheretostream command and the streaming_providers
+# LLM tool. Only the "API Read Access Token" from themoviedb.org -> Settings ->
+# API is needed (not the short "API Key"). An empty or missing token disables
+# the module; a token change needs a restart. region (default DE) and language
+# (default de-DE) can also be changed at runtime with /admin config. TMDB's free
+# tier is for non-commercial use; the bot credits JustWatch and TMDB as required.
+# tmdb:
+#   read_access_token: ""
+#   region: DE
+#   language: de-DE
+
 # logs.window_lines is how many recent log records the bot keeps in memory for
 # /admin logs show and the owner-only /admin/logs web page (0 or absent = 2000,
 # max 100000). Nothing is written to disk. A change needs a restart.
@@ -163,11 +174,13 @@ dev_mode: true
 #   gippity.allowed_guilds                 llm.max_tokens
 #   dev_mode (log level only)
 #   leetoclock.debug (warns: changes live game behaviour)
+#   tmdb.region                            tmdb.language
 #
 # Every other non-secret key (discord.shard_id, web.port, llm.provider,
 # other leetoclock.* keys, ...) is boot-time only: /admin config list and get show its value
 # and source marked "restart required: edit config.yaml", and any write is
 # refused. llm.base_url is shown with its userinfo and query masked. Secrets are never readable or writable at runtime and are reported as
 # unknown;
-# discord.token and web.oauth.client_secret / web.session_secret stay in this
+# discord.token, tmdb.read_access_token and web.oauth.client_secret /
+# web.session_secret stay in this
 # file. The bot never writes config.yaml.
