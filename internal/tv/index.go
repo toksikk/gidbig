@@ -115,15 +115,7 @@ func (ix *index) nowNext(ch int, t time.Time) (cur, next *programme) {
 // day returns the programmes overlapping the local calendar day of date in loc.
 func (ix *index) day(ch int, date time.Time, loc *time.Location) []programme {
 	y, m, d := date.In(loc).Date()
-	from := time.Date(y, m, d, 0, 0, 0, 0, loc).Unix()
-	to := time.Date(y, m, d+1, 0, 0, 0, 0, loc).Unix()
-	ps := ix.progs[ch]
-	i := sort.Search(len(ps), func(i int) bool { return ps[i].Stop > from })
-	j := sort.Search(len(ps), func(j int) bool { return ps[j].Start >= to })
-	if i >= j {
-		return nil
-	}
-	return ps[i:j]
+	return ix.window(ch, time.Date(y, m, d, 0, 0, 0, 0, loc).Unix(), time.Date(y, m, d+1, 0, 0, 0, 0, loc).Unix())
 }
 
 // search finds programmes whose folded title or subtitle contains the folded
@@ -146,4 +138,15 @@ func (ix *index) search(query string, from time.Time, limit int) []hit {
 		out = out[:limit]
 	}
 	return out
+}
+
+// window returns the programmes of ch overlapping [from, to).
+func (ix *index) window(ch int, from, to int64) []programme {
+	ps := ix.progs[ch]
+	i := sort.Search(len(ps), func(i int) bool { return ps[i].Stop > from })
+	j := sort.Search(len(ps), func(j int) bool { return ps[j].Start >= to })
+	if i >= j {
+		return nil
+	}
+	return ps[i:j]
 }

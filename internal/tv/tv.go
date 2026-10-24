@@ -26,7 +26,7 @@ const (
 	// so the kept time window slides forward.
 	maxIndexAge = 24 * time.Hour
 	// msgNotReady answers queries before the first index exists.
-	msgNotReady = "TV-Programm wird noch geladen, bitte gleich nochmal versuchen."
+	msgNotReady = "The TV program is still loading, try again in a moment."
 )
 
 // Module implements bot.Module for the TV program.

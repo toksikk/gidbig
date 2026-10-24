@@ -3,6 +3,7 @@ package tv
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -209,8 +210,8 @@ func strOpt(name, value string) *discordgo.ApplicationCommandInteractionDataOpti
 
 func TestAnswer_NotReady(t *testing.T) {
 	m := New()
-	if got, eph := m.answer(cmdData("now")); got != msgNotReady || !eph {
-		t.Errorf("answer = %q %v", got, eph)
+	if got, public := m.answer(cmdData("now")); got != msgNotReady || public {
+		t.Errorf("answer = %q %v", got, public)
 	}
 	out, err := m.toolHandler(context.Background(), tool.Env{}, json.RawMessage(`{"mode":"now"}`))
 	if err != nil || out != msgNotReady {
@@ -218,35 +219,175 @@ func TestAnswer_NotReady(t *testing.T) {
 	}
 }
 
+func intOpt(name string, v int) *discordgo.ApplicationCommandInteractionDataOption {
+	return &discordgo.ApplicationCommandInteractionDataOption{Name: name, Type: discordgo.ApplicationCommandOptionInteger, Value: float64(v)}
+}
+
+func boolOpt(name string, v bool) *discordgo.ApplicationCommandInteractionDataOption {
+	return &discordgo.ApplicationCommandInteractionDataOption{Name: name, Type: discordgo.ApplicationCommandOptionBoolean, Value: v}
+}
+
+// at formats a Discord timestamp for a Berlin wall-clock time on 2026-10-dd.
+func at(day, hour, minute int, style string) string {
+	return ts(time.Date(2026, 10, day, hour, minute, 0, 0, berlin).Unix(), style)
+}
+
 func TestAnswer(t *testing.T) {
 	m := readyModule(t)
 	cases := []struct {
-		data      discordgo.ApplicationCommandInteractionData
-		want      []string
-		ephemeral bool
+		name    string
+		data    discordgo.ApplicationCommandInteractionData
+		want    []string
+		notWant []string
+		public  bool
 	}{
-		{cmdData("now"), []string{"**ZDF** 20:15 Der Alte · danach 21:45 heute journal", "**Das Erste** keine Daten · danach 22:15 Tatort"}, false},
-		{cmdData("now", strOpt("channel", "zdf")), []string{"**ZDF** 20:15–21:45 · Der Alte: Tod in München (Krimi) · danach 21:45 heute journal"}, false},
-		{cmdData("now", strOpt("channel", "ard")), []string{"**Das Erste**"}, false},
-		{cmdData("now", strOpt("channel", "Erst")), []string{"Sender unbekannt", "Meintest du: Das Erste?"}, true},
-		{cmdData("channel", strOpt("channel", "ZDF")), []string{"**ZDF** – Sa 24.10.2026", "19:00–19:15 · heute (Nachrichten)"}, false},
-		{cmdData("channel", strOpt("channel", "ZDF"), strOpt("day", "morgen")), []string{"So 25.10.2026", "01:00–02:00 · Nachtfilm"}, false},
-		{cmdData("channel", strOpt("channel", "ZDF"), strOpt("day", "2026-12-01")), []string{"Tag unbekannt"}, true},
-		{cmdData("search", strOpt("title", "tatort")), []string{"**Das Erste** Sa 24.10.2026 22:15–23:45 · Tatort: Der letzte Schrei", "Mo 26.10.2026"}, false},
-		{cmdData("search", strOpt("title", "xyz")), []string{"Keine Sendung gefunden"}, false},
+		{"now all", cmdData("now"), []string{
+			"📺 **On TV now**",
+			"**ZDF** Der Alte → " + at(24, 21, 45, "t") + " heute journal",
+			"**Das Erste** – → ",
+			footer,
+		}, nil, false},
+		{"now all public", cmdData("now", boolOpt("public", true)), []string{"**ZDF** Der Alte"}, nil, true},
+		{"now channel 6h", cmdData("now", strOpt("channel", "zdf")), []string{
+			"📺 **ZDF** · " + at(24, 20, 30, "f") + " – " + ts(fixtureNow.Add(6*time.Hour).Unix(), "t"),
+			"▶ " + at(24, 20, 15, "t") + " **Der Alte** · Tod in München *Krimi*",
+			at(24, 21, 45, "t") + " **heute journal**",
+			at(25, 1, 0, "t") + " **Nachtfilm**",
+		}, []string{"Ein Fall"}, false},
+		{"now channel 1h", cmdData("now", strOpt("channel", "zdf"), intOpt("hours", 1)), []string{"**Der Alte**"}, []string{"heute journal"}, false},
+		{"now channel 3h", cmdData("now", strOpt("channel", "zdf"), intOpt("hours", 3)), []string{"**heute journal**"}, []string{"Nachtfilm"}, false},
+		{"hours clamped", cmdData("now", strOpt("channel", "zdf"), intOpt("hours", 48)), []string{ts(fixtureNow.Add(6*time.Hour).Unix(), "t")}, nil, false},
+		{"unknown channel", cmdData("now", strOpt("channel", "Erst")), []string{"Unknown channel", "Did you mean: Das Erste?"}, nil, false},
+		{"channel default today now", cmdData("channel", strOpt("channel", "ZDF")), []string{"▶ " + at(24, 20, 15, "t")}, []string{"**heute** *"}, false},
+		{"channel today 18:00 3h", cmdData("channel", strOpt("channel", "ZDF"), strOpt("from", "18:00"), intOpt("hours", 3)), []string{
+			at(24, 19, 0, "t") + " **heute** *Nachrichten*", "**Der Alte**",
+		}, []string{"heute journal"}, false},
+		{"tomorrow defaults to prime time", cmdData("channel", strOpt("channel", "ard"), intOpt("day", 2), boolOpt("public", true)), []string{
+			at(26, 20, 15, "f"), "**Tatort** · Wiederholung",
+		}, nil, true},
+		{"empty window", cmdData("channel", strOpt("channel", "ZDF"), intOpt("day", 3)), []string{"No listings in this time span."}, nil, false},
+		{"bad day", cmdData("channel", strOpt("channel", "ZDF"), intOpt("day", 9)), []string{msgBadSlashDay}, nil, false},
+		{"search", cmdData("search", strOpt("title", "tatort")), []string{
+			"🔎 **tatort**",
+			at(24, 22, 15, "f") + " · **Das Erste** · Tatort · Der letzte Schrei",
+			at(26, 20, 15, "f"),
+		}, nil, false},
+		{"search none", cmdData("search", strOpt("title", "xyz")), []string{"No upcoming show found"}, nil, false},
 	}
 	for _, c := range cases {
-		got, eph := m.answer(c.data)
+		got, public := m.answer(c.data)
 		for _, w := range c.want {
 			if !strings.Contains(got, w) {
-				t.Errorf("answer(%s) missing %q in:\n%s", c.data.Options[0].Name, w, got)
+				t.Errorf("%s: missing %q in:\n%s", c.name, w, got)
 			}
 		}
-		if eph != c.ephemeral {
-			t.Errorf("answer(%s) ephemeral = %v", c.data.Options[0].Name, eph)
+		for _, w := range append(c.notWant, "ää") {
+			if strings.Contains(got, w) {
+				t.Errorf("%s: unexpected %q in:\n%s", c.name, w, got)
+			}
 		}
-		if strings.Contains(got, "ää") {
-			t.Errorf("command reply contains description:\n%s", got)
+		if public != c.public {
+			t.Errorf("%s: public = %v, want %v", c.name, public, c.public)
+		}
+	}
+}
+
+func TestDiscordWindow_CapsLines(t *testing.T) {
+	ps := make([]programme, 40)
+	start := fixtureNow.Unix()
+	for i := range ps {
+		ps[i] = programme{Start: start + int64(i*300), Stop: start + int64((i+1)*300), Title: "Clip"}
+	}
+	ix := newIndex([]channelInfo{{ID: "X.de", Name: "X"}}, [][]programme{ps}, fixtureNow, berlin)
+	out := discordWindow(ix, 0, fixtureNow, 6)
+	if n := strings.Count(out, "**Clip**"); n != maxReplyLines {
+		t.Errorf("listed %d, want %d", n, maxReplyLines)
+	}
+	if !strings.Contains(out, "-# +20 more") {
+		t.Errorf("missing more line:\n%s", out)
+	}
+}
+
+func TestDiscordNowAll_KeepsFooterWhenCapped(t *testing.T) {
+	chs := make([]channelInfo, 60)
+	progs := make([][]programme, 60)
+	for i := range chs {
+		chs[i] = channelInfo{ID: fmt.Sprintf("C%d.de", i), Name: fmt.Sprintf("Channel %d", i)}
+		progs[i] = []programme{
+			{Start: fixtureNow.Unix() - 60, Stop: fixtureNow.Unix() + 60, Title: strings.Repeat("Long title ", 10)},
+			{Start: fixtureNow.Unix() + 60, Stop: fixtureNow.Unix() + 600, Title: "Next"},
+		}
+	}
+	out := discordNowAll(newIndex(chs, progs, fixtureNow, berlin), fixtureNow)
+	if n := len([]rune(out)); n > discordLimit {
+		t.Errorf("len = %d", n)
+	}
+	if !strings.Contains(out, "\n-# +") || !strings.HasSuffix(out, " more\n"+footer) {
+		t.Errorf("footer lost or no truncation marker:\n%s", out[len(out)-200:])
+	}
+	if strings.Contains(out, strings.Repeat("Long title ", 5)) {
+		t.Error("title not truncated")
+	}
+}
+
+func TestDiscord_EscapesMarkdownAndFlagsMoreHits(t *testing.T) {
+	ps := make([]programme, 12)
+	for i := range ps {
+		ps[i] = programme{Start: fixtureNow.Unix() + int64(i*600), Stop: fixtureNow.Unix() + int64((i+1)*600), Title: "*Bold_Show*"}
+	}
+	ix := newIndex([]channelInfo{{ID: "X.de", Name: "X"}}, [][]programme{ps}, fixtureNow, berlin)
+	out := discordSearch(ix, "bold", fixtureNow)
+	if !strings.Contains(out, `\*Bold\_Show\*`) || strings.Count(out, "Bold") != maxSearchHits {
+		t.Errorf("escape or cap failed:\n%s", out)
+	}
+	if !strings.Contains(out, "-# more results") {
+		t.Errorf("missing more hint:\n%s", out)
+	}
+}
+
+func TestWindowStart(t *testing.T) {
+	cases := []struct {
+		day  int
+		from string
+		want time.Time
+	}{
+		{0, "", fixtureNow},
+		{0, "now", fixtureNow},
+		{0, "06:00", time.Date(2026, 10, 24, 6, 0, 0, 0, berlin)},
+		{1, "", time.Date(2026, 10, 25, 20, 15, 0, 0, berlin)},
+		{7, "22:00", time.Date(2026, 10, 31, 22, 0, 0, 0, berlin)},
+	}
+	for _, c := range cases {
+		got, ok := windowStart(fixtureNow, berlin, c.day, c.from)
+		if !ok || !got.Equal(c.want) {
+			t.Errorf("windowStart(%d, %q) = %v %v, want %v", c.day, c.from, got, ok, c.want)
+		}
+	}
+	for _, bad := range []struct {
+		day  int
+		from string
+	}{{-1, ""}, {8, ""}, {0, "25:99"}} {
+		if _, ok := windowStart(fixtureNow, berlin, bad.day, bad.from); ok {
+			t.Errorf("windowStart(%d, %q) accepted", bad.day, bad.from)
+		}
+	}
+}
+
+func TestCommand_Options(t *testing.T) {
+	cmd := command()
+	for _, sub := range cmd.Options {
+		var hasPublic bool
+		for _, o := range sub.Options {
+			hasPublic = hasPublic || o.Name == "public"
+			if o.Name == "hours" && len(o.Choices) != 3 {
+				t.Errorf("%s hours choices = %d", sub.Name, len(o.Choices))
+			}
+			if len(o.Choices) > 25 {
+				t.Errorf("%s/%s has %d choices", sub.Name, o.Name, len(o.Choices))
+			}
+		}
+		if !hasPublic {
+			t.Errorf("%s has no public option", sub.Name)
 		}
 	}
 }
@@ -300,7 +441,7 @@ func TestToolHandler(t *testing.T) {
 		`{"mode":"channel"}`:                               "needs a channel",
 		`{"mode":"search"}`:                                "needs a query",
 		`{"mode":"later"}`:                                 "mode must be",
-		`{"mode":"now","channel":"nope"}`:                  "Sender unbekannt",
+		`{"mode":"now","channel":"nope"}`:                  "Unknown channel",
 	}
 	for args, want := range cases {
 		out, err := m.toolHandler(context.Background(), tool.Env{}, json.RawMessage(args))
