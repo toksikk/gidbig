@@ -354,6 +354,8 @@ var coldKeys = []Key{
 	// module's built-in list; cache_dir and refresh_interval show the
 	// effective value including the default.
 	cold("tv.enabled", KindBool, extractBool(func(c *cfg.Config) *bool { return &c.TV.Enabled })),
+	cold("tv.regions", KindStringList, func(c *cfg.Config) string { return formatList(c.TVRegions()) }),
+	cold("tv.timezone", KindString, func(c *cfg.Config) string { return c.TVTimezone() }),
 	cold("tv.channels", KindStringList, extractList(func(c *cfg.Config) *[]string { return &c.TV.Channels })),
 	cold("tv.cache_dir", KindString, func(c *cfg.Config) string { return c.TVCacheDir() }),
 	cold("tv.refresh_interval", KindString, func(c *cfg.Config) string { return c.TVRefreshInterval().String() }),

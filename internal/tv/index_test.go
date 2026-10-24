@@ -78,7 +78,7 @@ func TestResolveChannel(t *testing.T) {
 	if _, ok := ix.resolveChannel("Other"); ok {
 		t.Error("non-allowlisted channel resolved")
 	}
-	ix2 := newIndex([]channelInfo{{ID: "zdf_neo.de", Name: "zdf_neo"}}, [][]programme{nil}, fixtureNow)
+	ix2 := newIndex([]channelInfo{{ID: "zdf_neo.de", Name: "zdf_neo"}}, [][]programme{nil}, fixtureNow, berlin)
 	if _, ok := ix2.resolveChannel("zdf neo"); !ok {
 		t.Error("zdf neo not resolved")
 	}
@@ -95,6 +95,8 @@ func TestChannelLabel(t *testing.T) {
 		{"DasErste.de", "DE - Das Erste"}: "Das Erste",
 		{"zdf_neo.de", "DE - zdf_neo"}:    "ZDFneo",
 		{"Foo.de", ""}:                    "Foo",
+		{"ORF1.at", "AT - ORF 1"}:         "ORF 1",
+		{"weird", ""}:                     "weird",
 	} {
 		if got := channelLabel(in[0], in[1]); got != want {
 			t.Errorf("channelLabel(%q, %q) = %q, want %q", in[0], in[1], got, want)

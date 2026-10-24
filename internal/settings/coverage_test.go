@@ -76,6 +76,8 @@ func TestTVKeys_ColdWithEffectiveValues(t *testing.T) {
 	for key, want := range map[string]string{
 		"tv.enabled":          "false",
 		"tv.channels":         "",
+		"tv.regions":          cfg.DefaultTVRegion,
+		"tv.timezone":         cfg.DefaultTVTimezone,
 		"tv.cache_dir":        cfg.DefaultTVCacheDir,
 		"tv.refresh_interval": cfg.DefaultTVRefreshInterval.String(),
 		"logs.window_lines":   strconv.Itoa(cfg.DefaultLogWindowLines),

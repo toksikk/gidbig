@@ -123,13 +123,19 @@ llm:
     # Both personality and personality_preset can be changed at runtime with
     # /admin config (or the web admin panel); an unknown preset is rejected there.
     personality_preset: ""
-# Optional German TV program (/tv and the tv_program LLM tool) from the
-# free-epg.de XMLTV feed. Off by default; changes need a restart.
+# Optional TV program (/tv and the tv_program LLM tool) from the free-epg.de
+# XMLTV feeds. Off by default; changes need a restart.
 tv:
     enabled: false
+    # Optional free-epg.de country feeds (two-letter codes, see
+    # https://www.free-epg.de). Defaults to [de].
+    # regions: [de, at]
     # Optional XMLTV channel IDs; replaces the built-in list of ~27 main
-    # German channels when set.
-    # channels: ["DasErste.de", "ZDF.de"]
+    # German channels. Required as soon as regions holds anything but de.
+    # channels: ["DasErste.de", "ZDF.de", "ORF1.at"]
+    # Optional IANA time zone for times and day boundaries.
+    # Defaults to Europe/Berlin.
+    # timezone: Europe/Berlin
     # Optional feed cache directory, relative to the working directory.
     # Defaults to "cache".
     # cache_dir: cache

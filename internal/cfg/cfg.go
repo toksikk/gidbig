@@ -8,6 +8,8 @@ import (
 	"os"
 	"regexp"
 	"time"
+	// Embed the zone database so tv.timezone validates in minimal images.
+	_ "time/tzdata"
 
 	"gopkg.in/yaml.v3"
 )
@@ -201,13 +203,73 @@ type Config struct {
 // DefaultTVRefreshInterval.
 type TVConfig struct {
 	Enabled bool `yaml:"enabled,omitempty"`
-	// Channels replaces the built-in XMLTV channel ID list when non-empty.
+	// Regions lists free-epg.de country feeds (two-letter lower-case codes).
+	// Empty means DefaultTVRegion only.
+	Regions []string `yaml:"regions,omitempty"`
+	// Channels replaces the built-in XMLTV channel ID list when non-empty. It
+	// is required when Regions holds anything other than DefaultTVRegion,
+	// because the built-in list only covers German channels.
 	Channels []string `yaml:"channels,omitempty"`
+	// Timezone is the IANA zone used to show times and day boundaries. Empty
+	// means DefaultTVTimezone.
+	Timezone string `yaml:"timezone,omitempty"`
 	// CacheDir holds the downloaded feed. Empty means DefaultTVCacheDir.
 	CacheDir string `yaml:"cache_dir,omitempty"`
 	// RefreshInterval is the conditional-fetch period. Zero means
 	// DefaultTVRefreshInterval; a set value must be at least MinTVRefreshInterval.
 	RefreshInterval time.Duration `yaml:"refresh_interval,omitempty"`
+}
+
+// DefaultTVRegion is the feed region when tv.regions is unset.
+const DefaultTVRegion = "de"
+
+// DefaultTVTimezone is the display zone when tv.timezone is unset.
+const DefaultTVTimezone = "Europe/Berlin"
+
+var tvRegionPattern = regexp.MustCompile(`^[a-z]{2}$`)
+
+// TVRegions returns tv.regions or a list holding DefaultTVRegion.
+func (c *Config) TVRegions() []string {
+	if len(c.TV.Regions) == 0 {
+		return []string{DefaultTVRegion}
+	}
+	return c.TV.Regions
+}
+
+// TVTimezone returns tv.timezone or DefaultTVTimezone.
+func (c *Config) TVTimezone() string {
+	if c.TV.Timezone == "" {
+		return DefaultTVTimezone
+	}
+	return c.TV.Timezone
+}
+
+// validateTV checks the tv section; it is only called when tv is enabled.
+func validateTV(c *Config) error {
+	if c.TV.RefreshInterval != 0 && c.TV.RefreshInterval < MinTVRefreshInterval {
+		return fmt.Errorf("tv.refresh_interval must be at least %s when tv.enabled is true", MinTVRefreshInterval)
+	}
+	seen := map[string]bool{}
+	for _, r := range c.TV.Regions {
+		if !tvRegionPattern.MatchString(r) {
+			return fmt.Errorf("tv.regions entry %q must be a two-letter lower-case country code like de", r)
+		}
+		if seen[r] {
+			return fmt.Errorf("tv.regions lists %q twice", r)
+		}
+		seen[r] = true
+	}
+	if len(c.TV.Channels) == 0 {
+		for _, r := range c.TVRegions() {
+			if r != DefaultTVRegion {
+				return fmt.Errorf("tv.channels is required when tv.regions includes %q: the built-in channel list only covers %q", r, DefaultTVRegion)
+			}
+		}
+	}
+	if _, err := time.LoadLocation(c.TVTimezone()); err != nil {
+		return fmt.Errorf("tv.timezone %q is not a known IANA time zone: %w", c.TV.Timezone, err)
+	}
+	return nil
 }
 
 // DefaultTVCacheDir is the feed cache directory when tv.cache_dir is unset.
@@ -388,8 +450,10 @@ func Validate(cfg *Config) error {
 	if err := ValidateTMDBLanguage(cfg.TMDB.Language); err != nil {
 		return fmt.Errorf("tmdb.language %w", err)
 	}
-	if cfg.TV.Enabled && cfg.TV.RefreshInterval != 0 && cfg.TV.RefreshInterval < MinTVRefreshInterval {
-		return fmt.Errorf("tv.refresh_interval must be at least %s when tv.enabled is true", MinTVRefreshInterval)
+	if cfg.TV.Enabled {
+		if err := validateTV(cfg); err != nil {
+			return err
+		}
 	}
 	return nil
 }

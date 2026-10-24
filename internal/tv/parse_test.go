@@ -9,6 +9,15 @@ import (
 	"time"
 )
 
+// berlin is the zone the fixtures and the default config use.
+var berlin = func() *time.Location {
+	loc, err := time.LoadLocation("Europe/Berlin")
+	if err != nil {
+		panic(err)
+	}
+	return loc
+}()
+
 // fixtureNow is 2026-10-24 20:30 in Berlin (CEST), the night before the DST switch.
 var fixtureNow = time.Date(2026, 10, 24, 20, 30, 0, 0, berlin)
 
@@ -38,7 +47,7 @@ func fixtureGzip(t *testing.T) []byte {
 
 func fixtureIndex(t *testing.T) *index {
 	t.Helper()
-	ix, err := parse(strings.NewReader(fixtureXML(t)), fixtureChannels, fixtureNow)
+	ix, err := parse(strings.NewReader(fixtureXML(t)), fixtureChannels, fixtureNow, berlin)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
@@ -87,7 +96,7 @@ func TestParse_FiltersAndCleans(t *testing.T) {
 }
 
 func TestParse_Malformed(t *testing.T) {
-	if _, err := parse(strings.NewReader(`<tv><programme channel="ZDF.de"><title>x</tv>`), fixtureChannels, fixtureNow); err == nil {
+	if _, err := parse(strings.NewReader(`<tv><programme channel="ZDF.de"><title>x</tv>`), fixtureChannels, fixtureNow, berlin); err == nil {
 		t.Fatal("malformed XML parsed without error")
 	}
 }

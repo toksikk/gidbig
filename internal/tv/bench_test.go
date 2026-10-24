@@ -30,7 +30,7 @@ func BenchmarkParse(b *testing.B) {
 			}
 			r = zr
 		}
-		ix, err := parse(r, defaultChannels, time.Now())
+		ix, err := parse(r, defaultChannels, time.Now(), time.UTC)
 		_ = f.Close()
 		if err != nil {
 			b.Fatal(err)

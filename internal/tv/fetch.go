@@ -15,9 +15,8 @@ import (
 )
 
 const (
-	feedURL       = "https://www.free-epg.de/api/epg/de.xml.gz"
-	cacheFile     = "epg_de.xml.gz"
-	metaFile      = "epg_de.meta.json"
+	// feedURLFormat takes the two-letter region code.
+	feedURLFormat = "https://www.free-epg.de/api/epg/%s.xml.gz"
 	userAgent     = "gidbig (+https://github.com/toksikk/gidbig)"
 	fetchTimeout  = 2 * time.Minute
 	maxFeedBytes  = 64 << 20
@@ -32,20 +31,29 @@ type cacheMeta struct {
 	FetchedAt    time.Time `json:"fetched_at"`
 }
 
-// fetcher downloads the feed into dir with conditional GETs.
+// fetcher downloads one region's feed into dir with conditional GETs. Files
+// are named epg_<region>.xml.gz and epg_<region>.meta.json.
 type fetcher struct {
 	client *http.Client
+	region string
 	url    string
 	dir    string
 	now    func() time.Time
 }
 
-func newFetcher(dir string) *fetcher {
-	return &fetcher{client: &http.Client{Timeout: fetchTimeout}, url: feedURL, dir: dir, now: time.Now}
+func newFetcher(dir, region string) *fetcher {
+	return &fetcher{
+		client: &http.Client{Timeout: fetchTimeout},
+		region: region,
+		url:    fmt.Sprintf(feedURLFormat, region),
+		dir:    dir,
+		now:    time.Now,
+	}
 }
 
-func (f *fetcher) cachePath() string { return filepath.Join(f.dir, cacheFile) }
-func (f *fetcher) metaPath() string  { return filepath.Join(f.dir, metaFile) }
+func (f *fetcher) cacheFile() string { return "epg_" + f.region + ".xml.gz" }
+func (f *fetcher) cachePath() string { return filepath.Join(f.dir, f.cacheFile()) }
+func (f *fetcher) metaPath() string  { return filepath.Join(f.dir, "epg_"+f.region+".meta.json") }
 
 // readMeta loads the sidecar; a missing or broken file yields the zero value.
 func (f *fetcher) readMeta() cacheMeta {
@@ -132,7 +140,7 @@ func (f *fetcher) fetch(ctx context.Context) (status string, changed bool, err e
 
 // store writes body gzip-compressed to a temp file and renames it over the cache.
 func (f *fetcher) store(body io.Reader) (err error) {
-	tmp, err := os.CreateTemp(f.dir, cacheFile+".*.tmp")
+	tmp, err := os.CreateTemp(f.dir, f.cacheFile()+".*.tmp")
 	if err != nil {
 		return fmt.Errorf("tv: fetch epg: create temp file: %w", err)
 	}
