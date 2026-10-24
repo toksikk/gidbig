@@ -2,6 +2,8 @@ package gamerstatus
 
 import (
 	"context"
+	"errors"
+	"slices"
 	"testing"
 	"time"
 
@@ -78,6 +80,78 @@ func TestShutdownCancelsGoroutine(t *testing.T) {
 	case <-done:
 	case <-time.After(2 * time.Second):
 		t.Fatal("runStatusLoop did not exit within deadline after ctx cancel")
+	}
+}
+
+// fakeStatus is a statusUpdater whose UpdateGameStatus returns gameErr.
+type fakeStatus struct {
+	gameErr error
+}
+
+func (f *fakeStatus) UpdateStreamingStatus(int, string, string) error { return nil }
+func (f *fakeStatus) UpdateGameStatus(int, string) error              { return f.gameErr }
+
+// runOneIteration runs the status loop until its first iteration, including
+// UpdateGameStatus, has completed, then stops it.
+func runOneIteration(t *testing.T, m *Module) {
+	t.Helper()
+	m.initialDelay = 0
+	m.rotationMin = time.Millisecond
+	m.rotationMax = 2 * time.Millisecond
+
+	// The second season() call starts iteration two, so iteration one has
+	// completed.
+	secondIteration := make(chan struct{})
+	calls := 0
+	m.season = func() util.Season {
+		calls++
+		if calls == 2 {
+			close(secondIteration)
+		}
+		return util.SeasonNone
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		m.runStatusLoop(ctx)
+		close(done)
+	}()
+
+	select {
+	case <-secondIteration:
+	case <-time.After(5 * time.Second):
+		t.Fatal("runStatusLoop did not complete an iteration within deadline")
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("runStatusLoop did not exit after ctx cancel")
+	}
+}
+
+func TestRunStatusLoopFailedUpdateNotRecorded(t *testing.T) {
+	m := New()
+	m.session = &fakeStatus{gameErr: errors.New("gateway down")}
+	runOneIteration(t, m)
+
+	if game, _ := m.currentStatus(); game != "" {
+		t.Fatalf("currentStatus() = %q after failed update, want empty", game)
+	}
+}
+
+func TestRunStatusLoopSuccessfulUpdateRecorded(t *testing.T) {
+	m := New()
+	m.session = &fakeStatus{}
+	runOneIteration(t, m)
+
+	game, since := m.currentStatus()
+	if !slices.Contains(games, game) {
+		t.Fatalf("currentStatus() = %q, want a game from the list", game)
+	}
+	if since.IsZero() {
+		t.Fatal("currentStatus() since is zero after successful update")
 	}
 }
 

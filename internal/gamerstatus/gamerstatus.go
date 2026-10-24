@@ -4,10 +4,11 @@ import (
 	"context"
 	"log/slog"
 	"math/rand"
+	"sync"
 	"time"
 
-	"github.com/bwmarrin/discordgo"
 	"github.com/toksikk/gidbig/internal/bot"
+	"github.com/toksikk/gidbig/internal/tool"
 	"github.com/toksikk/gidbig/internal/util"
 )
 
@@ -52,11 +53,28 @@ var games = []string{
 
 // Module implements bot.Module for rotating the bot's game status.
 type Module struct {
-	session      *discordgo.Session
+	session      statusUpdater
 	initialDelay time.Duration
 	rotationMin  time.Duration
 	rotationMax  time.Duration
 	season       func() util.Season
+	tools        *tool.Registry
+
+	// now is the clock used to timestamp status changes; a test hook.
+	now func() time.Time
+
+	// mu guards current and since, written by the rotation loop and read by
+	// the current_game_status tool.
+	mu      sync.RWMutex
+	current string
+	since   time.Time
+}
+
+// statusUpdater is the slice of *discordgo.Session the rotation loop uses;
+// tests substitute a fake.
+type statusUpdater interface {
+	UpdateStreamingStatus(idle int, name string, url string) error
+	UpdateGameStatus(idle int, name string) error
 }
 
 // New returns a new gamerstatus Module with production timing defaults.
@@ -66,13 +84,18 @@ func New() *Module {
 		rotationMin:  5 * time.Minute,
 		rotationMax:  15 * time.Minute,
 		season:       util.CurrentSeason,
+		now:          time.Now,
 	}
 }
 
 func (m *Module) Name() string { return "gamerstatus" }
 
 func (m *Module) Init(d bot.Deps) error {
-	m.session = d.Session
+	if d.Session != nil {
+		m.session = d.Session
+	}
+	m.tools = d.Tools
+	m.registerTools()
 	slog.Info("gamerstatus: initialized")
 	return nil
 }
@@ -100,6 +123,8 @@ func (m *Module) runStatusLoop(ctx context.Context) {
 		game := m.currentGame()
 		if err := m.session.UpdateGameStatus(0, game); err != nil {
 			slog.Error("gamerstatus: could not set game status", "error", err)
+		} else {
+			m.setCurrent(game)
 		}
 
 		interval := m.rotationMin + time.Duration(rand.Int63n(int64(m.rotationMax-m.rotationMin)))
@@ -109,6 +134,23 @@ func (m *Module) runStatusLoop(ctx context.Context) {
 			return
 		}
 	}
+}
+
+// setCurrent records the game status Discord accepted and when it was set.
+func (m *Module) setCurrent(game string) {
+	now := m.now()
+	m.mu.Lock()
+	m.current = game
+	m.since = now
+	m.mu.Unlock()
+}
+
+// currentStatus returns the last game status set and when it was set; game
+// is empty when none was set yet.
+func (m *Module) currentStatus() (string, time.Time) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.current, m.since
 }
 
 func (m *Module) currentGame() string {
