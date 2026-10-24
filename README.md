@@ -33,6 +33,7 @@ Gidbig is a Discord bot written in Go — soundboard playback in voice channels,
 | 🐧 **wardogs** | `/wardogs` — reports whether WARDOGS officially supports Linux/Proton, read from the community tracker doeswardogshavelinux.support (10 min cache) |
 | 🌤️ **wttrin** | `/wttr location:<location>` / `/wttrf location:<location>` — current weather / forecast with an LLM-generated outro |
 | 🌦️ **openmeteo** | `/weather location:<location> [forecast] [days]` — Open-Meteo weather and up to 16-day forecast (also the LLM `weather` tool) |
+| 🎬 **tmdb** | `/wheretostream title:<title> [region:XX]` — where a movie or series streams (subscription, free, with ads) via TMDB/JustWatch; pick the match from a select menu (also the LLM `streaming_providers` tool). Optional: enabled only when `tmdb.read_access_token` is set |
 
 ## 🚀 Quickstart
 
@@ -89,6 +90,17 @@ llm:
 Set `OPENROUTER_API_KEY` when using OpenRouter. `llm.provider` defaults to `openai`, the OpenAI model defaults to `gpt-4o-mini`, and `llm.vision_model` defaults to `llm.model`. `llm.base_url` can optionally override either provider's API endpoint for an OpenAI-compatible gateway.
 
 The web server starts only when `web.port`, `web.session_secret`, `web.oauth.client_id`, `web.oauth.client_secret`, and `web.oauth.redirect_uri` are set. `gippity.allowed_guilds` restricts guilds where mention-driven AI chat runs. With `gippity.reply_in_thread: true` the bot answers mentions inside a public thread started on the mentioning message instead of the channel itself (requires the Create Public Threads permission; messages already posted in a thread are answered there). With `gippity.respond_to_all_messages: true` a classifier (`gippity.classifier_model`, defaults to `llm.model`) decides per non-mention message whether to answer; each user must also opt in with `/gippity nonmention set:on`, and `gippity.classifier_rate_limit_per_hour` caps classifier calls per user per hour.
+
+The optional `tmdb` module powers `/wheretostream` and the LLM `streaming_providers` tool:
+
+```yaml
+tmdb:
+    read_access_token: "YOUR_TMDB_API_READ_ACCESS_TOKEN"
+    region: DE # optional, default DE (two-letter country code)
+    language: de-DE # optional, default de-DE
+```
+
+Use the **API Read Access Token** from themoviedb.org → Settings → API, not the short "API Key". An empty or missing token disables the module (no command, no tool); a token change needs a restart. `tmdb.region` and `tmdb.language` can also be changed at runtime with `/admin config`. TMDB's free tier is for non-commercial use; the bot credits JustWatch and TMDB as required.
 
 ### 2. Add audio files 🎵
 

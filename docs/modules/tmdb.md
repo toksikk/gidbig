@@ -28,8 +28,8 @@ streams. The reply is public.
 - Region / language: hot settings `tmdb.region` (default `DE`) and
   `tmdb.language` (default `de-DE`); the `region` option overrides per call.
 - Errors: 429 maps to "TMDB rate limited, try again shortly", others to a generic
-  retry hint. Lookups run in goroutines bound to a 15 s timeout and cancelled on
-  `Shutdown`.
+  retry hint. Each HTTP request has a 10 s client timeout. Lookups run in
+  goroutines bound to a 15 s timeout and cancelled on `Shutdown`.
 - LLM tool `streaming_providers(title, type?, year?, region?)`: without `type` it
   uses `/search/multi`, with `type` it uses `/search/movie` (`year`) or
   `/search/tv` (`first_air_date_year`). It takes the top match and returns
