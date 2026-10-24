@@ -335,3 +335,24 @@ func threadName(content string) string {
 	}
 	return name
 }
+
+// stripOuterBrackets removes a single pair of square brackets wrapping the
+// whole reply, e.g. "[hello]" -> "hello". It only strips when the trimmed
+// string starts with '[', ends with ']', and contains no other brackets, so
+// replies with inner bracketed content stay intact. An empty result returns
+// the original input.
+func stripOuterBrackets(s string) string {
+	trimmed := strings.TrimSpace(s)
+	if len(trimmed) < 2 || trimmed[0] != '[' || trimmed[len(trimmed)-1] != ']' {
+		return s
+	}
+	inner := trimmed[1 : len(trimmed)-1]
+	if strings.ContainsAny(inner, "[]") {
+		return s
+	}
+	inner = strings.TrimSpace(inner)
+	if inner == "" {
+		return s
+	}
+	return inner
+}

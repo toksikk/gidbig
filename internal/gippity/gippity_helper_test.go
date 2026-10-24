@@ -264,3 +264,20 @@ func TestConvertLLMChatMessageToLLMCompatibleFlowingText_WithImageDescriptions(t
 		t.Errorf("result missing image 2 description: %q", result)
 	}
 }
+
+func TestStripOuterBrackets(t *testing.T) {
+	tests := []struct{ in, want string }{
+		{"[hi]", "hi"},
+		{" [hi] ", "hi"},
+		{"hi", "hi"},
+		{"[a] und [b]", "[a] und [b]"},
+		{"[]", "[]"},
+		{"[Image 1: x] text", "[Image 1: x] text"},
+		{"[multi\nline]", "multi\nline"},
+	}
+	for _, tt := range tests {
+		if got := stripOuterBrackets(tt.in); got != tt.want {
+			t.Errorf("stripOuterBrackets(%q) = %q, want %q", tt.in, got, tt.want)
+		}
+	}
+}

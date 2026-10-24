@@ -1740,3 +1740,22 @@ func TestDebugLogs_OmitMessageContent(t *testing.T) {
 		}
 	}
 }
+
+func TestOnMessageCreate_StripsOuterBracketsFromAnswer(t *testing.T) {
+	m, session := setupGippityTest(t)
+	m.generateAnswerFunc = func(_ *discordgo.MessageCreate, _ []string) (string, error) {
+		return "[answer]", nil
+	}
+
+	var sent string
+	m.messageSendFunc = func(_ *discordgo.Session, _, content string) (*discordgo.Message, error) {
+		sent = content
+		return &discordgo.Message{}, nil
+	}
+
+	m.onMessageCreate(session, gippityTestMessage("hey <@bot-user>", &discordgo.User{ID: "bot-user"}))
+
+	if sent != "answer" {
+		t.Errorf("sent = %q, want %q", sent, "answer")
+	}
+}
