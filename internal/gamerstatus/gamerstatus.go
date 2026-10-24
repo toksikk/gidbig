@@ -7,7 +7,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/bwmarrin/discordgo"
 	"github.com/toksikk/gidbig/internal/bot"
 	"github.com/toksikk/gidbig/internal/tool"
 	"github.com/toksikk/gidbig/internal/util"
@@ -54,7 +53,7 @@ var games = []string{
 
 // Module implements bot.Module for rotating the bot's game status.
 type Module struct {
-	session      *discordgo.Session
+	session      statusUpdater
 	initialDelay time.Duration
 	rotationMin  time.Duration
 	rotationMax  time.Duration
@@ -71,6 +70,13 @@ type Module struct {
 	since   time.Time
 }
 
+// statusUpdater is the slice of *discordgo.Session the rotation loop uses;
+// tests substitute a fake.
+type statusUpdater interface {
+	UpdateStreamingStatus(idle int, name string, url string) error
+	UpdateGameStatus(idle int, name string) error
+}
+
 // New returns a new gamerstatus Module with production timing defaults.
 func New() *Module {
 	return &Module{
@@ -85,7 +91,9 @@ func New() *Module {
 func (m *Module) Name() string { return "gamerstatus" }
 
 func (m *Module) Init(d bot.Deps) error {
-	m.session = d.Session
+	if d.Session != nil {
+		m.session = d.Session
+	}
 	m.tools = d.Tools
 	m.registerTools()
 	slog.Info("gamerstatus: initialized")
