@@ -26,6 +26,8 @@ const (
 	// pickPrefix starts every select-menu custom ID: tmdb:pick:<userID>:<region>.
 	pickPrefix = "tmdb:pick:"
 
+	invalidSelection = "Invalid selection — run /wheretostream again."
+
 	cacheTTL    = time.Hour
 	workTimeout = 15 * time.Second
 )
@@ -239,6 +241,7 @@ func (m *Module) onPick(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	owner, region, err := parsePickID(data.CustomID)
 	if err != nil {
 		slog.Warn("tmdb: malformed pick custom id", "error", err)
+		respondEphemeral(s, i, invalidSelection)
 		return
 	}
 	if interactionUserID(i) != owner {
@@ -246,11 +249,13 @@ func (m *Module) onPick(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		return
 	}
 	if len(data.Values) != 1 {
+		respondEphemeral(s, i, invalidSelection)
 		return
 	}
 	kind, id, err := parsePickValue(data.Values[0])
 	if err != nil {
 		slog.Warn("tmdb: malformed pick value", "error", err)
+		respondEphemeral(s, i, invalidSelection)
 		return
 	}
 	if err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
