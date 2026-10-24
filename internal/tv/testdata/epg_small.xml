@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<tv generator-info-name="test">
+  <channel id="ZDF.de">
+    <display-name>DE - ZDF</display-name>
+  </channel>
+  <channel id="DasErste.de">
+    <display-name>DE - Das Erste</display-name>
+  </channel>
+  <channel id="Other.de">
+    <display-name>DE - Other</display-name>
+  </channel>
+  <programme start="20251231004000 +0100" stop="20251231012000 +0100" channel="ZDF.de">
+    <title>Stale Show</title>
+  </programme>
+  <programme start="20261023080000 +0200" stop="20261023090000 +0200" channel="ZDF.de">
+    <title>Morgenmagazin</title>
+  </programme>
+  <programme start="20261022080000 +0200" stop="20261022090000 +0200" channel="ZDF.de">
+    <title>Too Old</title>
+  </programme>
+  <programme start="20261024190000 +0200" stop="20261024191500 +0200" channel="ZDF.de">
+    <title>No Data</title>
+  </programme>
+  <programme start="20261024190000 +0200" stop="20261024191500 +0200" channel="ZDF.de">
+    <title>heute</title>
+    <category>Nachrichten</category>
+  </programme>
+  <programme start="20261024191500 +0200" stop="20261024201500 +0200" channel="ZDF.de">
+    <title>No Data</title>
+  </programme>
+  <programme start="20261024201500 +0200" stop="20261024214500 +0200" channel="ZDF.de">
+    <title>Der Alte</title>
+    <sub-title>Tod in &lt;b&gt;München&lt;/b&gt;</sub-title>
+    <category>Krimi</category>
+    <desc>&lt;p&gt;Ein Fall &amp;amp; mehr.&lt;/p&gt;</desc>
+  </programme>
+  <programme start="20261024214500 +0200" channel="ZDF.de">
+    <title>heute journal</title>
+  </programme>
+  <programme start="20261025003000 +0200" stop="20261025010000 +0200" channel="ZDF.de">
+    <title>SENDEPAUSE</title>
+  </programme>
+  <programme start="20261025010000 +0200" stop="20261025020000 +0200" channel="ZDF.de">
+    <title>Nachtfilm</title>
+  </programme>
+  <programme start="20261024201500" stop="20261024214500" channel="DasErste.de">
+    <title>Tatort</title>
+    <sub-title>Der letzte Schrei</sub-title>
+    <desc>DESC_PLACEHOLDER</desc>
+  </programme>
+  <programme start="20261026201500 +0100" stop="20261026214500 +0100" channel="DasErste.de">
+    <title>Tatort</title>
+    <sub-title>Wiederholung</sub-title>
+  </programme>
+  <programme start="20261110201500 +0100" stop="20261110214500 +0100" channel="DasErste.de">
+    <title>Tatort</title>
+    <sub-title>Too far ahead</sub-title>
+  </programme>
+  <programme start="20261024201500 +0200" stop="20261024214500 +0200" channel="Other.de">
+    <title>Tatort</title>
+  </programme>
+</tv>

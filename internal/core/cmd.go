@@ -30,6 +30,7 @@ import (
 	"github.com/toksikk/gidbig/internal/stoll"
 	"github.com/toksikk/gidbig/internal/tmdb"
 	"github.com/toksikk/gidbig/internal/tool"
+	"github.com/toksikk/gidbig/internal/tv"
 	"github.com/toksikk/gidbig/internal/wardogs"
 	"github.com/toksikk/gidbig/internal/wttrin"
 )
@@ -310,6 +311,7 @@ func StartGidbig() {
 	registerOrLog(b, wardogs.New())
 	registerOrLog(b, wttrin.New())
 	registerOrLog(b, openmeteo.New())
+	registerOrLog(b, tv.New())
 	registerTMDB(b, conf)
 
 	// Start Webserver if a valid port is provided and if ClientID and ClientSecret are set

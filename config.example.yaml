@@ -63,7 +63,7 @@ gippity:
         # Registered tools: bot_status, search_chat_history,
         # get_channel_members, list_sounds, coffee_status, coffee_stats,
         # leetoclock_records, anticheat_lookup, wardogs_status, weather,
-        # stoll_quote, current_game_status.
+        # stoll_quote, current_game_status, tv_program.
         allowed: []
         # Sent only on requests that carry tools; cleared for the final
         # tool-free answer. Empty omits the field. Some providers forbid tools
@@ -123,6 +123,18 @@ llm:
     # Both personality and personality_preset can be changed at runtime with
     # /admin config (or the web admin panel); an unknown preset is rejected there.
     personality_preset: ""
+# Optional German TV program (/tv and the tv_program LLM tool) from the
+# free-epg.de XMLTV feed. Off by default; changes need a restart.
+tv:
+    enabled: false
+    # Optional XMLTV channel IDs; replaces the built-in list of ~27 main
+    # German channels when set.
+    # channels: ["DasErste.de", "ZDF.de"]
+    # Optional feed cache directory, relative to the working directory.
+    # Defaults to "cache".
+    # cache_dir: cache
+    # Optional conditional-fetch period (minimum 1h). Defaults to 6h.
+    # refresh_interval: 6h
 # dev_mode picks the log format (text with source locations vs. JSON) and the
 # discordgo log level at boot. The owner can flip it at runtime with
 # /admin config, but only the log level (debug/info) follows; the rest needs a
