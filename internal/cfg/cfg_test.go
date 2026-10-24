@@ -812,3 +812,29 @@ func TestLogWindowLines(t *testing.T) {
 		t.Errorf("Validate(max window) = %v", err)
 	}
 }
+
+func TestDecodeConfig_tmdb(t *testing.T) {
+	base := "discord:\n  token: t\ngippity:\n  allowed_guilds: [\"g\"]\n"
+
+	c, err := decodeConfig(strings.NewReader(base))
+	if err != nil {
+		t.Fatalf("empty tmdb section: %v", err)
+	}
+	if c.TMDB.ReadAccessToken != "" || c.TMDBRegion() != "DE" || c.TMDBLanguage() != "de-DE" {
+		t.Errorf("defaults = %q %q %q, want empty, DE, de-DE", c.TMDB.ReadAccessToken, c.TMDBRegion(), c.TMDBLanguage())
+	}
+
+	c, err = decodeConfig(strings.NewReader(base + "tmdb:\n  read_access_token: tok\n  region: AT\n  language: en\n"))
+	if err != nil {
+		t.Fatalf("valid tmdb section: %v", err)
+	}
+	if c.TMDB.ReadAccessToken != "tok" || c.TMDBRegion() != "AT" || c.TMDBLanguage() != "en" {
+		t.Errorf("values = %q %q %q", c.TMDB.ReadAccessToken, c.TMDBRegion(), c.TMDBLanguage())
+	}
+
+	for _, bad := range []string{"tmdb:\n  region: de\n", "tmdb:\n  region: DEU\n", "tmdb:\n  language: DE-de\n", "tmdb:\n  language: german\n"} {
+		if _, err := decodeConfig(strings.NewReader(base + bad)); err == nil {
+			t.Errorf("decodeConfig(%q) = nil error, want validation failure", bad)
+		}
+	}
+}

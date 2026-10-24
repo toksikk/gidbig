@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"regexp"
 
 	"gopkg.in/yaml.v3"
 )
@@ -170,6 +171,16 @@ type Config struct {
 		// classifier keeps its own much smaller bound. Defaults to 300.
 		MaxTokens int `yaml:"max_tokens,omitempty"`
 	} `yaml:"llm,omitempty"`
+	// TMDB enables the optional /wheretostream module. An empty
+	// ReadAccessToken disables it; a token change needs a restart.
+	TMDB struct {
+		// ReadAccessToken is TMDB's "API Read Access Token" (Bearer). Secret.
+		ReadAccessToken string `yaml:"read_access_token,omitempty"`
+		// Region is the default ISO 3166-1 country. Empty means DefaultTMDBRegion.
+		Region string `yaml:"region,omitempty"`
+		// Language is the default TMDB language. Empty means DefaultTMDBLanguage.
+		Language string `yaml:"language,omitempty"`
+	} `yaml:"tmdb,omitempty"`
 	DevMode bool `yaml:"dev_mode,omitempty" default:"false"`
 	// Logs sizes the in-memory log window behind /admin logs show and the
 	// /admin/logs web page. A change needs a restart.
@@ -178,6 +189,50 @@ type Config struct {
 		// means DefaultLogWindowLines.
 		WindowLines int `yaml:"window_lines,omitempty"`
 	} `yaml:"logs,omitempty"`
+}
+
+// DefaultTMDBRegion is the watch-provider region when tmdb.region is unset.
+const DefaultTMDBRegion = "DE"
+
+// DefaultTMDBLanguage is the TMDB language when tmdb.language is unset.
+const DefaultTMDBLanguage = "de-DE"
+
+var (
+	tmdbRegionPattern   = regexp.MustCompile(`^[A-Z]{2}$`)
+	tmdbLanguagePattern = regexp.MustCompile(`^[a-z]{2}(-[A-Z]{2})?$`)
+)
+
+// ValidateTMDBRegion rejects a non-empty value that is not a two-letter
+// uppercase ISO 3166-1 code.
+func ValidateTMDBRegion(value string) error {
+	if value == "" || tmdbRegionPattern.MatchString(value) {
+		return nil
+	}
+	return fmt.Errorf("must be a two-letter uppercase country code (e.g. DE), got %q", value)
+}
+
+// ValidateTMDBLanguage rejects a non-empty value that is not like "de" or "de-DE".
+func ValidateTMDBLanguage(value string) error {
+	if value == "" || tmdbLanguagePattern.MatchString(value) {
+		return nil
+	}
+	return fmt.Errorf("must look like de or de-DE, got %q", value)
+}
+
+// TMDBRegion returns tmdb.region or DefaultTMDBRegion.
+func (c *Config) TMDBRegion() string {
+	if c.TMDB.Region == "" {
+		return DefaultTMDBRegion
+	}
+	return c.TMDB.Region
+}
+
+// TMDBLanguage returns tmdb.language or DefaultTMDBLanguage.
+func (c *Config) TMDBLanguage() string {
+	if c.TMDB.Language == "" {
+		return DefaultTMDBLanguage
+	}
+	return c.TMDB.Language
 }
 
 // DefaultLogWindowLines is the log window size when logs.window_lines is unset.
@@ -282,6 +337,12 @@ func Validate(cfg *Config) error {
 	}
 	if cfg.Logs.WindowLines < 0 || cfg.Logs.WindowLines > maxLogWindowLines {
 		return fmt.Errorf("logs.window_lines must be between 0 and %d", maxLogWindowLines)
+	}
+	if err := ValidateTMDBRegion(cfg.TMDB.Region); err != nil {
+		return fmt.Errorf("tmdb.region %w", err)
+	}
+	if err := ValidateTMDBLanguage(cfg.TMDB.Language); err != nil {
+		return fmt.Errorf("tmdb.language %w", err)
 	}
 	return nil
 }
