@@ -47,7 +47,7 @@ func newFakeFeed(t *testing.T, body []byte) *fakeFeed {
 
 func newTestFetcher(t *testing.T, url string) *fetcher {
 	t.Helper()
-	f := newFetcher(t.TempDir())
+	f := newFetcher(t.TempDir(), "de")
 	f.url = url
 	f.now = func() time.Time { return fixtureNow }
 	return f
@@ -127,7 +127,7 @@ func TestFetch_CompressesPlainBody(t *testing.T) {
 }
 
 func TestStore_Oversized(t *testing.T) {
-	f := newFetcher(t.TempDir())
+	f := newFetcher(t.TempDir(), "de")
 	var buf bytes.Buffer
 	zw := gzip.NewWriter(&buf)
 	_, _ = zw.Write([]byte("x"))

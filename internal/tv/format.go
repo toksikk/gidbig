@@ -22,17 +22,17 @@ var weekdays = [...]string{"So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"}
 // msgBadDay answers an unusable day option.
 const msgBadDay = "Tag unbekannt: nutze heute, morgen, übermorgen oder JJJJ-MM-TT (gestern bis +7 Tage)."
 
-func clock(ts int64) string { return time.Unix(ts, 0).In(berlin).Format("15:04") }
+func clock(ts int64, loc *time.Location) string { return time.Unix(ts, 0).In(loc).Format("15:04") }
 
-func dateLabel(t time.Time) string {
-	t = t.In(berlin)
+func dateLabel(t time.Time, loc *time.Location) string {
+	t = t.In(loc)
 	return weekdays[t.Weekday()] + " " + t.Format("02.01.2006")
 }
 
 // line renders one programme as "20:15–21:45 · Title: Sub (Category)".
-func line(p programme, withDesc bool) string {
+func line(p programme, withDesc bool, loc *time.Location) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "%s–%s · %s", clock(p.Start), clock(p.Stop), p.Title)
+	fmt.Fprintf(&b, "%s–%s · %s", clock(p.Start, loc), clock(p.Stop, loc), p.Title)
 	if p.Sub != "" {
 		b.WriteString(": " + p.Sub)
 	}
@@ -51,20 +51,21 @@ func line(p programme, withDesc bool) string {
 func renderNow(ix *index, chs []int, t time.Time, withDesc bool) string {
 	compact := len(chs) > 1
 	lines := make([]string, 0, len(chs)+1)
-	lines = append(lines, "**Jetzt im TV** ("+clock(t.Unix())+")")
+	loc := ix.loc
+	lines = append(lines, "**Jetzt im TV** ("+clock(t.Unix(), loc)+")")
 	for _, ch := range chs {
 		cur, next := ix.nowNext(ch, t)
 		var parts []string
 		switch {
 		case cur != nil && compact:
-			parts = append(parts, clock(cur.Start)+" "+cur.Title)
+			parts = append(parts, clock(cur.Start, loc)+" "+cur.Title)
 		case cur != nil:
-			parts = append(parts, line(*cur, withDesc))
+			parts = append(parts, line(*cur, withDesc, loc))
 		default:
 			parts = append(parts, "keine Daten")
 		}
 		if next != nil {
-			parts = append(parts, "danach "+clock(next.Start)+" "+next.Title)
+			parts = append(parts, "danach "+clock(next.Start, loc)+" "+next.Title)
 		}
 		lines = append(lines, "**"+ix.channels[ch].Name+"** "+strings.Join(parts, " · "))
 	}
@@ -73,13 +74,13 @@ func renderNow(ix *index, chs []int, t time.Time, withDesc bool) string {
 
 // renderDay lists one channel's programmes on the given day.
 func renderDay(ix *index, ch int, date time.Time, withDesc bool) string {
-	ps := ix.day(ch, date, berlin)
-	lines := []string{"**" + ix.channels[ch].Name + "** – " + dateLabel(date)}
+	ps := ix.day(ch, date, ix.loc)
+	lines := []string{"**" + ix.channels[ch].Name + "** – " + dateLabel(date, ix.loc)}
 	if len(ps) == 0 {
 		lines = append(lines, "Keine Programmdaten für diesen Tag.")
 	}
 	for _, p := range ps {
-		lines = append(lines, line(p, withDesc))
+		lines = append(lines, line(p, withDesc, ix.loc))
 	}
 	return capLines(lines, discordLimit)
 }
@@ -93,7 +94,7 @@ func renderSearch(ix *index, query string, t time.Time, limit int, withDesc bool
 	withDesc = withDesc && len(hits) <= descResultLimit
 	lines := []string{"**Suche:** " + sanitize(query)}
 	for _, h := range hits {
-		lines = append(lines, "**"+ix.channels[h.ch].Name+"** "+dateLabel(time.Unix(h.p.Start, 0))+" "+line(h.p, withDesc))
+		lines = append(lines, "**"+ix.channels[h.ch].Name+"** "+dateLabel(time.Unix(h.p.Start, 0), ix.loc)+" "+line(h.p, withDesc, ix.loc))
 	}
 	return capLines(lines, discordLimit)
 }
@@ -122,12 +123,12 @@ func sanitize(s string) string {
 }
 
 // parseDay maps heute/morgen/übermorgen/gestern or YYYY-MM-DD to a date in
-// berlin, limited to yesterday through maxDayOffset days ahead. ok is false
+// loc, limited to yesterday through maxDayOffset days ahead. ok is false
 // for anything else.
-func parseDay(s string, now time.Time) (time.Time, bool) {
-	now = now.In(berlin)
+func parseDay(s string, now time.Time, loc *time.Location) (time.Time, bool) {
+	now = now.In(loc)
 	y, m, d := now.Date()
-	today := time.Date(y, m, d, 12, 0, 0, 0, berlin)
+	today := time.Date(y, m, d, 12, 0, 0, 0, loc)
 	var day time.Time
 	switch foldKey(s) {
 	case "", "heute", "today":
@@ -139,12 +140,12 @@ func parseDay(s string, now time.Time) (time.Time, bool) {
 	case "gestern", "yesterday":
 		return today.AddDate(0, 0, -1), true
 	default:
-		t, err := time.ParseInLocation("2006-01-02", strings.TrimSpace(s), berlin)
+		t, err := time.ParseInLocation("2006-01-02", strings.TrimSpace(s), loc)
 		if err != nil {
 			return time.Time{}, false
 		}
 		ty, tm, td := t.Date()
-		day = time.Date(ty, tm, td, 12, 0, 0, 0, berlin)
+		day = time.Date(ty, tm, td, 12, 0, 0, 0, loc)
 	}
 	if day.Before(today.AddDate(0, 0, -1)) || day.After(today.AddDate(0, 0, maxDayOffset)) {
 		return time.Time{}, false

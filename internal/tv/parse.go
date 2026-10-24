@@ -42,9 +42,25 @@ type xmlChannel struct {
 	DisplayNames []string `xml:"display-name"`
 }
 
-// parse streams an XMLTV document and builds an index of the allowed channels,
-// in allow order, keeping only programmes inside the window around now.
-func parse(r io.Reader, allow []string, now time.Time) (*index, error) {
+// builder accumulates programmes of the allowed channels from one or more
+// XMLTV documents (one per region) before the index is built.
+type builder struct {
+	pos      map[string]int
+	channels []channelInfo
+	progs    [][]programme
+}
+
+// parse builds an index from a single XMLTV document.
+func parse(r io.Reader, allow []string, now time.Time, loc *time.Location) (*index, error) {
+	b := newBuilder(allow)
+	if err := b.add(r); err != nil {
+		return nil, err
+	}
+	return b.build(now, loc), nil
+}
+
+// newBuilder prepares the allowed channels in allow order.
+func newBuilder(allow []string) *builder {
 	pos := make(map[string]int, len(allow))
 	channels := make([]channelInfo, 0, len(allow))
 	for _, id := range allow {
@@ -54,8 +70,12 @@ func parse(r io.Reader, allow []string, now time.Time) (*index, error) {
 		pos[id] = len(channels)
 		channels = append(channels, channelInfo{ID: id, Name: channelLabel(id, "")})
 	}
-	progs := make([][]programme, len(channels))
+	return &builder{pos: pos, channels: channels, progs: make([][]programme, len(channels))}
+}
 
+// add streams one XMLTV document into the builder.
+func (b *builder) add(r io.Reader) error {
+	pos, channels, progs := b.pos, b.channels, b.progs
 	dec := xml.NewDecoder(r)
 	for {
 		tok, err := dec.Token()
@@ -63,7 +83,7 @@ func parse(r io.Reader, allow []string, now time.Time) (*index, error) {
 			break
 		}
 		if err != nil {
-			return nil, fmt.Errorf("tv: parse epg: %w", err)
+			return fmt.Errorf("tv: parse epg: %w", err)
 		}
 		se, ok := tok.(xml.StartElement)
 		if !ok {
@@ -74,13 +94,13 @@ func parse(r io.Reader, allow []string, now time.Time) (*index, error) {
 			ci, ok := pos[attr(se, "id")]
 			if !ok {
 				if err := dec.Skip(); err != nil {
-					return nil, fmt.Errorf("tv: parse epg: %w", err)
+					return fmt.Errorf("tv: parse epg: %w", err)
 				}
 				continue
 			}
 			var c xmlChannel
 			if err := dec.DecodeElement(&c, &se); err != nil {
-				return nil, fmt.Errorf("tv: parse epg channel: %w", err)
+				return fmt.Errorf("tv: parse epg channel: %w", err)
 			}
 			if len(c.DisplayNames) > 0 {
 				channels[ci].Name = channelLabel(channels[ci].ID, c.DisplayNames[0])
@@ -89,13 +109,13 @@ func parse(r io.Reader, allow []string, now time.Time) (*index, error) {
 			ci, ok := pos[attr(se, "channel")]
 			if !ok {
 				if err := dec.Skip(); err != nil {
-					return nil, fmt.Errorf("tv: parse epg: %w", err)
+					return fmt.Errorf("tv: parse epg: %w", err)
 				}
 				continue
 			}
 			var p xmlProgramme
 			if err := dec.DecodeElement(&p, &se); err != nil {
-				return nil, fmt.Errorf("tv: parse epg programme: %w", err)
+				return fmt.Errorf("tv: parse epg programme: %w", err)
 			}
 			start, ok := parseXMLTVTime(attr(se, "start"))
 			if !ok {
@@ -122,8 +142,15 @@ func parse(r io.Reader, allow []string, now time.Time) (*index, error) {
 		}
 	}
 
-	y, mo, d := now.In(berlin).Date()
-	from := time.Date(y, mo, d-1, 0, 0, 0, 0, berlin).Unix()
+	return nil
+}
+
+// build finalises every channel and returns the index. The kept window starts
+// at the beginning of yesterday in loc.
+func (b *builder) build(now time.Time, loc *time.Location) *index {
+	channels, progs := b.channels, b.progs
+	y, mo, d := now.In(loc).Date()
+	from := time.Date(y, mo, d-1, 0, 0, 0, 0, loc).Unix()
 	to := now.Add(keepAhead).Unix()
 	for ci := range progs {
 		progs[ci] = finalize(progs[ci], from, to)
@@ -131,7 +158,7 @@ func parse(r io.Reader, allow []string, now time.Time) (*index, error) {
 			slog.Warn("tv: allowlisted channel has no programmes", "channel", channels[ci].ID)
 		}
 	}
-	return newIndex(channels, progs, now), nil
+	return newIndex(channels, progs, now, loc)
 }
 
 // finalize sorts one channel's rows, drops duplicate starts, fills a missing

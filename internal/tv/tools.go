@@ -20,7 +20,7 @@ var toolParameters = json.RawMessage(`{
     },
     "channel": {
       "type": "string",
-      "description": "German TV channel name, e.g. ARD, ZDF, RTL, ProSieben. Required for mode channel, optional for now."
+      "description": "TV channel name, e.g. ARD, ZDF, RTL, ProSieben. Required for mode channel, optional for now."
     },
     "day": {
       "type": "string",
@@ -40,7 +40,7 @@ func (m *Module) registerTools() {
 	}
 	m.tools.Register(tool.Def{
 		Name:        "tv_program",
-		Description: "German TV program (EPG) for the main German channels: what runs now/next, a channel's schedule for a day (yesterday to +7 days), or a title search. Times are Europe/Berlin.",
+		Description: "TV program (EPG) for the configured channels (by default the main German channels): what runs now/next, a channel's schedule for a day (yesterday to +7 days), or a title search. Times are in the configured time zone (default Europe/Berlin).",
 		Parameters:  toolParameters,
 		Handler:     m.toolHandler,
 	})
@@ -79,7 +79,7 @@ func (m *Module) toolHandler(_ context.Context, _ tool.Env, args json.RawMessage
 		if !ok {
 			return unknownChannel(ix, channel), nil
 		}
-		day, ok := parseDay(in.Day, now)
+		day, ok := parseDay(in.Day, now, ix.loc)
 		if !ok {
 			return msgBadDay, nil
 		}

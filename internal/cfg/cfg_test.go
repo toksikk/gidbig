@@ -859,6 +859,27 @@ func TestDecodeConfig_tv(t *testing.T) {
 	if _, err := decodeConfig(strings.NewReader(base + "tv:\n  enabled: true\n  refresh_interval: 30m\n")); err == nil {
 		t.Error("refresh_interval 30m accepted, want error")
 	}
+	if got := c.TVRegions(); len(got) != 1 || got[0] != "de" || c.TVTimezone() != "Europe/Berlin" {
+		t.Errorf("default regions/timezone = %v %q", got, c.TVTimezone())
+	}
+	if _, err := decodeConfig(strings.NewReader(base + "tv:\n  enabled: true\n  regions: [de, at]\n  channels: [ZDF.de, ORF1.at]\n  timezone: Europe/Vienna\n")); err != nil {
+		t.Errorf("valid regions/timezone rejected: %v", err)
+	}
+	for name, bad := range map[string]string{
+		"region without channels": "tv:\n  enabled: true\n  regions: [at]\n",
+		"de plus at, no channels": "tv:\n  enabled: true\n  regions: [de, at]\n",
+		"upper-case region":       "tv:\n  enabled: true\n  regions: [DE]\n",
+		"long region":             "tv:\n  enabled: true\n  regions: [deu]\n",
+		"duplicate region":        "tv:\n  enabled: true\n  regions: [de, de]\n",
+		"unknown timezone":        "tv:\n  enabled: true\n  timezone: Mars/Base\n",
+	} {
+		if _, err := decodeConfig(strings.NewReader(base + bad)); err == nil {
+			t.Errorf("%s accepted", name)
+		}
+	}
+	if _, err := decodeConfig(strings.NewReader(base + "tv:\n  regions: [at]\n  timezone: Mars/Base\n")); err != nil {
+		t.Errorf("disabled tv validated: %v", err)
+	}
 	if _, err := decodeConfig(strings.NewReader(base + "tv:\n  refresh_interval: 30m\n")); err != nil {
 		t.Errorf("disabled tv with short interval rejected: %v", err)
 	}

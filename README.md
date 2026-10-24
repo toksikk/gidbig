@@ -34,7 +34,7 @@ Gidbig is a Discord bot written in Go — soundboard playback in voice channels,
 | 🌤️ **wttrin** | `/wttr location:<location>` / `/wttrf location:<location>` — current weather / forecast with an LLM-generated outro |
 | 🌦️ **openmeteo** | `/weather location:<location> [forecast] [days]` — Open-Meteo weather and up to 16-day forecast (also the LLM `weather` tool) |
 | 🎬 **tmdb** | `/wheretostream title:<title> [region:XX]` — where a movie or series streams (subscription, free, with ads) via TMDB/JustWatch; pick the match from a select menu (also the LLM `streaming_providers` tool). Optional: enabled only when `tmdb.read_access_token` is set |
-| 📺 **tv** | `/tv now [channel]`, `/tv channel <channel> [day]`, `/tv search <title>` — German TV program (running/next show, day schedule, title search) for ~27 main channels from the free-epg.de feed, cached on disk and refreshed every 6 h (also the LLM `tv_program` tool). Optional: enabled only when `tv.enabled` is true |
+| 📺 **tv** | `/tv now [channel]`, `/tv channel <channel> [day]`, `/tv search <title>` — TV program (running/next show, day schedule, title search) from the free-epg.de feeds; by default ~27 main German channels, other countries configurable, cached on disk and refreshed every 6 h (also the LLM `tv_program` tool). Optional: enabled only when `tv.enabled` is true |
 
 ## 🚀 Quickstart
 
@@ -108,12 +108,14 @@ The optional `tv` module powers `/tv` and the LLM `tv_program` tool:
 ```yaml
 tv:
     enabled: true
-    # channels: ["DasErste.de", "ZDF.de"] # optional XMLTV IDs; replaces the built-in list
+    # regions: [de, at] # optional free-epg.de country feeds, default [de]
+    # channels: ["DasErste.de", "ORF1.at"] # optional XMLTV IDs; replaces the built-in list, required for regions other than de
+    # timezone: Europe/Berlin # optional IANA zone for times and day boundaries
     # cache_dir: cache # optional, default cache (relative to the working directory)
     # refresh_interval: 6h # optional, default 6h, minimum 1h
 ```
 
-The feed is cached in `cache_dir` and reused on restart while it is less than 24 h old, so keep that directory on persistent storage to avoid a download per deploy. All `tv.*` keys are read at boot: `/admin config` lists them read-only and a change needs a restart.
+Each region is downloaded from `https://www.free-epg.de/api/epg/<region>.xml.gz`; the built-in channel list only covers Germany, so any other region needs `tv.channels` (pick the IDs from the region's feed). Each feed is cached in `cache_dir` and reused on restart while it is less than 24 h old, so keep that directory on persistent storage to avoid a download per deploy. All `tv.*` keys are read at boot: `/admin config` lists them read-only and a change needs a restart.
 
 ### 2. Add audio files 🎵
 

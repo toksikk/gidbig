@@ -43,12 +43,13 @@ type index struct {
 	aliases  map[string]int
 	titles   []titleKey
 	builtAt  time.Time
+	loc      *time.Location // display zone and day boundaries
 }
 
-func newIndex(channels []channelInfo, progs [][]programme, now time.Time) *index {
-	ix := &index{channels: channels, progs: progs, aliases: make(map[string]int), builtAt: now}
+func newIndex(channels []channelInfo, progs [][]programme, now time.Time, loc *time.Location) *index {
+	ix := &index{channels: channels, progs: progs, aliases: make(map[string]int), builtAt: now, loc: loc}
 	for ci, c := range channels {
-		names := append([]string{c.ID, strings.TrimSuffix(c.ID, ".de"), c.Name}, builtinAliases[c.ID]...)
+		names := append([]string{c.ID, trimRegion(c.ID), c.Name}, builtinAliases[c.ID]...)
 		for _, n := range names {
 			if k := foldKey(n); k != "" {
 				if _, taken := ix.aliases[k]; !taken {

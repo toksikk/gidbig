@@ -1,6 +1,7 @@
 package tv
 
 import (
+	"regexp"
 	"strings"
 	"unicode"
 )
@@ -19,7 +20,7 @@ var defaultChannels = []string{
 }
 
 // builtinAliases adds common spoken names for channel IDs. The ID without its
-// ".de" suffix and the feed's display name are always aliases as well.
+// region suffix and the feed's display name are always aliases as well.
 var builtinAliases = map[string][]string{
 	"DasErste.de":      {"ARD", "Das Erste", "Erste"},
 	"zdf_neo.de":       {"ZDFneo", "ZDF neo"},
@@ -62,15 +63,27 @@ func foldText(s string) string {
 	return strings.Join(strings.Fields(umlautFolder.Replace(strings.ToLower(s))), " ")
 }
 
+// countryPrefix matches the "DE - " style prefix of feed display names.
+var countryPrefix = regexp.MustCompile(`^[A-Z]{2} - `)
+
 // channelLabel derives a readable channel name from the feed display name,
-// which looks like "DE - Das Erste", falling back to the ID without ".de".
+// which looks like "DE - Das Erste", falling back to the ID without its
+// region suffix.
 func channelLabel(id, display string) string {
 	if name, ok := builtinNames[id]; ok {
 		return name
 	}
-	display = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(display), "DE - "))
+	display = strings.TrimSpace(countryPrefix.ReplaceAllString(strings.TrimSpace(display), ""))
 	if display != "" && display != id {
 		return display
 	}
-	return strings.TrimSuffix(id, ".de")
+	return trimRegion(id)
+}
+
+// trimRegion drops a trailing ".xx" region suffix from a channel ID.
+func trimRegion(id string) string {
+	if i := strings.LastIndexByte(id, '.'); i > 0 && len(id)-i == 3 {
+		return id[:i]
+	}
+	return id
 }

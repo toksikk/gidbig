@@ -29,7 +29,7 @@ func command() *discordgo.ApplicationCommand {
 	}
 	return &discordgo.ApplicationCommand{
 		Name:        commandName,
-		Description: "Deutsches TV-Programm",
+		Description: "TV-Programm",
 		Options: []*discordgo.ApplicationCommandOption{
 			{
 				Type:        discordgo.ApplicationCommandOptionSubCommand,
@@ -119,7 +119,7 @@ func (m *Module) answer(data discordgo.ApplicationCommandInteractionData) (strin
 		if !ok {
 			return unknownChannel(ix, opts["channel"]), true
 		}
-		day, ok := parseDay(opts["day"], now)
+		day, ok := parseDay(opts["day"], now, ix.loc)
 		if !ok {
 			return msgBadDay, true
 		}
