@@ -34,7 +34,7 @@ Gidbig is a Discord bot written in Go — soundboard playback in voice channels,
 | 🌤️ **wttrin** | `/wttr location:<location>` / `/wttrf location:<location>` — current weather / forecast with an LLM-generated outro |
 | 🌦️ **openmeteo** | `/weather location:<location> [forecast] [days]` — Open-Meteo weather and up to 16-day forecast (also the LLM `weather` tool) |
 | 🎬 **tmdb** | `/wheretostream title:<title> [region:XX]` — where a movie or series streams (subscription, free, with ads) via TMDB/JustWatch; pick the match from a select menu (also the LLM `streaming_providers` tool). Optional: enabled only when `tmdb.read_access_token` is set |
-| 📺 **tv** | `/tv now [channel]`, `/tv channel <channel> [day]`, `/tv search <title>` — TV program (running/next show, day schedule, title search) from the free-epg.de feeds; by default ~27 main German channels, other countries configurable, cached on disk and refreshed every 6 h (also the LLM `tv_program` tool). Optional: enabled only when `tv.enabled` is true |
+| 📺 **tv** | `/tv now [channel] [hours]`, `/tv channel <channel> [day] [from] [hours]`, `/tv search <title>` — TV program (running/next show, up to 6 h of a channel, title search; private unless `public:true`) from the free-epg.de feeds; by default ~27 main German channels, other countries configurable, cached on disk and refreshed every 6 h (also the LLM `tv_program` tool). Optional: enabled only when `tv.enabled` is true |
 
 ## 🚀 Quickstart
 

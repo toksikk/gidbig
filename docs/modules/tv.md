@@ -2,13 +2,30 @@
 
 Directory `internal/tv`. Implements `bot.Module` and `bot.StatsProvider`.
 
-Optional TV program from the [free-epg.de](https://free-epg.de) XMLTV country feeds (`https://www.free-epg.de/api/epg/<region>.xml.gz`). `tv.regions` selects the feeds (default `[de]`); several regions are merged into one index. `tv.timezone` (default `Europe/Berlin`) sets the displayed times and day boundaries. Off unless `tv.enabled: true`; a disabled module registers no command, no tool and no background task. Replies are public; errors and the not-ready notice are ephemeral.
+Optional TV program from the [free-epg.de](https://free-epg.de) XMLTV country feeds (`https://www.free-epg.de/api/epg/<region>.xml.gz`). `tv.regions` selects the feeds (default `[de]`); several regions are merged into one index. `tv.timezone` (default `Europe/Berlin`) sets the displayed times and day boundaries. Off unless `tv.enabled: true`; a disabled module registers no command, no tool and no background task.
 
-- `/tv now [channel]` — running and next show. Without a channel every configured channel gets one compact line (start + title).
-- `/tv channel <channel> [day]` — a channel's schedule for one day in `tv.timezone`. `day` is `heute` (default), `morgen`, `übermorgen`, `gestern` or `YYYY-MM-DD`, from yesterday to +7 days.
-- `/tv search <title>` — up to 15 upcoming shows whose title or subtitle contains the query (case-insensitive, umlauts folded: `muenchen` = `München`).
-- `channel` options autocomplete from the indexed channels (router forwards autocomplete interactions to the command handler). Names resolve through folded aliases: ID, ID without its region suffix (`.de`, `.at`, …), display name without its `XX - ` country prefix, plus built-ins like `ARD`, `ZDFneo`, `Pro7`, `RTL2`, `ntv`. Unknown names get a "Meintest du" hint.
-- Replies are capped below Discord's 2000-character limit; trailing lines become `…`.
+Slash replies are short on purpose, so a channel is not flooded:
+
+- Every reply is **ephemeral** unless the user passes `public:true`. A public reply carries `SUPPRESS_NOTIFICATIONS` and no mentions. Errors and the not-ready notice are always ephemeral.
+- No reply spans more than **6 hours**; `hours` (choices 1, 3, 6; default 6) narrows it.
+- Times are Discord timestamps (`<t:unix:t>`, `<t:unix:f>`), so each reader sees their own local time. A `-# Data: free-epg.de …` footer ends every listing.
+- A listing shows at most 20 shows (search: 10) and ends with `-# +N more` (search: `-# more results`) when cut; feed text is markdown-escaped; the footer always survives the 2000-character cap.
+
+Subcommands:
+
+- `/tv now [channel] [hours] [public]`: without a channel, one line per configured channel (the one view not capped at 20 lines; only the 2000-character limit applies, then `-# +N more`): `**ZDF** Running title → <t> Next title` (titles shortened to 40/28 runes). With a channel, the shows from now on for `hours`; the one already running is marked `▶`.
+- `/tv channel <channel> [day] [from] [hours] [public]`: `day` is a choice `today` (default), `tomorrow`, `in 2 days` … `in 7 days`; `from` is a choice `now` (default), `06:00`, `12:00`, `18:00`, `20:15 (prime time)`, `22:00` in `tv.timezone`. `from:now` on a day other than today starts at 20:15.
+- `/tv search <title> [public]`: up to 10 upcoming shows whose title or subtitle contains the query (case-insensitive, umlauts folded: `muenchen` = `München`), as `<t:f> · **Channel** · Title *Category*`.
+- `channel` options autocomplete from the indexed channels (router forwards autocomplete interactions to the command handler). Names resolve through folded aliases: ID, ID without its region suffix (`.de`, `.at`, …), display name without its `XX - ` country prefix, plus built-ins like `ARD`, `ZDFneo`, `Pro7`, `RTL2`, `ntv`. Unknown names get a "Did you mean" hint.
+
+Window line format (`/tv now channel:ZDF hours:3`):
+
+```
+📺 **ZDF** · <t:…:f> – <t:…:t>
+▶ <t:…:t> **Der Quiz-Champion** *Show*
+<t:…:t> **heute journal** *Nachrichten*
+-# Data: free-epg.de · times in your local time zone
+```
 
 ## Channels
 
@@ -23,7 +40,7 @@ Built-in list (`defaultChannels`, IDs verified 2026-10-24): Das Erste, ZDF, ZDFn
 
 ## LLM tool `tv_program`
 
-Arguments: `mode` (`now`, `channel`, `search`), `channel`, `day`, `query`. Returns the same text as the slash command; `now` for ≤10 channels and `search` with ≤10 hits include descriptions. Fixable input problems return a text hint, invalid JSON an error.
+Arguments: `mode` (`now`, `channel`, `search`), `channel`, `day` (`today`/`heute`, `tomorrow`/`morgen`, `übermorgen`, `yesterday`/`gestern` or `YYYY-MM-DD`), `query`. Unlike the slash command it returns plain text with fixed times in `tv.timezone` (Discord timestamps mean nothing to the model) and may list a whole day; `now` for ≤10 channels and `search` with ≤10 hits include descriptions. Fixable input problems return a text hint, invalid JSON an error.
 
 ## Stats
 

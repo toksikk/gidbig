@@ -17,16 +17,16 @@ const (
 	maxDayOffset = 7
 )
 
-var weekdays = [...]string{"So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"}
+// msgBadSlashDay answers a day choice outside the offered range.
+const msgBadSlashDay = "Unknown day: pick today, tomorrow or in 2 … 7 days."
 
 // msgBadDay answers an unusable day option.
-const msgBadDay = "Tag unbekannt: nutze heute, morgen, übermorgen oder JJJJ-MM-TT (gestern bis +7 Tage)."
+const msgBadDay = "Unknown day: use today, tomorrow, yesterday or YYYY-MM-DD (yesterday to +7 days)."
 
 func clock(ts int64, loc *time.Location) string { return time.Unix(ts, 0).In(loc).Format("15:04") }
 
 func dateLabel(t time.Time, loc *time.Location) string {
-	t = t.In(loc)
-	return weekdays[t.Weekday()] + " " + t.Format("02.01.2006")
+	return t.In(loc).Format("Mon 2006-01-02")
 }
 
 // line renders one programme as "20:15–21:45 · Title: Sub (Category)".
@@ -52,7 +52,7 @@ func renderNow(ix *index, chs []int, t time.Time, withDesc bool) string {
 	compact := len(chs) > 1
 	lines := make([]string, 0, len(chs)+1)
 	loc := ix.loc
-	lines = append(lines, "**Jetzt im TV** ("+clock(t.Unix(), loc)+")")
+	lines = append(lines, "**On TV now** ("+clock(t.Unix(), loc)+")")
 	for _, ch := range chs {
 		cur, next := ix.nowNext(ch, t)
 		var parts []string
@@ -62,10 +62,10 @@ func renderNow(ix *index, chs []int, t time.Time, withDesc bool) string {
 		case cur != nil:
 			parts = append(parts, line(*cur, withDesc, loc))
 		default:
-			parts = append(parts, "keine Daten")
+			parts = append(parts, "no data")
 		}
 		if next != nil {
-			parts = append(parts, "danach "+clock(next.Start, loc)+" "+next.Title)
+			parts = append(parts, "then "+clock(next.Start, loc)+" "+next.Title)
 		}
 		lines = append(lines, "**"+ix.channels[ch].Name+"** "+strings.Join(parts, " · "))
 	}
@@ -77,7 +77,7 @@ func renderDay(ix *index, ch int, date time.Time, withDesc bool) string {
 	ps := ix.day(ch, date, ix.loc)
 	lines := []string{"**" + ix.channels[ch].Name + "** – " + dateLabel(date, ix.loc)}
 	if len(ps) == 0 {
-		lines = append(lines, "Keine Programmdaten für diesen Tag.")
+		lines = append(lines, "No listings for this day.")
 	}
 	for _, p := range ps {
 		lines = append(lines, line(p, withDesc, ix.loc))
@@ -89,10 +89,10 @@ func renderDay(ix *index, ch int, date time.Time, withDesc bool) string {
 func renderSearch(ix *index, query string, t time.Time, limit int, withDesc bool) string {
 	hits := ix.search(query, t, limit)
 	if len(hits) == 0 {
-		return "Keine Sendung gefunden für „" + sanitize(query) + "“."
+		return "No upcoming show found for “" + sanitize(query) + "”."
 	}
 	withDesc = withDesc && len(hits) <= descResultLimit
-	lines := []string{"**Suche:** " + sanitize(query)}
+	lines := []string{"**Search:** " + sanitize(query)}
 	for _, h := range hits {
 		lines = append(lines, "**"+ix.channels[h.ch].Name+"** "+dateLabel(time.Unix(h.p.Start, 0), ix.loc)+" "+line(h.p, withDesc, ix.loc))
 	}
