@@ -28,6 +28,7 @@ import (
 	"github.com/toksikk/gidbig/internal/shareddb"
 	"github.com/toksikk/gidbig/internal/soundboard"
 	"github.com/toksikk/gidbig/internal/stoll"
+	"github.com/toksikk/gidbig/internal/tmdb"
 	"github.com/toksikk/gidbig/internal/tool"
 	"github.com/toksikk/gidbig/internal/wardogs"
 	"github.com/toksikk/gidbig/internal/wttrin"
@@ -145,6 +146,17 @@ func registerOrLog(b *bot.Bot, m bot.Module) bool {
 		return false
 	}
 	return true
+}
+
+// registerTMDB registers the optional tmdb module only when a read access token
+// is configured, so a deployment without TMDB gets no command, no tool and an
+// info line instead of an init error.
+func registerTMDB(b *bot.Bot, conf *cfg.Config) bool {
+	if conf.TMDB.ReadAccessToken == "" {
+		slog.Info("tmdb: no read_access_token, module disabled")
+		return false
+	}
+	return registerOrLog(b, tmdb.New())
 }
 
 // StartGidbig obviously
@@ -298,6 +310,7 @@ func StartGidbig() {
 	registerOrLog(b, wardogs.New())
 	registerOrLog(b, wttrin.New())
 	registerOrLog(b, openmeteo.New())
+	registerTMDB(b, conf)
 
 	// Start Webserver if a valid port is provided and if ClientID and ClientSecret are set
 	if conf.Web.Port != 0 && conf.Web.Port >= 1 && conf.Web.Oauth.ClientID != "" && conf.Web.Oauth.ClientSecret != "" && conf.Web.Oauth.RedirectURI != "" {
