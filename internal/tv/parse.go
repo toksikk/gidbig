@@ -132,12 +132,12 @@ func (b *builder) add(r io.Reader) error {
 				title = ""
 			}
 			progs[ci] = append(progs[ci], programme{
-				Start:    start.Unix(),
-				Stop:     stop,
-				Title:    title,
-				Sub:      cleanText(first(p.SubTitles)),
-				Category: cleanText(first(p.Categories)),
-				Desc:     truncateRunes(cleanText(first(p.Descs)), maxDescRunes),
+				Start:      start.Unix(),
+				Stop:       stop,
+				Title:      title,
+				Sub:        cleanText(first(p.SubTitles)),
+				Categories: cleanAll(p.Categories),
+				Desc:       truncateRunes(cleanText(first(p.Descs)), maxDescRunes),
 			})
 		}
 	}
@@ -244,4 +244,15 @@ func truncateRunes(s string, n int) string {
 	}
 	r := []rune(s)
 	return strings.TrimSpace(string(r[:n-1])) + "…"
+}
+
+// cleanAll cleans every value and drops empty ones.
+func cleanAll(vs []string) []string {
+	var out []string
+	for _, v := range vs {
+		if c := cleanText(v); c != "" {
+			out = append(out, c)
+		}
+	}
+	return out
 }

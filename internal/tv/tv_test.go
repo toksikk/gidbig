@@ -250,7 +250,7 @@ func TestAnswer(t *testing.T) {
 		{"now all public", cmdData("now", boolOpt("public", true)), []string{"**ZDF** Der Alte"}, nil, true},
 		{"now channel 6h", cmdData("now", strOpt("channel", "zdf")), []string{
 			"📺 **ZDF** · " + at(24, 20, 30, "f") + " – " + ts(fixtureNow.Add(6*time.Hour).Unix(), "t"),
-			"▶ " + at(24, 20, 15, "t") + " **Der Alte** · Tod in München *Krimi*",
+			"▶ " + at(24, 20, 15, "t") + " **Der Alte** · Tod in München *Krimi, Thriller*",
 			at(24, 21, 45, "t") + " **heute journal**",
 			at(25, 1, 0, "t") + " **Nachtfilm**",
 		}, []string{"Ein Fall"}, false},
@@ -441,7 +441,16 @@ func TestToolHandler(t *testing.T) {
 		`{"mode":"channel"}`:                               "needs a channel",
 		`{"mode":"search"}`:                                "needs a query",
 		`{"mode":"later"}`:                                 "mode must be",
-		`{"mode":"now","channel":"nope"}`:                  "Unknown channel",
+		`{"mode":"listings"}`:                              "needs a category or a from/to",
+		`{"mode":"listings","category":"krimi"}`:           "Der Alte (Krimi, Thriller)",
+		`{"mode":"listings","category":"thriller","channels":["all"],"days":1}`: "**ZDF** Sat 2026-10-24 20:15 Der Alte",
+		`{"mode":"listings","from":"20:00","to":"23:00","channels":["ard"]}`:    "22:15 Tatort",
+		`{"mode":"listings","from":"22:00","to":"01:01","channels":["zdf"]}`:    "Nachtfilm",
+		`{"mode":"listings","category":"krimi","channels":["ZDF","nope"]}`:      "Unknown channel “nope”",
+		`{"mode":"listings","category":"krimi","days":0}`:                       "days must be 1 to 7",
+		`{"mode":"listings","from":"8pm"}`:                                      "from must be HH:MM",
+		`{"mode":"listings","category":"krimi","offset":-1}`:                    "offset must not be negative",
+		`{"mode":"now","channel":"nope"}`:                                       "Unknown channel",
 	}
 	for args, want := range cases {
 		out, err := m.toolHandler(context.Background(), tool.Env{}, json.RawMessage(args))

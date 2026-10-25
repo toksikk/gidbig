@@ -36,8 +36,8 @@ func line(p programme, withDesc bool, loc *time.Location) string {
 	if p.Sub != "" {
 		b.WriteString(": " + p.Sub)
 	}
-	if p.Category != "" {
-		b.WriteString(" (" + p.Category + ")")
+	if len(p.Categories) > 0 {
+		b.WriteString(" (" + strings.Join(p.Categories, ", ") + ")")
 	}
 	if withDesc && p.Desc != "" {
 		b.WriteString("\n  " + p.Desc)
@@ -89,7 +89,7 @@ func renderDay(ix *index, ch int, date time.Time, withDesc bool) string {
 func renderSearch(ix *index, query string, t time.Time, limit int, withDesc bool) string {
 	hits := ix.search(query, t, limit)
 	if len(hits) == 0 {
-		return "No upcoming show found for “" + sanitize(query) + "”."
+		return "No upcoming show with “" + sanitize(query) + "” in its title (search matches titles only; for genres use mode listings)."
 	}
 	withDesc = withDesc && len(hits) <= descResultLimit
 	lines := []string{"**Search:** " + sanitize(query)}
@@ -97,6 +97,63 @@ func renderSearch(ix *index, query string, t time.Time, limit int, withDesc bool
 		lines = append(lines, "**"+ix.channels[h.ch].Name+"** "+dateLabel(time.Unix(h.p.Start, 0), ix.loc)+" "+line(h.p, withDesc, ix.loc))
 	}
 	return capLines(lines, discordLimit)
+}
+
+// listingsBudget is the rune budget of one listings page, below the tool
+// result cap so a page is never cut mid-row.
+const listingsBudget = 1900
+
+// genreHint names common feed genres for a category that never matches.
+const genreHint = "Drama, Krimi, Action, Komödie, Horror, Abenteuer, Thriller"
+
+// renderListings pages through the programmes matching f, starting at offset.
+// rawCategory is the category as the user typed it, for messages.
+func renderListings(ix *index, f listingFilter, rawCategory string, now time.Time, offset int) string {
+	hits := ix.listings(f, now)
+	switch {
+	case len(hits) == 0 && f.category != "" && !ix.hasCategory(f.category):
+		return "No programme in the feed has the category “" + sanitize(rawCategory) + "”. The feed only carries genres such as " + genreHint + "; it has no film or format field, so try one of those genres instead."
+	case len(hits) == 0:
+		return "No matching programme starts in that time slot on the selected channels and days."
+	case offset >= len(hits):
+		return fmt.Sprintf("No more results: offset %d is past the end (%d results).", offset, len(hits))
+	}
+	header := fmt.Sprintf("**Listings** (%d results, showing from %d):", len(hits), offset+1)
+	lines := []string{header}
+	n := len([]rune(header))
+	i := offset
+	for ; i < len(hits); i++ {
+		row := listingRow(ix, hits[i])
+		add := len([]rune(row)) + 1
+		rest := len(hits) - i - 1
+		footer := 0
+		if rest > 0 {
+			footer = len([]rune(moreFooter(rest, i+1))) + 1
+		}
+		if n+add+footer > listingsBudget {
+			break
+		}
+		lines = append(lines, row)
+		n += add
+	}
+	if i < len(hits) {
+		lines = append(lines, moreFooter(len(hits)-i, i))
+	}
+	return strings.Join(lines, "\n")
+}
+
+// moreFooter reports rest omitted rows and the offset of the next page.
+func moreFooter(rest, next int) string {
+	return fmt.Sprintf("+%d more, use offset=%d", rest, next)
+}
+
+// listingRow renders "**Ch** Mon 2026-10-26 20:15 Title (Genre)".
+func listingRow(ix *index, h hit) string {
+	s := "**" + ix.channels[h.ch].Name + "** " + dateLabel(time.Unix(h.p.Start, 0), ix.loc) + " " + clock(h.p.Start, ix.loc) + " " + h.p.Title
+	if len(h.p.Categories) > 0 {
+		s += " (" + strings.Join(h.p.Categories, ", ") + ")"
+	}
+	return s
 }
 
 // capLines joins lines and drops trailing ones so the text fits limit runes.

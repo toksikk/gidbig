@@ -12,7 +12,7 @@ type programme struct {
 	Start, Stop int64
 	Title       string
 	Sub         string
-	Category    string
+	Categories  []string
 	Desc        string
 }
 
@@ -149,4 +149,86 @@ func (ix *index) window(ch int, from, to int64) []programme {
 		return nil
 	}
 	return ps[i:j]
+}
+
+// listingFilter selects programmes for listings. Times of day are minutes
+// after local midnight; the slot is [slotFrom, slotTo) and wraps past
+// midnight when slotTo <= slotFrom.
+type listingFilter struct {
+	category         string // folded; empty matches every programme
+	slotFrom, slotTo int
+	chs              []int
+	days             int // calendar days from today, at least 1
+}
+
+// inSlot reports whether minute-of-day m lies in the filter's slot.
+func (f listingFilter) inSlot(m int) bool {
+	if f.slotFrom < f.slotTo {
+		return m >= f.slotFrom && m < f.slotTo
+	}
+	return m >= f.slotFrom || m < f.slotTo
+}
+
+// matchesCategory reports whether any category of p contains the folded query.
+func matchesCategory(p programme, folded string) bool {
+	if folded == "" {
+		return true
+	}
+	for _, c := range p.Categories {
+		if strings.Contains(foldText(c), folded) {
+			return true
+		}
+	}
+	return false
+}
+
+// hasCategory reports whether any indexed programme matches the folded category.
+func (ix *index) hasCategory(folded string) bool {
+	for _, ps := range ix.progs {
+		for _, p := range ps {
+			if matchesCategory(p, folded) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// listings returns the programmes that have not ended at now, start on one of
+// the f.days calendar days beginning today in ix.loc, start inside the slot
+// and match the category. Slot membership uses the start time. Hits are
+// ordered by start, then by channel position in f.chs.
+func (ix *index) listings(f listingFilter, now time.Time) []hit {
+	y, m, d := now.In(ix.loc).Date()
+	from := time.Date(y, m, d, 0, 0, 0, 0, ix.loc).Unix()
+	to := time.Date(y, m, d+f.days, 0, 0, 0, 0, ix.loc).Unix()
+	ns := now.Unix()
+	type ordered struct {
+		h   hit
+		pos int
+	}
+	var out []ordered
+	for pos, ch := range f.chs {
+		for _, p := range ix.window(ch, from, to) {
+			if p.Start < from || p.Stop <= ns {
+				continue
+			}
+			st := time.Unix(p.Start, 0).In(ix.loc)
+			if !f.inSlot(st.Hour()*60+st.Minute()) || !matchesCategory(p, f.category) {
+				continue
+			}
+			out = append(out, ordered{h: hit{ch: ch, p: p}, pos: pos})
+		}
+	}
+	sort.SliceStable(out, func(a, b int) bool {
+		if out[a].h.p.Start != out[b].h.p.Start {
+			return out[a].h.p.Start < out[b].h.p.Start
+		}
+		return out[a].pos < out[b].pos
+	})
+	hits := make([]hit, len(out))
+	for i, o := range out {
+		hits[i] = o.h
+	}
+	return hits
 }

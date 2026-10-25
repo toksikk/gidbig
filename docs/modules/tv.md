@@ -40,7 +40,20 @@ Built-in list (`defaultChannels`, IDs verified 2026-10-24): Das Erste, ZDF, ZDFn
 
 ## LLM tool `tv_program`
 
-Arguments: `mode` (`now`, `channel`, `search`), `channel`, `day` (`today`/`heute`, `tomorrow`/`morgen`, `übermorgen`, `yesterday`/`gestern` or `YYYY-MM-DD`), `query`. Unlike the slash command it returns plain text with fixed times in `tv.timezone` (Discord timestamps mean nothing to the model) and may list a whole day; `now` for ≤10 channels and `search` with ≤10 hits include descriptions. Fixable input problems return a text hint, invalid JSON an error.
+Arguments: `mode` (`now`, `channel`, `search`, `listings`), `channel`, `day` (`today`/`heute`, `tomorrow`/`morgen`, `übermorgen`, `yesterday`/`gestern` or `YYYY-MM-DD`), `query`, plus the `listings` arguments below. Unlike the slash command it returns plain text with fixed times in `tv.timezone` (Discord timestamps mean nothing to the model) and may list a whole day; `now` for ≤10 channels and `search` with ≤10 hits include descriptions. Fixable input problems return a text hint, invalid JSON an error.
+
+Horizons: `channel` accepts yesterday to +7 days; `search` and `listings` reach as far ahead as the index (about 7 to 9 days). `search` matches titles and subtitles only; a miss says so and points to `listings`.
+
+`listings` answers aggregate questions such as "Krimis between 20:00 and 23:00 on ARD and ZDF this week":
+
+- `category`: folded substring matched against **any** of a programme's genres. The parser keeps every `<category>` value (empty ones dropped); listings show them joined with `, `.
+- `from` / `to`: `HH:MM` in `tv.timezone`, start inclusive, end exclusive; `to <= from` wraps past midnight. Defaults are the whole day. Slot membership uses the programme's **start** time.
+- `channels`: array of names; omitted or `["all"]` means every channel. The first unknown name returns the usual "Unknown channel" hint.
+- `days`: 1 to 7 calendar days starting today (default 7). Programmes that already ended are skipped.
+- `offset`: first result to show (default 0).
+- At least one of `category`, `from`, `to` is required, so the whole EPG is never dumped.
+
+Rows look like `**ZDF** Sat 2026-10-24 20:15 Der Alte (Krimi, Thriller)`, ordered by start time, then channel order. A page fills rows up to 1900 runes (below the 2000-rune tool result cap, so no row is cut) and ends with `+N more, use offset=K`. Empty results are distinct: a category no programme has (the feed carries only genres such as Drama, Krimi, Action, Komödie, Horror, Abenteuer, Thriller and **no film or format field**, so "Spielfilm" never matches), nothing in the slot/days/channels, or an offset past the end.
 
 ## Stats
 
