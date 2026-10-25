@@ -103,6 +103,9 @@ func renderSearch(ix *index, query string, t time.Time, limit int, withDesc bool
 // result cap so a page is never cut mid-row.
 const listingsBudget = 1900
 
+// maxListingTitleRunes bounds a listings title so every row fits a page.
+const maxListingTitleRunes = 200
+
 // genreHint names common feed genres for a category that never matches.
 const genreHint = "Drama, Krimi, Action, Komödie, Horror, Abenteuer, Thriller"
 
@@ -125,10 +128,9 @@ func renderListings(ix *index, f listingFilter, rawCategory string, now time.Tim
 	for ; i < len(hits); i++ {
 		row := listingRow(ix, hits[i])
 		add := len([]rune(row)) + 1
-		rest := len(hits) - i - 1
 		footer := 0
-		if rest > 0 {
-			footer = len([]rune(moreFooter(rest, i+1))) + 1
+		if i+1 < len(hits) {
+			footer = len([]rune(moreFooter(len(hits)-i, i+1))) + 1
 		}
 		if n+add+footer > listingsBudget {
 			break
@@ -149,7 +151,7 @@ func moreFooter(rest, next int) string {
 
 // listingRow renders "**Ch** Mon 2026-10-26 20:15 Title (Genre)".
 func listingRow(ix *index, h hit) string {
-	s := "**" + ix.channels[h.ch].Name + "** " + dateLabel(time.Unix(h.p.Start, 0), ix.loc) + " " + clock(h.p.Start, ix.loc) + " " + h.p.Title
+	s := "**" + ix.channels[h.ch].Name + "** " + dateLabel(time.Unix(h.p.Start, 0), ix.loc) + " " + clock(h.p.Start, ix.loc) + " " + truncateRunes(h.p.Title, maxListingTitleRunes)
 	if len(h.p.Categories) > 0 {
 		s += " (" + strings.Join(h.p.Categories, ", ") + ")"
 	}

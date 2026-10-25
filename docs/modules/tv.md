@@ -47,7 +47,7 @@ Horizons: `channel` accepts yesterday to +7 days; `search` and `listings` reach 
 `listings` answers aggregate questions such as "Krimis between 20:00 and 23:00 on ARD and ZDF this week":
 
 - `category`: folded substring matched against **any** of a programme's genres. The parser keeps every `<category>` value (empty ones dropped); listings show them joined with `, `.
-- `from` / `to`: `HH:MM` in `tv.timezone`, start inclusive, end exclusive; `to <= from` wraps past midnight. Defaults are the whole day. Slot membership uses the programme's **start** time.
+- `from` / `to`: `HH:MM` in `tv.timezone`, start inclusive, end exclusive; `to <= from` wraps past midnight. Defaults are the whole day; equal `from` and `to` are rejected. Slot membership uses the programme's **start** time.
 - `channels`: array of names; omitted or `["all"]` means every channel. The first unknown name returns the usual "Unknown channel" hint.
 - `days`: 1 to 7 calendar days starting today (default 7). Programmes that already ended are skipped.
 - `offset`: first result to show (default 0).

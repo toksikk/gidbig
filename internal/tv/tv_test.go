@@ -448,6 +448,7 @@ func TestToolHandler(t *testing.T) {
 		`{"mode":"listings","from":"22:00","to":"01:01","channels":["zdf"]}`:    "Nachtfilm",
 		`{"mode":"listings","category":"krimi","channels":["ZDF","nope"]}`:      "Unknown channel “nope”",
 		`{"mode":"listings","category":"krimi","days":0}`:                       "days must be 1 to 7",
+		`{"mode":"listings","to":"00:00"}`:                                      "from and to must differ",
 		`{"mode":"listings","from":"8pm"}`:                                      "from must be HH:MM",
 		`{"mode":"listings","category":"krimi","offset":-1}`:                    "offset must not be negative",
 		`{"mode":"now","channel":"nope"}`:                                       "Unknown channel",

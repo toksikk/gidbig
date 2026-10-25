@@ -156,6 +156,9 @@ func listingsFilter(ix *index, category, from, to string, channels []string, day
 			return f, "to must be HH:MM"
 		}
 	}
+	if f.slotFrom == f.slotTo {
+		return f, "from and to must differ"
+	}
 	if days != nil {
 		if *days < 1 || *days > maxDayOffset {
 			return f, fmt.Sprintf("days must be 1 to %d", maxDayOffset)
