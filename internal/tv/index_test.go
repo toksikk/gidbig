@@ -1,6 +1,7 @@
 package tv
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -101,5 +102,128 @@ func TestChannelLabel(t *testing.T) {
 		if got := channelLabel(in[0], in[1]); got != want {
 			t.Errorf("channelLabel(%q, %q) = %q, want %q", in[0], in[1], got, want)
 		}
+	}
+}
+
+// listingsIndex builds a synthetic index: two channels, programmes every
+// hour from today 00:00 for the given days, alternating genres.
+func listingsIndex(days int) *index {
+	chs := []channelInfo{{ID: "A.de", Name: "Alpha"}, {ID: "B.de", Name: "Beta"}}
+	progs := make([][]programme, len(chs))
+	start := time.Date(2026, 10, 24, 0, 0, 0, 0, berlin)
+	for ci := range chs {
+		for h := 0; h < days*24; h++ {
+			s := start.Add(time.Duration(h) * time.Hour)
+			cats := []string{"Show"}
+			if h%2 == 0 {
+				cats = []string{"Spielshow", "Krimi"}
+			}
+			progs[ci] = append(progs[ci], programme{Start: s.Unix(), Stop: s.Add(time.Hour).Unix(), Title: fmt.Sprintf("P%d-%d", ci, h), Categories: cats})
+		}
+	}
+	return newIndex(chs, progs, fixtureNow, berlin)
+}
+
+func allChs(ix *index) []int { chs, _ := resolveOrAll(ix, ""); return chs }
+
+func TestListings_CategoryAnyMatch(t *testing.T) {
+	ix := listingsIndex(1)
+	now := time.Date(2026, 10, 24, 0, 0, 0, 0, berlin)
+	hits := ix.listings(listingFilter{category: foldText("KRIMI"), slotTo: 24 * 60, chs: allChs(ix), days: 1}, now)
+	if len(hits) != 24 {
+		t.Fatalf("secondary category hits = %d, want 24", len(hits))
+	}
+	if hits := ix.listings(listingFilter{category: "spielfilm", slotTo: 24 * 60, chs: allChs(ix), days: 1}, now); len(hits) != 0 {
+		t.Errorf("miss = %d hits", len(hits))
+	}
+	if !ix.hasCategory("krimi") || ix.hasCategory("spielfilm") {
+		t.Error("hasCategory")
+	}
+}
+
+func TestListings_SlotBoundsAndWrap(t *testing.T) {
+	ix := listingsIndex(2)
+	now := time.Date(2026, 10, 24, 0, 0, 0, 0, berlin)
+	hits := ix.listings(listingFilter{slotFrom: 20 * 60, slotTo: 23 * 60, chs: []int{0}, days: 1}, now)
+	if got := strings.Join(hitTitles(hits), "|"); got != "P0-20|P0-21|P0-22" {
+		t.Errorf("20-23 = %q", got)
+	}
+	hits = ix.listings(listingFilter{slotFrom: 23 * 60, slotTo: 1 * 60, chs: []int{0}, days: 2}, now)
+	if got := strings.Join(hitTitles(hits), "|"); got != "P0-0|P0-23|P0-24" {
+		t.Errorf("wrap = %q", got)
+	}
+	// Ended programmes are skipped; ordering is start, then channel order.
+	hits = ix.listings(listingFilter{slotFrom: 20 * 60, slotTo: 21 * 60, chs: []int{1, 0}, days: 1}, fixtureNow)
+	if got := strings.Join(hitTitles(hits), "|"); got != "P1-20|P0-20" {
+		t.Errorf("order = %q", got)
+	}
+}
+
+func hitTitles(hs []hit) []string {
+	out := make([]string, len(hs))
+	for i, h := range hs {
+		out[i] = h.p.Title
+	}
+	return out
+}
+
+func TestRenderListings_Paging(t *testing.T) {
+	ix := listingsIndex(7)
+	now := time.Date(2026, 10, 24, 0, 0, 0, 0, berlin)
+	f := listingFilter{slotTo: 24 * 60, chs: allChs(ix), days: 7}
+	total := len(ix.listings(f, now))
+	seen := map[string]bool{}
+	offset, pages := 0, 0
+	for {
+		out := renderListings(ix, f, "", now, offset)
+		if n := len([]rune(out)); n > discordLimit {
+			t.Fatalf("page %d has %d runes", pages, n)
+		}
+		lines := strings.Split(out, "\n")
+		rows := lines[1:]
+		last := lines[len(lines)-1]
+		next := -1
+		if strings.HasPrefix(last, "+") {
+			rows = rows[:len(rows)-1]
+			var rest int
+			if _, err := fmt.Sscanf(last, "+%d more, use offset=%d", &rest, &next); err != nil {
+				t.Fatalf("footer %q: %v", last, err)
+			}
+			if next != offset+len(rows) || rest != total-next {
+				t.Fatalf("footer %q at offset %d with %d rows", last, offset, len(rows))
+			}
+		}
+		for _, r := range rows {
+			if seen[r] {
+				t.Fatalf("duplicate row %q", r)
+			}
+			seen[r] = true
+		}
+		pages++
+		if next < 0 {
+			break
+		}
+		offset = next
+	}
+	if len(seen) != total || pages < 2 {
+		t.Errorf("rows %d of %d over %d pages", len(seen), total, pages)
+	}
+}
+
+func TestRenderListings_EmptyMessages(t *testing.T) {
+	ix := listingsIndex(1)
+	now := time.Date(2026, 10, 24, 0, 0, 0, 0, berlin)
+	chs := allChs(ix)
+	if out := renderListings(ix, listingFilter{category: "spielfilm", slotTo: 1440, chs: chs, days: 1}, "Spielfilm", now, 0); !strings.Contains(out, "category “Spielfilm”") || !strings.Contains(out, genreHint) {
+		t.Errorf("no category: %q", out)
+	}
+	if out := renderListings(ix, listingFilter{category: "krimi", slotFrom: 21 * 60, slotTo: 22 * 60, chs: chs, days: 1}, "Krimi", now, 0); !strings.Contains(out, "No matching programme starts in that time slot") {
+		t.Errorf("empty slot: %q", out)
+	}
+	if out := renderListings(ix, listingFilter{category: "krimi", slotTo: 1440, chs: chs, days: 1}, "Krimi", now, 99); !strings.Contains(out, "offset 99 is past the end (24 results)") {
+		t.Errorf("past end: %q", out)
+	}
+	if out := renderSearch(ix, "Krimi", now, 5, false); !strings.Contains(out, "search matches titles only; for genres use mode listings") {
+		t.Errorf("search miss: %q", out)
 	}
 }

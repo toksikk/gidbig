@@ -74,7 +74,7 @@ func TestParse_FiltersAndCleans(t *testing.T) {
 		t.Fatalf("ZDF titles = %q", got)
 	}
 	alte := zdf[2]
-	if alte.Sub != "Tod in München" || alte.Category != "Krimi" || alte.Desc != "Ein Fall & mehr." {
+	if alte.Sub != "Tod in München" || strings.Join(alte.Categories, ",") != "Krimi,Thriller" || alte.Desc != "Ein Fall & mehr." {
 		t.Errorf("cleaned = %+v", alte)
 	}
 	// Missing stop is filled from the next start, the dropped SENDEPAUSE at 00:30.

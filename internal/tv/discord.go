@@ -40,8 +40,8 @@ func showText(p programme, bold bool) string {
 	if p.Sub != "" {
 		s += " · " + md(p.Sub)
 	}
-	if p.Category != "" {
-		s += " *" + md(p.Category) + "*"
+	if len(p.Categories) > 0 {
+		s += " *" + md(strings.Join(p.Categories, ", ")) + "*"
 	}
 	return s
 }
