@@ -7,7 +7,7 @@ import "time"
 // early (Das Erste's 20:00 Tagesschau appears at 19:00, prime time at 19:15).
 // Other channels in the same feed are correct. German channels start prime
 // time at 20:15, so a channel whose evening programmes repeatedly start at
-// 19:15 and never at 20:15 is treated as shifted and moved one hour later.
+// 19:15 and rarely at 20:15 is treated as shifted and moved one hour later.
 const (
 	// primeTimeMinVotes is how many 19:15 starts a channel needs before its
 	// rows are shifted; a few days of feed give one vote per day.
@@ -20,9 +20,9 @@ const (
 var germanTime, _ = time.LoadLocation("Europe/Berlin")
 
 // primeTimeShift returns the correction for one channel's rows: one hour when
-// at least primeTimeMinVotes rows start at 19:15 German time and none at
-// 20:15, otherwise zero. Only rows starting in [from, to) vote: the feed
-// also carries stale rows from earlier seasons that were labelled correctly.
+// at least primeTimeMinVotes rows start at 19:15 German time and more than
+// twice as many as at 20:15, otherwise zero. Only rows starting in
+// [from, to) vote: the feed also carries stale rows from earlier seasons that were labelled correctly.
 func primeTimeShift(ps []programme, from, to int64) time.Duration {
 	if germanTime == nil {
 		return 0
@@ -43,7 +43,7 @@ func primeTimeShift(ps []programme, from, to int64) time.Duration {
 			onTime++
 		}
 	}
-	if early >= primeTimeMinVotes && onTime == 0 {
+	if early >= primeTimeMinVotes && early > 2*onTime {
 		return primeTimeShiftBy
 	}
 	return 0
