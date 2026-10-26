@@ -28,6 +28,7 @@ Gidbig is a Discord bot written in Go — soundboard playback in voice channels,
 | 🔮 **eso** | `/eso [thema]` generates esoteric pseudoscience nonsense through the LLM, with a local fallback |
 | 🎮 **gamerstatus** | Rotates the bot's Discord game/activity status every 5–15 minutes after an initial 5-minute delay |
 | 🤖 **gippity** | Responds through an LLM when mentioned in an allowed guild, stores conversation history in SQLite, and provides `/gippity privacy set:on\|off` and `/gippity nonmention set:on\|off` |
+| 🧠 **trivia** | Counts chat activity (messages, words, GIFs, pictures, links, reactions given/received; all-time and last 30 days) in allowed guilds for users who turned `/gippity privacy` off, and now and then drops an LLM-phrased trivia line naming one leader (no ping). No command. Needs the privileged **Message Content Intent** enabled in the Discord Developer Portal |
 | 🕐 **leetoclock** | Daily 13:37 game — messages around 13:37 score by time offset; the top three at or after 13:37 rank alongside early/late categories. `/leetoclock top`, `/leetoclock daily` and `/leetoclock player` show records |
 | 🧌 **stoll** | `/stoll` — Stoll-related commands |
 | 🐧 **wardogs** | `/wardogs` — reports whether WARDOGS officially supports Linux/Proton, read from the community tracker doeswardogshavelinux.support (10 min cache) |
@@ -103,6 +104,16 @@ tmdb:
 ```
 
 Use the **API Read Access Token** from themoviedb.org → Settings → API, not the short "API Key". An empty or missing token disables the module (no command, no tool); a token change needs a restart. `tmdb.region` and `tmdb.language` can also be changed at runtime with `/admin config`. TMDB's free tier is for non-commercial use; the bot credits JustWatch and TMDB as required.
+
+The `trivia` module tunes its random drop-ins (both optional; a change needs a restart):
+
+```yaml
+trivia:
+    dropin_chance: 0.01    # chance per counted message, 0 disables drop-ins
+    dropin_cooldown: 24h   # minimum gap between drop-ins per guild
+```
+
+Trivia only counts users who turned `/gippity privacy` off, and it needs the privileged **Message Content Intent** enabled for the bot in the Discord Developer Portal (Bot → Privileged Gateway Intents); without it the gateway refuses the connection with close code 4014.
 
 The optional `tv` module powers `/tv` and the LLM `tv_program` tool:
 
