@@ -26,6 +26,12 @@
             "automerge": true,
             "minimumReleaseAge": "6 days",
             "description": "Auto-merge GitHub Actions bumps only after the release is 6 days old."
+        },
+        {
+            "matchManagers": ["github-actions"],
+            "matchUpdateTypes": ["digest"],
+            "enabled": false,
+            "description": "Digest-only bumps of moving action tags (e.g. # v4) have no release timestamp, so the minimumReleaseAge gate stays pending forever. Only take real version bumps."
         }
     ]
 }
