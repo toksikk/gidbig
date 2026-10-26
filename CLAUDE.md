@@ -126,7 +126,7 @@ gippity:
     ignored_users: []
 llm:
     provider: "openai"
-    model: "gpt-4o-mini"
+    model: "gpt-4.1-mini"
     vision_model: ""
     personality: ""
     personality_preset: ""

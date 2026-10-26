@@ -69,7 +69,7 @@ gippity:
     respond_to_all_messages: false # let the classifier decide on non-mention messages
 llm:
     provider: "openai"
-    model: "gpt-4o-mini"
+    model: "gpt-4.1-mini"
     vision_model: ""
     personality: ""
     personality_preset: ""
@@ -90,7 +90,7 @@ llm:
     api_key: "" # optional; OPENROUTER_API_KEY wins when set
 ```
 
-Set `OPENROUTER_API_KEY` when using OpenRouter. `llm.provider` defaults to `openai`, the OpenAI model defaults to `gpt-4o-mini`, and `llm.vision_model` defaults to `llm.model`. `llm.base_url` can optionally override either provider's API endpoint for an OpenAI-compatible gateway.
+Set `OPENROUTER_API_KEY` when using OpenRouter. `llm.provider` defaults to `openai`, the OpenAI model defaults to `gpt-4.1-mini`, and `llm.vision_model` defaults to `llm.model`. `llm.base_url` can optionally override either provider's API endpoint for an OpenAI-compatible gateway.
 
 The web server starts only when `web.port`, `web.session_secret`, `web.oauth.client_id`, `web.oauth.client_secret`, and `web.oauth.redirect_uri` are set. `gippity.allowed_guilds` restricts guilds where mention-driven AI chat runs. With `gippity.reply_in_thread: true` the bot answers mentions inside a public thread started on the mentioning message instead of the channel itself (requires the Create Public Threads permission; messages already posted in a thread are answered there). With `gippity.respond_to_all_messages: true` a classifier (`gippity.classifier_model`, defaults to `llm.model`) decides per non-mention message whether to answer; each user must also opt in with `/gippity nonmention set:on`, and `gippity.classifier_rate_limit_per_hour` caps classifier calls per user per hour.
 
