@@ -53,7 +53,8 @@ func TestPrimeTimeShift(t *testing.T) {
 	}{
 		{"shifted", []programme{at(26, 19, 15), at(27, 19, 15), at(28, 19, 15)}, time.Hour},
 		{"too few votes", []programme{at(26, 19, 15), at(27, 19, 15)}, 0},
-		{"has 20:15 too", []programme{at(26, 19, 15), at(27, 19, 15), at(28, 19, 15), at(29, 20, 15)}, 0},
+		{"stray 20:15", []programme{at(26, 19, 15), at(27, 19, 15), at(28, 19, 15), at(29, 20, 15)}, time.Hour},
+		{"mixed", []programme{at(26, 19, 15), at(27, 19, 15), at(28, 19, 15), at(29, 20, 15), at(30, 20, 15)}, 0},
 		{"on time", []programme{at(26, 20, 15), at(27, 20, 15), at(28, 20, 15)}, 0},
 		{"empty", nil, 0},
 	}
