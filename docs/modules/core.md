@@ -2,7 +2,7 @@
 
 Package `gidbig`, directory `internal/core`. Composition root and core module.
 
-- `cmd.go` – `StartGidbig`: opens the shared database, builds the runtime settings store, builds the session and the `*llm.Client`, wires modules through `bot.Bot`, waits for signal, shuts down.
+- `cmd.go` – `StartGidbig`: opens the shared database, builds the runtime settings store, builds the session (identifying with `IntentsAllWithoutPrivileged | IntentMessageContent`; the privileged Message Content intent must be enabled in the Developer Portal or the gateway closes with 4014) and the `*llm.Client`, wires modules through `bot.Bot`, waits for signal, shuts down.
 - `module.go` – the core `bot.Module`: lifecycle logging (`onReady`/`onConnect`/`onDisconnect`/`onResumed`), ping/pong, `/status`, `/uptime`.
 - `tools.go` – registers the `bot_status` LLM tool, which reports the process runtime line (heap, sys, stack, goroutines, GC cycles, uptime) plus aggregated `StatsProvider` counters for the answer path.
 - `slashcmd.go` – `/uptime` rendering helpers.
@@ -72,7 +72,7 @@ sequenceDiagram
     core->>bot: RegisterModule(core) before Open
     core->>dg: Open()
     dg-->>core: READY
-    core->>bot: RegisterModule(soundboard/coffee/eso/gamerstatus/gippity/configcmd/logscmd/admin/leetoclock/anticheat/stoll/wardogs/wttrin/openmeteo, tmdb when token set)
+    core->>bot: RegisterModule(soundboard/coffee/eso/gamerstatus/gippity/trivia/configcmd/logscmd/admin/leetoclock/anticheat/stoll/wardogs/wttrin/openmeteo, tmdb when token set)
     bot-->>core: module handlers registered, stats registered
     core->>web: go startWebServer(config, session, soundboard, eso, configcmd, logWindow) (if configured)
     core->>bot: Run(ctx) — bulk overwrite commands, start background, block

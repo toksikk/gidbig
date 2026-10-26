@@ -20,6 +20,7 @@ One file per internal package. Each doc: what it does + sequence diagram of the 
 | [tmdb](tmdb.md) | `/wheretostream` | Optional: where a movie/series streams via TMDB/JustWatch; owns the LLM `streaming_providers` tool |
 | [tv](tv.md) | `/tv` | Optional: TV program (now/next, day schedule, title search) from free-epg.de country feeds, German by default; owns the LLM `tv_program` tool |
 | [wardogs](wardogs.md) | `/wardogs` | WARDOGS Linux/Proton support check via doeswardogshavelinux.support |
+| [trivia](trivia.md) | – | Counts chat stats (messages, words, GIFs, pictures, links, reactions) for users with `/gippity privacy` off and posts random LLM-phrased trivia drop-ins |
 | [gamerstatus](gamerstatus.md) | – | Rotating bot game status |
 | [admin](admin.md) | `/admin` | Owner-only admin dispatch, aggregates providers |
 | [configcmd](configcmd.md) | `/admin config` | Owner-only runtime settings: list/get/set/unset/add/remove hot keys; cold keys read-only |
