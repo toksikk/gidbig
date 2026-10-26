@@ -153,6 +153,10 @@ func (b *builder) build(now time.Time, loc *time.Location) *index {
 	from := time.Date(y, mo, d-1, 0, 0, 0, 0, loc).Unix()
 	to := now.Add(keepAhead).Unix()
 	for ci := range progs {
+		if shift := primeTimeShift(progs[ci], from, to); shift != 0 {
+			slog.Warn("tv: channel clock is shifted, correcting", "channel", channels[ci].ID, "shift", shift)
+			shiftProgrammes(progs[ci], shift)
+		}
 		progs[ci] = finalize(progs[ci], from, to)
 		if len(progs[ci]) == 0 {
 			slog.Warn("tv: allowlisted channel has no programmes", "channel", channels[ci].ID)
