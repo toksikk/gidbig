@@ -67,6 +67,7 @@ No change to `internal/gippity` or `internal/core` is needed to add a tool.
 | `anticheat_lookup` | anticheat | a game/vendor match from the cached GamingOnLinux anti-cheat list |
 | `wardogs_status` | wardogs | the cached WARDOGS Linux/Proton support verdict |
 | `weather` | openmeteo | current weather or daily forecast (up to 16 days) for a location or coordinates, from the cached Open-Meteo lookup |
+| `holidays` | openholidays | public or school holidays for a country and optional subdivision in a date range (default today + 30 days), from the cached OpenHolidays API lookup |
 | `stoll_quote` | stoll | a random Dr. Axel Stoll quote |
 | `current_game_status` | gamerstatus | the bot's currently shown game and how long ago it was set |
 

@@ -23,6 +23,7 @@ import (
 	"github.com/toksikk/gidbig/internal/llm"
 	"github.com/toksikk/gidbig/internal/logscmd"
 	"github.com/toksikk/gidbig/internal/logwindow"
+	"github.com/toksikk/gidbig/internal/openholidays"
 	"github.com/toksikk/gidbig/internal/openmeteo"
 	"github.com/toksikk/gidbig/internal/settings"
 	"github.com/toksikk/gidbig/internal/shareddb"
@@ -311,6 +312,7 @@ func StartGidbig() {
 	registerOrLog(b, wardogs.New())
 	registerOrLog(b, wttrin.New())
 	registerOrLog(b, openmeteo.New())
+	registerOrLog(b, openholidays.New())
 	registerOrLog(b, tv.New())
 	registerTMDB(b, conf)
 
