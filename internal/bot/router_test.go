@@ -293,3 +293,16 @@ func TestRouter_MultipleCommands(t *testing.T) {
 		t.Fatal("pong handler not called")
 	}
 }
+
+func TestRouter_ReactionHooksRegisterSessionHandlers(t *testing.T) {
+	var nilRouter *Router
+	nilRouter.OnMessageReactionAdd(func(_ *discordgo.Session, _ *discordgo.MessageReactionAdd) {})
+	nilRouter.OnMessageReactionRemove(func(_ *discordgo.Session, _ *discordgo.MessageReactionRemove) {})
+
+	r := newRouter(Deps{Session: &discordgo.Session{}})
+	r.OnMessageReactionAdd(func(_ *discordgo.Session, _ *discordgo.MessageReactionAdd) {})
+	r.OnMessageReactionRemove(func(_ *discordgo.Session, _ *discordgo.MessageReactionRemove) {})
+	if got := len(r.sessionCleanups); got != 2 {
+		t.Fatalf("sessionCleanups = %d, want 2", got)
+	}
+}
