@@ -13,6 +13,7 @@ One file per internal package. Each doc: what it does + sequence diagram of the 
 | [leetoclock](leetoclock.md) | `/leetoclock` | Daily reaction-time game + scoreboard |
 | [wttrin](wttrin.md) | `/wttr` `/wttrf` | Weather + forecast via wttr.in + LLM outro |
 | [openmeteo](openmeteo.md) | `/weather` | Weather + up to 16-day forecast via Open-Meteo; owns the LLM `weather` tool |
+| [openholidays](openholidays.md) | `/holidays` | Public and school holidays via the OpenHolidays API; owns the LLM `holidays` tool |
 | [eso](eso.md) | `/eso` | Esoteric nonsense generator (LLM, fallback) |
 | [stoll](stoll.md) | `/stoll` | Random Dr. Axel Stoll quote |
 | [anticheat](anticheat.md) | `/anticheat` | GamingOnLinux anti-cheat compatibility lookup (cached CSV) |
