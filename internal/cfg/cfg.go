@@ -82,6 +82,44 @@ type EsoAPIConfig struct {
 	RequestTimeoutSeconds int `yaml:"request_timeout_seconds,omitempty"`
 }
 
+// TriviaConfig tunes the trivia module's random drop-ins.
+type TriviaConfig struct {
+	// DropinChance is the probability (0..1) that a counted message triggers
+	// a drop-in. Default 0.01; 0 disables drop-ins (counting continues).
+	DropinChance float64 `yaml:"dropin_chance"`
+	// DropinCooldown is the minimum Go duration between two drop-ins in one
+	// guild. Default 24h.
+	DropinCooldown string `yaml:"dropin_cooldown,omitempty"`
+}
+
+// Defaults for the trivia section.
+const (
+	defaultTriviaDropinChance   = 0.01
+	defaultTriviaDropinCooldown = "24h"
+)
+
+// TriviaDropinCooldown returns the parsed drop-in cooldown, falling back to
+// the default for an empty or unparsable value (Validate rejects those).
+func (c *Config) TriviaDropinCooldown() time.Duration {
+	d, err := time.ParseDuration(c.Trivia.DropinCooldown)
+	if err != nil || d <= 0 {
+		d, _ = time.ParseDuration(defaultTriviaDropinCooldown)
+	}
+	return d
+}
+
+// ValidateTriviaDropinCooldown accepts an empty value (the default applies)
+// or a positive Go duration.
+func ValidateTriviaDropinCooldown(value string) error {
+	if value == "" {
+		return nil
+	}
+	if d, err := time.ParseDuration(value); err != nil || d <= 0 {
+		return errors.New("must be a positive duration such as 24h")
+	}
+	return nil
+}
+
 // Config struct with all parameters
 type Config struct {
 	Discord struct {
@@ -187,8 +225,10 @@ type Config struct {
 	// TV enables the optional /tv module and the tv_program LLM tool, backed
 	// by the free-epg.de German XMLTV feed. Off by default; changes need a
 	// restart.
-	TV      TVConfig `yaml:"tv,omitempty"`
-	DevMode bool     `yaml:"dev_mode,omitempty" default:"false"`
+	TV TVConfig `yaml:"tv,omitempty"`
+	// Trivia tunes the random chat-stat drop-ins. Changes need a restart.
+	Trivia  TriviaConfig `yaml:"trivia,omitempty"`
+	DevMode bool         `yaml:"dev_mode,omitempty" default:"false"`
 	// Logs sizes the in-memory log window behind /admin logs show and the
 	// /admin/logs web page. A change needs a restart.
 	Logs struct {
@@ -395,6 +435,8 @@ func Decode(r io.Reader) (*Config, error) {
 	cfg.Gippity.Tools.MaxIterations = defaultGippityToolMaxIterations
 	cfg.LLM.MaxTokens = defaultLLMMaxTokens
 	cfg.Soundboard.QueueMaxDepth = defaultSoundboardQueueMaxDepth
+	cfg.Trivia.DropinChance = defaultTriviaDropinChance
+	cfg.Trivia.DropinCooldown = defaultTriviaDropinCooldown
 	if err := yaml.NewDecoder(r).Decode(&cfg); err != nil {
 		return nil, errors.New("could not decode config: " + err.Error())
 	}
@@ -449,6 +491,12 @@ func Validate(cfg *Config) error {
 	}
 	if err := ValidateTMDBLanguage(cfg.TMDB.Language); err != nil {
 		return fmt.Errorf("tmdb.language %w", err)
+	}
+	if cfg.Trivia.DropinChance < 0 || cfg.Trivia.DropinChance > 1 {
+		return errors.New("trivia.dropin_chance must be between 0 and 1")
+	}
+	if err := ValidateTriviaDropinCooldown(cfg.Trivia.DropinCooldown); err != nil {
+		return errors.New("trivia.dropin_cooldown must be a positive duration such as 24h")
 	}
 	if cfg.TV.Enabled {
 		if err := validateTV(cfg); err != nil {

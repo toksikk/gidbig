@@ -158,6 +158,16 @@ dev_mode: true
 #   region: DE
 #   language: de-DE
 
+# trivia counts chat stats for users who turned /gippity privacy off and now
+# and then posts an LLM-phrased trivia line about one leader. dropin_chance is
+# the chance per counted message (default 0.01; 0 disables drop-ins, counting
+# continues); dropin_cooldown is the minimum gap between drop-ins per guild
+# (default 24h). A change needs a restart. Requires the privileged Message
+# Content Intent in the Discord Developer Portal.
+# trivia:
+#   dropin_chance: 0.01
+#   dropin_cooldown: 24h
+
 # logs.window_lines is how many recent log records the bot keeps in memory for
 # /admin logs show and the owner-only /admin/logs web page (0 or absent = 2000,
 # max 100000). Nothing is written to disk. A change needs a restart.

@@ -884,3 +884,75 @@ func TestDecodeConfig_tv(t *testing.T) {
 		t.Errorf("disabled tv with short interval rejected: %v", err)
 	}
 }
+
+func TestDecodeConfig_triviaDefaults(t *testing.T) {
+	yaml := `
+discord:
+  token: "tok"
+gippity:
+  allowed_guilds: ["456"]
+`
+	c, err := decodeConfig(strings.NewReader(yaml))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if c.Trivia.DropinChance != defaultTriviaDropinChance {
+		t.Errorf("dropin_chance = %v, want %v", c.Trivia.DropinChance, defaultTriviaDropinChance)
+	}
+	if got := c.TriviaDropinCooldown(); got != 24*time.Hour {
+		t.Errorf("cooldown = %v, want 24h", got)
+	}
+}
+
+func TestDecodeConfig_triviaExplicitZeroDisables(t *testing.T) {
+	yaml := `
+discord:
+  token: "tok"
+gippity:
+  allowed_guilds: ["456"]
+trivia:
+  dropin_chance: 0
+  dropin_cooldown: 2h
+`
+	c, err := decodeConfig(strings.NewReader(yaml))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if c.Trivia.DropinChance != 0 {
+		t.Errorf("dropin_chance = %v, want 0", c.Trivia.DropinChance)
+	}
+	if got := c.TriviaDropinCooldown(); got != 2*time.Hour {
+		t.Errorf("cooldown = %v, want 2h", got)
+	}
+}
+
+func TestValidate_triviaRejectsBadValues(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		chance   float64
+		cooldown string
+		want     string
+	}{
+		{"chance above one", 1.5, "24h", "trivia.dropin_chance"},
+		{"chance negative", -0.1, "24h", "trivia.dropin_chance"},
+		{"cooldown garbage", 0.01, "soon", "trivia.dropin_cooldown"},
+		{"cooldown zero", 0.01, "0s", "trivia.dropin_cooldown"},
+		{"cooldown negative", 0.01, "-1h", "trivia.dropin_cooldown"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := &Config{}
+			c.Discord.Token = "tok"
+			c.Gippity.AllowedGuilds = []string{"1"}
+			c.Gippity.RateLimitMessagesPerHour = 1
+			c.Gippity.ClassifierRateLimitPerHour = 1
+			c.Soundboard.QueueMaxDepth = 1
+			c.LLM.MaxTokens = 1
+			c.Trivia.DropinChance = tc.chance
+			c.Trivia.DropinCooldown = tc.cooldown
+			err := Validate(c)
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("Validate() = %v, want error mentioning %s", err, tc.want)
+			}
+		})
+	}
+}
