@@ -31,6 +31,7 @@ import (
 	"github.com/toksikk/gidbig/internal/stoll"
 	"github.com/toksikk/gidbig/internal/tmdb"
 	"github.com/toksikk/gidbig/internal/tool"
+	"github.com/toksikk/gidbig/internal/trivia"
 	"github.com/toksikk/gidbig/internal/tv"
 	"github.com/toksikk/gidbig/internal/wardogs"
 	"github.com/toksikk/gidbig/internal/wttrin"
@@ -286,6 +287,13 @@ func StartGidbig() {
 	registerOrLog(b, gamerstatus.New())
 	gippityMod := gippity.New()
 	gippityReady := registerOrLog(b, gippityMod)
+	// trivia counts only users who turned /gippity privacy off. Without a
+	// registered gippity module nobody is counted (fail closed).
+	triviaPrivacy := func(string) bool { return true }
+	if gippityReady {
+		triviaPrivacy = gippityMod.PrivacyEnabled
+	}
+	registerOrLog(b, trivia.New(triviaPrivacy))
 
 	// configcmd owns the /admin config group. It is registered as a module so
 	// its Init runs, and passed to admin.New below so the group appears; without
