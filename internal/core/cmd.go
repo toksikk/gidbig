@@ -113,6 +113,10 @@ func setupLogging(config *cfg.Config) *logwindow.Window {
 
 // newDiscordSession creates the Discord session and applies the transport and
 // sharding configuration before the gateway is opened.
+// discordIntents is the gateway intent set the bot identifies with: the
+// non-privileged default plus Message Content for trivia counting.
+const discordIntents = discordgo.IntentsAllWithoutPrivileged | discordgo.IntentMessageContent
+
 func newDiscordSession(conf *cfg.Config) (*discordgo.Session, error) {
 	session, err := discordgo.New("Bot " + conf.Discord.Token)
 	if err != nil {
@@ -131,6 +135,12 @@ func newDiscordSession(conf *cfg.Config) (*discordgo.Session, error) {
 	// log stream as the application. Dev mode additionally enables payload and
 	// heartbeat-level diagnostics.
 	configureDiscordgoLogging(session, conf.DevMode)
+
+	// The trivia module counts words, pictures, GIFs and links of ordinary
+	// guild messages, which arrive empty without the privileged Message
+	// Content intent. The intent must also be enabled for the application in
+	// the Discord Developer Portal, or the gateway closes with code 4014.
+	session.Identify.Intents = discordIntents
 
 	session.ShardID = conf.Discord.ShardID
 	session.ShardCount = conf.Discord.ShardCount
