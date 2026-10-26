@@ -383,9 +383,9 @@ func (m *Module) onGippityInteractionCreate(s *discordgo.Session, i *discordgo.I
 			break
 		}
 		if enabled {
-			msg = "Datenschutz aktiviert: Deine vergangenen Nachrichten werden im KI-Kontext anonymisiert."
+			msg = "Datenschutz aktiviert: Deine vergangenen Nachrichten werden im KI-Kontext anonymisiert, und du wirst nicht in Chat-Statistiken (Trivia) gezählt oder genannt."
 		} else {
-			msg = "Datenschutz deaktiviert: Deine vergangenen Nachrichten werden im KI-Kontext im Klartext verwendet."
+			msg = "Datenschutz deaktiviert: Deine vergangenen Nachrichten werden im KI-Kontext im Klartext verwendet, und du wirst in Chat-Statistiken (Trivia) gezählt und gelegentlich namentlich genannt."
 		}
 	case "nonmention":
 		err = m.setUserConsent(userID, enabled)

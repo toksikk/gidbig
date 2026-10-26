@@ -5,6 +5,7 @@ Directory `internal/gippity`. Implements `bot.Module`, `bot.AdminProvider` and `
 LLM chat for Discord: answers when the bot is mentioned, keeps per-channel history, describes image attachments, honors per-user privacy, rate-limits mentions, and can optionally answer non-mention messages that the classifier accepts.
 
 - Commands: `/gippity privacy set:on|off`, `/gippity nonmention set:on|off`.
+- `PrivacyEnabled(userID)` exports the privacy lookup. The trivia module uses it as its consent check: `/gippity privacy set:off` also opts a user into trivia counting.
 - Storage: shared SQLite `gidbig.db`, prefixed tables (`gippity_chat_history`, `gippity_chat_history_edits`, `gippity_chat_attachments`, `gippity_user_privacy`, `gippity_user_consent`).
 - Rate limit: `rate_limit_messages_per_hour` per user (reply budget). Non-mention classifier calls have a separate `classifier_rate_limit_per_hour` per-user budget. The background task `gippity-rate-counter-prune` drops per-user counters whose window started at least an hour ago, once per hour.
 - Reply target: `reply_in_thread` (default `false`) posts the answer inside a public thread started on the mentioning message instead of the channel. The thread name is derived from that message (mentions, backticks and control/format characters stripped, clamped to 100 characters). Messages that already arrive in a thread are answered in place, since Discord does not nest threads, and a failed thread start falls back to the channel. Rate-limit notices follow the same setting.

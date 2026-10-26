@@ -282,15 +282,28 @@ func (m *Module) fillNames(message *LLMChatMessage) {
 	message.TimestampString = util.GetTimestampOfMessage(message.MessageID).Format("2006-01-02 15:04:05")
 }
 
-// getUserPrivacy returns true (privacy on) by default; explicit opt-out returns false.
-func (m *Module) getUserPrivacy(userID string) bool {
-	var privacy UserPrivacy
-	err := m.db.Where("user_id = ?", userID).First(&privacy).Error
-	if errors.Is(err, gorm.ErrRecordNotFound) {
+// PrivacyEnabled reports whether userID keeps /gippity privacy on (the
+// default). Other modules, such as trivia, use it as their consent check: a
+// user is only counted once they have turned privacy off. Without a database
+// it fails closed and reports privacy on.
+func (m *Module) PrivacyEnabled(userID string) bool {
+	if m == nil || m.db == nil {
 		return true
 	}
-	if err != nil {
-		slog.Error("Error while querying user_privacy", "error", err)
+	return m.getUserPrivacy(userID)
+}
+
+// getUserPrivacy returns true (privacy on) by default; explicit opt-out returns false.
+func (m *Module) getUserPrivacy(userID string) bool {
+	// Find with Limit(1) instead of First: a missing row is the common
+	// default and must not log "record not found" on every chat event.
+	var privacy UserPrivacy
+	res := m.db.Where("user_id = ?", userID).Limit(1).Find(&privacy)
+	if res.Error != nil {
+		slog.Error("Error while querying user_privacy", "error", res.Error)
+		return true
+	}
+	if res.RowsAffected == 0 {
 		return true
 	}
 	return privacy.PrivacyEnabled

@@ -227,12 +227,12 @@ func (m *Module) Commands() []*discordgo.ApplicationCommand {
 				{
 					Type:        discordgo.ApplicationCommandOptionSubCommand,
 					Name:        "privacy",
-					Description: "Control whether your past messages are anonymized in AI context",
+					Description: "Anonymize your messages in AI context; off also opts you into chat trivia stats",
 					Options: []*discordgo.ApplicationCommandOption{
 						{
 							Type:        discordgo.ApplicationCommandOptionString,
 							Name:        "set",
-							Description: "on = anonymize (default), off = include as-is",
+							Description: "on = anonymize, no trivia (default); off = include as-is, counted in trivia",
 							Required:    true,
 							Choices: []*discordgo.ApplicationCommandOptionChoice{
 								{Name: "on", Value: "on"},
