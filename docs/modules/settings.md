@@ -56,7 +56,8 @@ fails when one is neither registered (hot or cold) nor listed in
 `unregisteredConfigKeys` with a reason (secrets, the deprecated
 `database.path`). A new config section therefore cannot silently miss
 `/admin config` and the web settings panel. The `tv.*` keys and
-`logs.window_lines` are cold; `tv.regions`, `tv.timezone`, `tv.cache_dir`,
+`logs.window_lines` are cold, and so are `trivia.dropin_chance` and
+`trivia.dropin_cooldown` (the latter shows the effective duration); `tv.regions`, `tv.timezone`, `tv.cache_dir`,
 `tv.refresh_interval` and `logs.window_lines` show the effective value
 including the built-in default.
 

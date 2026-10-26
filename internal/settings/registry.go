@@ -359,6 +359,11 @@ var coldKeys = []Key{
 	cold("tv.channels", KindStringList, extractList(func(c *cfg.Config) *[]string { return &c.TV.Channels })),
 	cold("tv.cache_dir", KindString, func(c *cfg.Config) string { return c.TVCacheDir() }),
 	cold("tv.refresh_interval", KindString, func(c *cfg.Config) string { return c.TVRefreshInterval().String() }),
+	// The trivia module reads its drop-in tuning once in Init.
+	cold("trivia.dropin_chance", KindString, func(c *cfg.Config) string {
+		return strconv.FormatFloat(c.Trivia.DropinChance, 'g', -1, 64)
+	}),
+	cold("trivia.dropin_cooldown", KindString, func(c *cfg.Config) string { return c.TriviaDropinCooldown().String() }),
 }
 
 // cold builds a read-only key.
