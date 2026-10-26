@@ -125,6 +125,16 @@ func (r *Router) OnMessageUpdate(h func(*discordgo.Session, *discordgo.MessageUp
 	r.addHandler(h)
 }
 
+// OnMessageReactionAdd registers a MessageReactionAdd handler.
+func (r *Router) OnMessageReactionAdd(h func(*discordgo.Session, *discordgo.MessageReactionAdd)) {
+	r.addHandler(h)
+}
+
+// OnMessageReactionRemove registers a MessageReactionRemove handler.
+func (r *Router) OnMessageReactionRemove(h func(*discordgo.Session, *discordgo.MessageReactionRemove)) {
+	r.addHandler(h)
+}
+
 func (r *Router) addHandler(h any) {
 	if r == nil || h == nil || r.deps.Session == nil {
 		return
