@@ -46,7 +46,7 @@ const DefaultMaxTokens = int64(300)
 
 const (
 	defaultProvider      = "openai"
-	defaultModel         = openai.ChatModelGPT4oMini
+	defaultModel         = openai.ChatModelGPT4_1Mini
 	defaultOpenAIBaseURL = "https://api.openai.com/v1"
 	openRouterBaseURL    = "https://openrouter.ai/api/v1"
 )

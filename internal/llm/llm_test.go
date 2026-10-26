@@ -281,7 +281,7 @@ func TestNewOpenAIDefaultModels(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	if c.Model() != openai.ChatModelGPT4oMini || c.VisionModel() != openai.ChatModelGPT4oMini {
+	if c.Model() != openai.ChatModelGPT4_1Mini || c.VisionModel() != openai.ChatModelGPT4_1Mini {
 		t.Errorf("default models = %q/%q", c.Model(), c.VisionModel())
 	}
 	if c.Personality() != defaultPersonality {
@@ -289,7 +289,7 @@ func TestNewOpenAIDefaultModels(t *testing.T) {
 	}
 
 	info := c.Info()
-	if info.Provider != "openai" || info.Model != openai.ChatModelGPT4oMini || info.VisionModel != openai.ChatModelGPT4oMini {
+	if info.Provider != "openai" || info.Model != openai.ChatModelGPT4_1Mini || info.VisionModel != openai.ChatModelGPT4_1Mini {
 		t.Errorf("Info provider/models = %q/%q/%q", info.Provider, info.Model, info.VisionModel)
 	}
 	if info.BaseURL != "https://api.example/v1" || info.KeySource != "OPENAI_API_KEY" {
