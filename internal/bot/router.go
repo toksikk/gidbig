@@ -1,6 +1,7 @@
 package bot
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -38,12 +39,21 @@ type Router struct {
 	// name). RegisterModule surfaces it after Init so a collision fails the
 	// module loudly instead of silently dropping a command.
 	registrationErr error
+
+	// Async deferred-reply work started through Go; guarded by mu.
+	asyncCtx    context.Context
+	asyncCancel context.CancelFunc
+	asyncWG     sync.WaitGroup
+	asyncClosed bool
 }
 
 func newRouter(d Deps) *Router {
+	ctx, cancel := context.WithCancel(context.Background())
 	return &Router{
-		deps:       d,
-		components: make(map[string]func(*discordgo.Session, *discordgo.InteractionCreate)),
+		deps:        d,
+		components:  make(map[string]func(*discordgo.Session, *discordgo.InteractionCreate)),
+		asyncCtx:    ctx,
+		asyncCancel: cancel,
 	}
 }
 
