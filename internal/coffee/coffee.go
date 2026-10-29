@@ -265,37 +265,24 @@ func (m *Module) Shutdown() error {
 }
 
 func (m *Module) deferInteractionImpl(s *discordgo.Session, i *discordgo.InteractionCreate, ephemeral bool) error {
-	var flags discordgo.MessageFlags
-	if ephemeral {
-		flags = discordgo.MessageFlagsEphemeral
-	}
-	return s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
-		Data: &discordgo.InteractionResponseData{Flags: flags},
-	})
+	return bot.DeferReply(s, i, ephemeral)
 }
 
 // deferUpdateImpl acknowledges a component interaction by deferring an in-place
 // message update, giving the handler time to call LLM without hitting the 3-second
 // Discord acknowledgment deadline.
 func (m *Module) deferUpdateImpl(s *discordgo.Session, i *discordgo.InteractionCreate) error {
-	return s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseDeferredMessageUpdate,
-	})
+	return bot.DeferUpdate(s, i)
 }
 
 func (m *Module) editDeferredResponseImpl(s *discordgo.Session, i *discordgo.InteractionCreate, content string) {
-	if _, err := s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: &content}); err != nil {
-		slog.Error("coffee: failed to edit deferred response", "error", err)
-	}
+	bot.EditReply(s, i, &discordgo.WebhookEdit{Content: &content})
 }
 
 // editWithComponentsImpl edits the interaction's response, replacing both its
 // content and its components (used to attach the "Take cup" button).
 func (m *Module) editWithComponentsImpl(s *discordgo.Session, i *discordgo.InteractionCreate, content string, comps []discordgo.MessageComponent) {
-	if _, err := s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: &content, Components: &comps}); err != nil {
-		slog.Error("coffee: failed to edit response with components", "error", err)
-	}
+	bot.EditReply(s, i, &discordgo.WebhookEdit{Content: &content, Components: &comps})
 }
 
 func (m *Module) generateInteractionMessage(s *discordgo.Session, channelID, scenario, fallback string) string {

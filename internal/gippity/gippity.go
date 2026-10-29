@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/toksikk/gidbig/internal/bot"
 	"github.com/toksikk/gidbig/internal/llm"
 	"github.com/toksikk/gidbig/internal/tool"
 	"github.com/toksikk/gidbig/internal/util"
@@ -365,10 +366,7 @@ func (m *Module) onGippityInteractionCreate(s *discordgo.Session, i *discordgo.I
 	if userID == "" {
 		return
 	}
-	if err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
-		Data: &discordgo.InteractionResponseData{Flags: discordgo.MessageFlagsEphemeral},
-	}); err != nil {
+	if err := bot.DeferReply(s, i, true); err != nil {
 		slog.Error("gippity: failed to defer interaction", "error", err)
 		return
 	}

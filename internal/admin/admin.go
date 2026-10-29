@@ -119,14 +119,9 @@ func (m *Module) handleAdminCommand(s *discordgo.Session, i *discordgo.Interacti
 }
 
 func deferEphemeral(s *discordgo.Session, i *discordgo.InteractionCreate) error {
-	return s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
-		Data: &discordgo.InteractionResponseData{Flags: discordgo.MessageFlagsEphemeral},
-	})
+	return bot.DeferReply(s, i, true)
 }
 
 func editEphemeral(s *discordgo.Session, i *discordgo.InteractionCreate, content string) {
-	if _, err := s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: &content}); err != nil {
-		slog.Error("admin: failed to edit interaction response", "error", err)
-	}
+	bot.EditReply(s, i, &discordgo.WebhookEdit{Content: &content})
 }

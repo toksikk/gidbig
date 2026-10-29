@@ -164,7 +164,11 @@ func TestRecordInteractionRoutingAndVisibility(t *testing.T) {
 		if err := json.Unmarshal(first.body, &deferred); err != nil {
 			t.Fatal(err)
 		}
-		if first.method != http.MethodPost || deferred.Type != discordgo.InteractionResponseDeferredChannelMessageWithSource || deferred.Data.Flags != tc.flags {
+		var deferredFlags discordgo.MessageFlags
+		if deferred.Data != nil {
+			deferredFlags = deferred.Data.Flags
+		}
+		if first.method != http.MethodPost || deferred.Type != discordgo.InteractionResponseDeferredChannelMessageWithSource || deferredFlags != tc.flags {
 			t.Errorf("defer %s: %#v", tc.sub, deferred)
 		}
 		var edited struct {
