@@ -38,10 +38,8 @@ type Module struct {
 	conf     *cfg.Config
 	settings *settings.Store
 	tools    *tool.Registry
+	router   *bot.Router
 	now      func() time.Time
-
-	ctx    context.Context
-	cancel context.CancelFunc
 
 	mu    sync.Mutex
 	cache map[string]cacheEntry
@@ -56,8 +54,7 @@ type cacheEntry struct {
 
 // New returns a new tmdb Module. Register it only when a token is configured.
 func New() *Module {
-	ctx, cancel := context.WithCancel(context.Background())
-	return &Module{now: time.Now, ctx: ctx, cancel: cancel, cache: make(map[string]cacheEntry)}
+	return &Module{now: time.Now, cache: make(map[string]cacheEntry)}
 }
 
 func (m *Module) Name() string { return "tmdb" }
@@ -69,6 +66,7 @@ func (m *Module) Init(d bot.Deps) error {
 	m.conf = d.Config
 	m.settings = d.Settings
 	m.tools = d.Tools
+	m.router = d.Router
 	m.client = NewClient(d.Config.TMDB.ReadAccessToken)
 	m.registerTools()
 	for _, cmd := range m.Commands() {
@@ -94,11 +92,9 @@ func (m *Module) Commands() []*discordgo.ApplicationCommand {
 
 func (m *Module) Background() []bot.BackgroundTask { return nil }
 
-// Shutdown cancels in-flight lookups.
-func (m *Module) Shutdown() error {
-	m.cancel()
-	return nil
-}
+// Shutdown is a no-op: in-flight lookups run through Router.Go, which the bot
+// cancels and drains before shutting down modules.
+func (m *Module) Shutdown() error { return nil }
 
 // region returns the effective default region: settings override, then config.
 func (m *Module) region() string {
@@ -192,20 +188,25 @@ func (m *Module) onCommand(s *discordgo.Session, i *discordgo.InteractionCreate)
 	}
 	userID := interactionUserID(i)
 
-	if err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
-	}); err != nil {
+	if err := bot.DeferReply(s, i, false); err != nil {
 		slog.Error("tmdb: failed to defer interaction", "error", err)
 		return
 	}
-	go func() {
-		ctx, cancel := context.WithTimeout(m.ctx, workTimeout)
+	if ok := m.router.Go(func(ctx context.Context) {
+		ctx, cancel := context.WithTimeout(ctx, workTimeout)
 		defer cancel()
-		edit := m.searchReply(ctx, title, userID, region)
-		if _, err := s.InteractionResponseEdit(i.Interaction, edit); err != nil {
-			slog.Error("tmdb: failed to edit interaction response", "error", err)
-		}
-	}()
+		bot.EditReply(s, i, m.searchReply(ctx, title, userID, region))
+	}); !ok {
+		bot.EditReply(s, i, shuttingDownEdit())
+	}
+}
+
+// shuttingDownEdit replaces a deferred reply with the shutdown notice and
+// clears any components.
+func shuttingDownEdit() *discordgo.WebhookEdit {
+	content := bot.MsgShuttingDown
+	empty := []discordgo.MessageComponent{}
+	return &discordgo.WebhookEdit{Content: &content, Components: &empty, AllowedMentions: util.NoMentions()}
 }
 
 // searchReply builds the deferred edit for a search: a select menu of matches,
@@ -264,15 +265,13 @@ func (m *Module) onPick(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		respondEphemeral(s, i, invalidSelection)
 		return
 	}
-	if err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseDeferredMessageUpdate,
-	}); err != nil {
+	if err := bot.DeferUpdate(s, i); err != nil {
 		slog.Error("tmdb: failed to defer pick", "error", err)
 		return
 	}
 	m.stats.picks.Add(1)
-	go func() {
-		ctx, cancel := context.WithTimeout(m.ctx, workTimeout)
+	if ok := m.router.Go(func(ctx context.Context) {
+		ctx, cancel := context.WithTimeout(ctx, workTimeout)
 		defer cancel()
 		empty := []discordgo.MessageComponent{}
 		content := ""
@@ -284,10 +283,10 @@ func (m *Module) onPick(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		} else {
 			edit.Embeds = &[]*discordgo.MessageEmbed{buildEmbed(d, region)}
 		}
-		if _, err := s.InteractionResponseEdit(i.Interaction, edit); err != nil {
-			slog.Error("tmdb: failed to edit pick response", "error", err)
-		}
-	}()
+		bot.EditReply(s, i, edit)
+	}); !ok {
+		bot.EditReply(s, i, shuttingDownEdit())
+	}
 }
 
 // pickCustomID encodes the invoking user and region into the menu's custom ID.

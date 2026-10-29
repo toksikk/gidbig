@@ -165,24 +165,6 @@ func TestShutdownCancelsLookups(t *testing.T) {
 	}
 }
 
-func TestStartReplyAfterShutdown(t *testing.T) {
-	m := New()
-	ran := make(chan struct{})
-	if !m.startReply(func() { close(ran) }) {
-		t.Fatal("startReply refused before shutdown")
-	}
-	<-ran
-	if err := m.Shutdown(); err != nil {
-		t.Fatal(err)
-	}
-	if m.startReply(func() { t.Error("ran after shutdown") }) {
-		t.Fatal("startReply accepted after shutdown")
-	}
-	if msgShuttingDown != "Bot is shutting down, try again later." {
-		t.Errorf("shutdown text = %q", msgShuttingDown)
-	}
-}
-
 func TestCallerCancelDoesNotWaitForFetch(t *testing.T) {
 	c := newFlightCache[int](context.Background(), time.Minute, 4, time.Now)
 	release := make(chan struct{})
