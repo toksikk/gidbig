@@ -63,6 +63,9 @@ func (r *Router) Go(fn func(ctx context.Context)) bool {
 		r.mu.Unlock()
 		return false
 	}
+	if r.asyncCtx == nil {
+		r.asyncCtx, r.asyncCancel = context.WithCancel(context.Background())
+	}
 	r.asyncWG.Add(1)
 	ctx := r.asyncCtx
 	r.mu.Unlock()
