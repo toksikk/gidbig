@@ -56,6 +56,7 @@ func TestHandlersReplyShuttingDownAfterShutdown(t *testing.T) {
 		call      func(m *Module, s *discordgo.Session, i *discordgo.InteractionCreate)
 		i         *discordgo.Interaction
 		deferType discordgo.InteractionResponseType
+		followup  bool
 	}{
 		"command": {
 			call: (*Module).onCommand,
@@ -75,6 +76,7 @@ func TestHandlersReplyShuttingDownAfterShutdown(t *testing.T) {
 				Values:   []string{"movie:1"},
 			}},
 			deferType: discordgo.InteractionResponseDeferredMessageUpdate,
+			followup:  true,
 		},
 	}
 	for name, tt := range tests {
@@ -97,8 +99,9 @@ func TestHandlersReplyShuttingDownAfterShutdown(t *testing.T) {
 				t.Errorf("defer type = %v, want %v", deferred.Type, tt.deferType)
 			}
 			var edit struct {
-				Content    *string           `json:"content"`
-				Components []json.RawMessage `json:"components"`
+				Content    *string                `json:"content"`
+				Components []json.RawMessage      `json:"components"`
+				Flags      discordgo.MessageFlags `json:"flags"`
 			}
 			if err := json.Unmarshal(awaitBody(t, requests), &edit); err != nil {
 				t.Fatal(err)
@@ -106,7 +109,12 @@ func TestHandlersReplyShuttingDownAfterShutdown(t *testing.T) {
 			if edit.Content == nil || *edit.Content != bot.MsgShuttingDown {
 				t.Errorf("edited content = %v, want %q", edit.Content, bot.MsgShuttingDown)
 			}
-			if edit.Components == nil || len(edit.Components) != 0 {
+			if tt.followup {
+				// The pick keeps the search menu and answers ephemerally.
+				if edit.Flags&discordgo.MessageFlagsEphemeral == 0 || edit.Components != nil {
+					t.Errorf("follow-up flags = %v components = %v, want ephemeral, untouched menu", edit.Flags, edit.Components)
+				}
+			} else if edit.Components == nil || len(edit.Components) != 0 {
 				t.Errorf("components = %v, want empty list", edit.Components)
 			}
 		})

@@ -165,6 +165,18 @@ func TestRouterGoRecoversPanic(t *testing.T) {
 	r.stopAsync()
 }
 
+func TestRouterGoZeroValueRouter(t *testing.T) {
+	r := &Router{}
+	done := make(chan error, 1)
+	if !r.Go(func(ctx context.Context) { done <- ctx.Err() }) {
+		t.Fatal("Go returned false")
+	}
+	if err := <-done; err != nil {
+		t.Fatalf("ctx = %v", err)
+	}
+	r.stopAsync()
+}
+
 func TestRouterGoNilReceiverRunsInline(t *testing.T) {
 	var r *Router
 	ran := false

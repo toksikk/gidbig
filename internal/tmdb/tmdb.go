@@ -285,7 +285,12 @@ func (m *Module) onPick(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		}
 		bot.EditReply(s, i, edit)
 	}); !ok {
-		bot.EditReply(s, i, shuttingDownEdit())
+		// Keep the search menu: tell the picker in an ephemeral follow-up.
+		if _, err := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+			Content: bot.MsgShuttingDown, Flags: discordgo.MessageFlagsEphemeral, AllowedMentions: util.NoMentions(),
+		}); err != nil {
+			slog.Error("tmdb: failed to send shutdown follow-up", "error", err)
+		}
 	}
 }
 
