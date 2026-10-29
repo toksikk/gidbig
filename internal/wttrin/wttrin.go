@@ -254,6 +254,7 @@ type wttrinResponse struct {
 // Module implements bot.Module for the wttrin weather plugin.
 type Module struct {
 	session      *discordgo.Session
+	router       *bot.Router
 	llmClient    *llm.Client
 	detectLang   func(*discordgo.Session, string) (string, error)
 	generateFn   func(context.Context, string, string) (string, error)
@@ -296,6 +297,7 @@ func (m *Module) Name() string { return "wttrin" }
 
 func (m *Module) Init(d bot.Deps) error {
 	m.session = d.Session
+	m.router = d.Router
 	if d.LLM != nil {
 		m.llmClient = d.LLM
 		m.detectLang = d.LLM.DetectChannelLanguage
@@ -347,22 +349,23 @@ func (m *Module) onInteractionCreate(s *discordgo.Session, i *discordgo.Interact
 	if !ok || location == "" {
 		return
 	}
-	if err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
-	}); err != nil {
+	if err := bot.DeferReply(s, i, false); err != nil {
 		slog.Error("wttrin: failed to respond to interaction", "error", err)
 		return
 	}
-	go func() {
+	// composeWeather takes no context, so cancellation is not propagated into
+	// the fetch; Router.Go still tracks the work for shutdown.
+	if ok := m.router.Go(func(context.Context) {
 		body, err := m.composeWeather(s, i.ChannelID, location, forecast)
 		if err != nil {
 			slog.Error("Failed to get weather", "ChannelID", i.ChannelID, "Location", location, "Error", err)
 			body = "Failed to get weather for `" + location + "`"
 		}
-		if _, errEdit := s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: &body, AllowedMentions: util.NoMentions()}); errEdit != nil {
-			slog.Error("Failed to edit interaction response", "ChannelID", i.ChannelID, "Error", errEdit)
-		}
-	}()
+		bot.EditReply(s, i, &discordgo.WebhookEdit{Content: &body, AllowedMentions: util.NoMentions()})
+	}); !ok {
+		msg := bot.MsgShuttingDown
+		bot.EditReply(s, i, &discordgo.WebhookEdit{Content: &msg, AllowedMentions: util.NoMentions()})
+	}
 }
 
 func (m *Module) composeWeather(s *discordgo.Session, channelID, location string, forecast bool) (string, error) {

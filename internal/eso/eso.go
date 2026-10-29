@@ -20,6 +20,7 @@ Antworte ausschließlich mit dem generierten Satz auf Deutsch. Keine Erklärung,
 type Module struct {
 	session   *discordgo.Session
 	responder *util.AIResponder
+	router    *bot.Router
 }
 
 // New returns a new eso Module.
@@ -29,6 +30,7 @@ func (m *Module) Name() string { return "eso" }
 
 func (m *Module) Init(d bot.Deps) error {
 	m.session = d.Session
+	m.router = d.Router
 
 	generateFn := func(context.Context, string, string) (string, error) {
 		return "", errors.New("llm: client not initialized")
@@ -97,9 +99,7 @@ func (m *Module) onInteractionCreate(s *discordgo.Session, i *discordgo.Interact
 		return
 	}
 
-	if err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
-	}); err != nil {
+	if err := bot.DeferReply(s, i, false); err != nil {
 		slog.Error("eso: failed to defer interaction", "error", err)
 		return
 	}
@@ -113,12 +113,12 @@ func (m *Module) onInteractionCreate(s *discordgo.Session, i *discordgo.Interact
 		}
 	}
 
-	go func() {
+	if ok := m.router.Go(func(ctx context.Context) {
 		userPrompt := "Generiere einen esoterischen Unsinn-Satz."
 		if subject != "" {
 			userPrompt = "Generiere esoterischen Unsinn über das Thema: " + subject
 		}
-		text := restoreMentions(m.responder.GenerateWithPrompt(context.Background(), userPrompt))
+		text := restoreMentions(m.responder.GenerateWithPrompt(ctx, userPrompt))
 		if _, err := s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: &text, AllowedMentions: util.NoMentions()}); err != nil {
 			slog.Error("eso: failed to edit interaction response", "error", err)
 			return
@@ -126,7 +126,10 @@ func (m *Module) onInteractionCreate(s *discordgo.Session, i *discordgo.Interact
 		if msg, err := s.InteractionResponse(i.Interaction); err == nil && msg != nil {
 			util.ReactOnMessage(s, msg.ChannelID, msg.ID, "🧠", "add")
 		}
-	}()
+	}); !ok {
+		msg := bot.MsgShuttingDown
+		bot.EditReply(s, i, &discordgo.WebhookEdit{Content: &msg, AllowedMentions: util.NoMentions()})
+	}
 }
 
 func buildMessage() string {
