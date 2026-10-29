@@ -95,7 +95,8 @@ type Module struct {
 	expiresAt time.Time
 	inflight  *datasetCall
 
-	tools *tool.Registry
+	tools  *tool.Registry
+	router *bot.Router
 }
 
 // datasetCall is the shared result of one in-flight dataset fetch.
@@ -127,6 +128,7 @@ func (m *Module) Name() string { return "anticheat" }
 // receives it per event.
 func (m *Module) Init(d bot.Deps) error {
 	m.tools = d.Tools
+	m.router = d.Router
 	m.registerTools()
 	for _, cmd := range m.Commands() {
 		d.Router.AddCommand(cmd, m.onInteractionCreate)
@@ -194,15 +196,13 @@ func (m *Module) handleLookup(s *discordgo.Session, i *discordgo.InteractionCrea
 		return
 	}
 
-	if err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
-	}); err != nil {
+	if err := bot.DeferReply(s, i, false); err != nil {
 		slog.Error("anticheat: failed to respond to interaction", "error", err)
 		return
 	}
 
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), fetchTimeout)
+	if ok := m.router.Go(func(ctx context.Context) {
+		ctx, cancel := context.WithTimeout(ctx, fetchTimeout)
 		defer cancel()
 
 		entries, err := m.getDataset(ctx)
@@ -211,13 +211,11 @@ func (m *Module) handleLookup(s *discordgo.Session, i *discordgo.InteractionCrea
 			slog.Error("anticheat: failed to load dataset", "query", query, "error", err)
 			body = "Failed to reach the GamingOnLinux Anti-Cheat list, try again later.\n" + sourceLine
 		}
-		if _, errEdit := s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-			Content:         &body,
-			AllowedMentions: noMentions,
-		}); errEdit != nil {
-			slog.Error("anticheat: failed to edit interaction response", "error", errEdit)
-		}
-	}()
+		bot.EditReply(s, i, &discordgo.WebhookEdit{Content: &body, AllowedMentions: noMentions})
+	}); !ok {
+		msg := bot.MsgShuttingDown
+		bot.EditReply(s, i, &discordgo.WebhookEdit{Content: &msg, AllowedMentions: noMentions})
+	}
 }
 
 func (m *Module) handleAutocomplete(s *discordgo.Session, i *discordgo.InteractionCreate) {

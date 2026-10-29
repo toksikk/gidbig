@@ -51,7 +51,8 @@ type Module struct {
 	expiresAt time.Time
 	inflight  *statusCall
 
-	tools *tool.Registry
+	tools  *tool.Registry
+	router *bot.Router
 }
 
 // statusCall groups the callers waiting on one upstream fetch, so a burst on a
@@ -74,6 +75,7 @@ func (m *Module) Name() string { return "wardogs" }
 
 func (m *Module) Init(d bot.Deps) error {
 	m.tools = d.Tools
+	m.router = d.Router
 	m.registerTools()
 	for _, cmd := range m.Commands() {
 		d.Router.AddCommand(cmd, m.onInteractionCreate)
@@ -98,22 +100,21 @@ func (m *Module) onInteractionCreate(s *discordgo.Session, i *discordgo.Interact
 	if i.ApplicationCommandData().Name != "wardogs" {
 		return
 	}
-	if err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
-	}); err != nil {
+	if err := bot.DeferReply(s, i, false); err != nil {
 		slog.Error("wardogs: failed to respond to interaction", "error", err)
 		return
 	}
-	go func() {
-		body, err := m.composeStatus(context.Background())
+	if ok := m.router.Go(func(ctx context.Context) {
+		body, err := m.composeStatus(ctx)
 		if err != nil {
 			slog.Error("wardogs: failed to fetch Linux support status", "error", err)
 			body = "Could not reach `doeswardogshavelinux.support` right now. Try again in a minute."
 		}
-		if _, errEdit := s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: &body, AllowedMentions: util.NoMentions()}); errEdit != nil {
-			slog.Error("wardogs: failed to edit interaction response", "error", errEdit)
-		}
-	}()
+		bot.EditReply(s, i, &discordgo.WebhookEdit{Content: &body, AllowedMentions: util.NoMentions()})
+	}); !ok {
+		msg := bot.MsgShuttingDown
+		bot.EditReply(s, i, &discordgo.WebhookEdit{Content: &msg, AllowedMentions: util.NoMentions()})
+	}
 }
 
 // composeStatus returns the Discord message body for the current status.
