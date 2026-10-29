@@ -89,12 +89,14 @@ func (b *Bot) Run(ctx context.Context) error {
 	return nil
 }
 
-// Shutdown cancels the context, waits for background tasks, shuts down modules,
-// and closes the Discord session.
+// Shutdown cancels the context, drains in-flight deferred-reply work started
+// through Router.Go, waits for background tasks, shuts down modules, and closes
+// the Discord session.
 func (b *Bot) Shutdown() {
 	if b.cancel != nil {
 		b.cancel()
 	}
+	b.Router.stopAsync()
 	b.background.Wait()
 	for _, m := range b.modules {
 		if err := m.Shutdown(); err != nil {
