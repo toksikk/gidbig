@@ -11,6 +11,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/toksikk/gidbig/internal/bot"
 	"github.com/toksikk/gidbig/internal/leetoclock/util/datastore"
 	"gorm.io/gorm"
 )
@@ -250,14 +251,7 @@ func (m *Module) onInteractionCreate(s *discordgo.Session, i *discordgo.Interact
 		respondRecordsError(s, i, "Invalid record options. Choose `/leetoclock top`, `/leetoclock daily` or `/leetoclock player`.")
 		return
 	}
-	flags := discordgo.MessageFlags(0)
-	if !r.public {
-		flags = discordgo.MessageFlagsEphemeral
-	}
-	if err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
-		Data: &discordgo.InteractionResponseData{Flags: flags, AllowedMentions: recordNoMentions},
-	}); err != nil {
+	if err := bot.DeferReply(s, i, !r.public); err != nil {
 		slog.Error("leetoclock: defer records", "error", err)
 		return
 	}
@@ -266,9 +260,7 @@ func (m *Module) onInteractionCreate(s *discordgo.Session, i *discordgo.Interact
 		slog.Error("leetoclock: query records", "error", err)
 		body = "Could not load records right now. Try again later."
 	}
-	if _, err := s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: &body, AllowedMentions: recordNoMentions}); err != nil {
-		slog.Error("leetoclock: edit records", "error", err)
-	}
+	bot.EditReply(s, i, &discordgo.WebhookEdit{Content: &body, AllowedMentions: recordNoMentions})
 }
 
 func respondRecordsError(s *discordgo.Session, i *discordgo.InteractionCreate, text string) {

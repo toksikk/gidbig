@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/toksikk/gidbig/internal/bot"
 )
 
 // coreSlashCommands defines the /uptime slash command.
@@ -37,10 +38,7 @@ func respondEphemeral(s *discordgo.Session, i *discordgo.InteractionCreate, cont
 }
 
 func deferInteraction(s *discordgo.Session, i *discordgo.InteractionCreate) bool {
-	if err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
-		Data: &discordgo.InteractionResponseData{Flags: discordgo.MessageFlagsEphemeral},
-	}); err != nil {
+	if err := bot.DeferReply(s, i, true); err != nil {
 		slog.Error("could not respond to slash command", "error", err)
 		return false
 	}
