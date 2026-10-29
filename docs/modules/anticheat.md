@@ -51,6 +51,7 @@ sequenceDiagram
     M->>D: /anticheat query
     D->>A: onInteractionCreate (type check first)
     A->>D: defer response
+    A->>A: Router.Go (fetch timeout)
     A->>C: getDataset()
     alt cache warm
         C-->>A: entries

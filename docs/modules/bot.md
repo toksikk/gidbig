@@ -6,6 +6,7 @@ Directory `internal/bot`. Shared module framework. Not user-facing.
 - `deps.go` – `Deps` (Session, Config, LLM `*llm.Client`, Logger, OwnerID, DB, Stats, Tools, Settings, Router).
 - `router.go` – the single registration and dispatch point. Modules call `AddCommand(cmd, handler, mw...)`, `AddComponent(prefix, handler)`, `OnMessage(handler)` and the typed `OnReady`/`OnConnect`/`OnDisconnect`/`OnResumed`/`OnMessageUpdate`/`OnMessageReactionAdd`/`OnMessageReactionRemove`; the router installs exactly one `MessageCreate` and one `InteractionCreate` session handler. All `AddHandler` calls for those two events live here. The typed `On*` methods make a mistyped gateway listener a compile error, unlike discordgo's untyped `AddHandler`.
 - `bot.go` – `Bot`: sets `Deps.Router`, registers modules (Init + stats), registers the router's commands with Discord, runs the background supervisor, and shuts down. Production boots through `bot.New(deps).Run(ctx)`.
+- `reply.go` – deferred-reply helpers: `DeferReply(s, i, ephemeral)`, `DeferUpdate(s, i)`, `EditReply(s, i, edit)` (logs a failed edit; the caller owns the payload, including `AllowedMentions`), the shared `MsgShuttingDown` text, and `Router.Go(fn)`, which runs a deferred reply's slow work on a tracked goroutine (see "Deferred replies").
 - `background.go` – `BackgroundSupervisor` runs panic-safe goroutines.
 - `middleware.go` – `OwnerOnly` (its denial is autocomplete-aware, returning empty choices for an autocomplete interaction instead of a message) and `Recover`.
 - `stats.go` – `StatsProvider`, `ModuleStats` and the `StatsRegistry` the core module reads for `/status`.
@@ -46,3 +47,39 @@ rolls the registrations back if `Init` fails, so a broken module cannot leave
 half its commands published.
 
 `BackgroundSupervisor.Start` launches each task in a goroutine and recovers panics; `Wait` blocks until all return.
+
+## Deferred replies
+
+A handler whose work can exceed Discord's 3 s acknowledgement window defers
+(`DeferReply`/`DeferUpdate`) and hands the slow part to `Router.Go`. `Go` runs fn
+on a goroutine with a router-owned context, recovers panics, and tracks it in a
+wait group; the context exists from `newRouter`, so handlers firing before `Run`
+work. Once the bot is shutting down `Go` returns false without running fn and
+the handler edits the reply to `MsgShuttingDown`. Modules must not start bare
+goroutines for deferred replies. On a nil router (tests that skip `Init`) fn runs
+inline with `context.Background()`.
+
+```mermaid
+sequenceDiagram
+    participant H as handler
+    participant D as Discord
+    participant R as Router
+    participant B as Bot.Shutdown
+    participant M as modules
+
+    H->>D: DeferReply
+    H->>R: Go(fn)
+    alt accepting work
+        R-->>H: true
+        R->>R: fn(ctx) on tracked goroutine
+        R->>D: EditReply(result)
+    else shutting down
+        R-->>H: false
+        H->>D: EditReply(MsgShuttingDown)
+    end
+    B->>B: cancel run context
+    B->>R: stopAsync: refuse new work, cancel ctx, wait
+    B->>B: wait background tasks
+    B->>M: Shutdown (resources still live while work drained)
+    B->>D: close session
+```
