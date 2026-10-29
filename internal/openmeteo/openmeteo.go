@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"math"
 	"strings"
-	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -44,13 +43,12 @@ type Module struct {
 	geocodes  *flightCache[geoResult]
 	tools     *tool.Registry
 
-	// ctx is cancelled by Shutdown; wg tracks in-flight /weather replies.
+	router *bot.Router
+
+	// ctx is cancelled by Shutdown and bounds the shared fetch caches and
+	// autocomplete; /weather replies run through Router.Go instead.
 	ctx    context.Context
 	cancel context.CancelFunc
-	wg     sync.WaitGroup
-	// mu guards closed and wg.Go so no reply starts while Shutdown waits.
-	mu     sync.Mutex
-	closed bool
 }
 
 // New returns a Module using the public Open-Meteo endpoints.
@@ -67,6 +65,7 @@ func (m *Module) Name() string { return "openmeteo" }
 
 func (m *Module) Init(d bot.Deps) error {
 	m.tools = d.Tools
+	m.router = d.Router
 	m.registerTools()
 	for _, cmd := range m.Commands() {
 		d.Router.AddCommand(cmd, m.onInteractionCreate)
@@ -106,13 +105,10 @@ func (m *Module) Commands() []*discordgo.ApplicationCommand {
 
 func (m *Module) Background() []bot.BackgroundTask { return nil }
 
-// Shutdown cancels in-flight lookups and waits for pending /weather replies.
+// Shutdown cancels in-flight cache fetches and waits for them. Pending /weather
+// replies run through Router.Go and are drained by the bot before this.
 func (m *Module) Shutdown() error {
-	m.mu.Lock()
-	m.closed = true
-	m.mu.Unlock()
 	m.cancel()
-	m.wg.Wait()
 	m.forecasts.wait()
 	m.geocodes.wait()
 	return nil
@@ -178,42 +174,24 @@ func (m *Module) onInteractionCreate(s *discordgo.Session, i *discordgo.Interact
 	if o := data.GetOption("days"); o != nil && forecast {
 		days = clampDays(int(o.IntValue()))
 	}
-	if err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
-	}); err != nil {
+	if err := bot.DeferReply(s, i, false); err != nil {
 		slog.Error("openmeteo: failed to respond to interaction", "error", err)
 		return
 	}
-	if !m.startReply(func() { m.replyWeather(s, i, location, forecast, days) }) {
-		editReply(s, i, msgShuttingDown)
+	if !m.router.Go(func(ctx context.Context) { m.replyWeather(ctx, s, i, location, forecast, days) }) {
+		editReply(s, i, bot.MsgShuttingDown)
 	}
 }
 
-// startReply runs fn in a tracked goroutine unless the module is shutting down.
-func (m *Module) startReply(fn func()) bool {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.closed {
-		return false
-	}
-	m.wg.Go(fn)
-	return true
-}
-
-func (m *Module) replyWeather(s *discordgo.Session, i *discordgo.InteractionCreate, location string, forecast bool, days int) {
-	ctx, cancel := context.WithTimeout(m.ctx, 2*httpTimeout)
+func (m *Module) replyWeather(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate, location string, forecast bool, days int) {
+	ctx, cancel := context.WithTimeout(ctx, 2*httpTimeout)
 	defer cancel()
 	editReply(s, i, m.composeDiscord(ctx, location, forecast, days))
 }
 
 func editReply(s *discordgo.Session, i *discordgo.InteractionCreate, body string) {
-	if _, err := s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: &body, AllowedMentions: util.NoMentions()}); err != nil {
-		slog.Error("openmeteo: failed to edit interaction response", "ChannelID", i.ChannelID, "error", err)
-	}
+	bot.EditReply(s, i, &discordgo.WebhookEdit{Content: &body, AllowedMentions: util.NoMentions()})
 }
-
-// msgShuttingDown answers a /weather request that arrives during shutdown.
-const msgShuttingDown = "Bot is shutting down, try again later."
 
 // invalidLocationResponse is the ephemeral reply for an empty or overlong location.
 func invalidLocationResponse() *discordgo.InteractionResponse {

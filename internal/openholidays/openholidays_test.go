@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/toksikk/gidbig/internal/bot"
 )
 
 func TestParseQueryDefaults(t *testing.T) {
@@ -294,13 +295,24 @@ func TestParseQueryTodayInBerlin(t *testing.T) {
 	}
 }
 
-func TestStartReplyAfterShutdown(t *testing.T) {
-	m := New()
-	if err := m.Shutdown(); err != nil {
+func TestCommandRepliesShuttingDownAfterShutdown(t *testing.T) {
+	discordMu.Lock()
+	defer discordMu.Unlock()
+	m, _ := newTestModule(t)
+	s, requests := discordSession(t)
+	b := bot.New(bot.Deps{Session: s})
+	b.Shutdown()
+	m.router = b.Router
+	m.onInteractionCreate(s, interaction(discordgo.InteractionApplicationCommand, discordgo.ApplicationCommandInteractionData{Name: commandName}))
+	awaitRequest(t, requests) // deferred
+	var edit struct {
+		Content *string `json:"content"`
+	}
+	if err := json.Unmarshal(awaitRequest(t, requests).body, &edit); err != nil {
 		t.Fatal(err)
 	}
-	if m.startReply(func() { t.Error("ran after shutdown") }) {
-		t.Fatal("startReply accepted after shutdown")
+	if edit.Content == nil || *edit.Content != bot.MsgShuttingDown {
+		t.Fatalf("content = %v, want %q", edit.Content, bot.MsgShuttingDown)
 	}
 }
 

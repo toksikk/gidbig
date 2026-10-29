@@ -9,7 +9,6 @@ import (
 	"log/slog"
 	"regexp"
 	"strings"
-	"sync"
 	"time"
 	_ "time/tzdata" // Europe/Berlin must resolve in the alpine image
 
@@ -83,13 +82,12 @@ type Module struct {
 	subdivisions *flightCache[[]subdivision]
 	tools        *tool.Registry
 
-	// ctx is cancelled by Shutdown; wg tracks in-flight /holidays replies.
+	router *bot.Router
+
+	// ctx is cancelled by Shutdown and bounds the shared fetch caches and
+	// autocomplete; /holidays replies run through Router.Go instead.
 	ctx    context.Context
 	cancel context.CancelFunc
-	wg     sync.WaitGroup
-	// mu guards closed and wg.Go so no reply starts while Shutdown waits.
-	mu     sync.Mutex
-	closed bool
 }
 
 // New returns a Module using the public OpenHolidays API.
@@ -107,6 +105,7 @@ func (m *Module) Name() string { return "openholidays" }
 
 func (m *Module) Init(d bot.Deps) error {
 	m.tools = d.Tools
+	m.router = d.Router
 	m.registerTools()
 	for _, cmd := range m.Commands() {
 		d.Router.AddCommand(cmd, m.onInteractionCreate)
@@ -161,13 +160,10 @@ func (m *Module) Commands() []*discordgo.ApplicationCommand {
 
 func (m *Module) Background() []bot.BackgroundTask { return nil }
 
-// Shutdown cancels in-flight lookups and waits for pending /holidays replies.
+// Shutdown cancels in-flight cache fetches and waits for them. Pending /holidays
+// replies run through Router.Go and are drained by the bot before this.
 func (m *Module) Shutdown() error {
-	m.mu.Lock()
-	m.closed = true
-	m.mu.Unlock()
 	m.cancel()
-	m.wg.Wait()
 	m.holidays.wait()
 	m.countries.wait()
 	m.subdivisions.wait()
@@ -322,14 +318,12 @@ func (m *Module) handleCommand(s *discordgo.Session, i *discordgo.InteractionCre
 		}
 		return
 	}
-	if err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
-	}); err != nil {
+	if err := bot.DeferReply(s, i, false); err != nil {
 		slog.Error("openholidays: failed to respond to interaction", "error", err)
 		return
 	}
-	if !m.startReply(func() { m.reply(s, i, q) }) {
-		editReply(s, i, msgShuttingDown)
+	if !m.router.Go(func(ctx context.Context) { m.reply(ctx, s, i, q) }) {
+		editReply(s, i, bot.MsgShuttingDown)
 	}
 }
 
@@ -349,19 +343,8 @@ func ephemeral(content string) *discordgo.InteractionResponse {
 	}
 }
 
-// startReply runs fn in a tracked goroutine unless the module is shutting down.
-func (m *Module) startReply(fn func()) bool {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.closed {
-		return false
-	}
-	m.wg.Go(fn)
-	return true
-}
-
-func (m *Module) reply(s *discordgo.Session, i *discordgo.InteractionCreate, q query) {
-	ctx, cancel := context.WithTimeout(m.ctx, 2*httpTimeout)
+func (m *Module) reply(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate, q query) {
+	ctx, cancel := context.WithTimeout(ctx, 2*httpTimeout)
 	defer cancel()
 	// The country check may fetch, so it runs after the deferred response to
 	// stay inside Discord's 3 s window; its error is therefore public.
@@ -383,13 +366,8 @@ func (m *Module) composeDiscord(ctx context.Context, q query) string {
 }
 
 func editReply(s *discordgo.Session, i *discordgo.InteractionCreate, body string) {
-	if _, err := s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: &body, AllowedMentions: util.NoMentions()}); err != nil {
-		slog.Error("openholidays: failed to edit interaction response", "ChannelID", i.ChannelID, "error", err)
-	}
+	bot.EditReply(s, i, &discordgo.WebhookEdit{Content: &body, AllowedMentions: util.NoMentions()})
 }
-
-// msgShuttingDown answers a /holidays request that arrives during shutdown.
-const msgShuttingDown = "Bot is shutting down, try again later."
 
 func (m *Module) handleAutocomplete(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	data := i.ApplicationCommandData()
