@@ -47,7 +47,7 @@ sequenceDiagram
     U->>D: /wardogs
     D->>W: onInteractionCreate
     W->>D: deferred response
-    W->>W: go composeStatus()
+    W->>W: Router.Go composeStatus()
     W->>Cache: statusCached()
     alt fresh cache (TTL 10m)
         Cache-->>W: cached status

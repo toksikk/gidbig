@@ -23,7 +23,7 @@ sequenceDiagram
     U->>D: /wttr location
     D->>W: onInteractionCreate
     W->>D: deferred response
-    W->>W: go composeWeather(forecast)
+    W->>W: Router.Go composeWeather(forecast)
     W->>Cache: getWeatherCached(location)
     alt fresh cache
         Cache-->>W: cached response

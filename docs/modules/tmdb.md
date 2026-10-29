@@ -28,8 +28,9 @@ streams. The reply is public.
 - Region / language: hot settings `tmdb.region` (default `DE`) and
   `tmdb.language` (default `de-DE`); the `region` option overrides per call.
 - Errors: 429 maps to "TMDB rate limited, try again shortly", others to a generic
-  retry hint. Each HTTP request has a 10 s client timeout. Lookups run in
-  goroutines bound to a 15 s timeout and cancelled on `Shutdown`.
+  retry hint. Each HTTP request has a 10 s client timeout. Lookups run through
+  `Router.Go` with a 15 s timeout; the bot cancels and drains them on shutdown,
+  and a request arriving during shutdown gets `bot.MsgShuttingDown`.
 - LLM tool `streaming_providers(title, type?, year?, region?)`: without `type` it
   uses `/search/multi`, with `type` it uses `/search/movie` (`year`) or
   `/search/tv` (`first_air_date_year`). It takes the top match and returns
@@ -50,12 +51,14 @@ sequenceDiagram
     U->>D: /wheretostream title region
     D->>M: onCommand
     M->>D: deferred response
+    M->>M: Router.Go (15 s timeout)
     M->>T: GET /search/multi
     T-->>M: movie/tv/person results
     M->>D: edit: select menu (tmdb:pick:user:region)
     U->>D: pick option
     D->>M: onPick (owner check, strict parse)
     M->>D: deferred message update
+    M->>M: Router.Go (15 s timeout)
     alt cached (TTL 1h)
         M->>M: cached details
     else miss

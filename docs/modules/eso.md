@@ -30,7 +30,7 @@ sequenceDiagram
     D->>E: onInteractionCreate
     E->>D: deferred response
     E->>E: ResolveMentionsWithRestore(thema)
-    E->>E: go generate
+    E->>E: Router.Go generate
     E->>R: GenerateWithPrompt(prompt)
     R->>R: pick random example pool entries
     R->>L: GenerateMessage(system, user)
