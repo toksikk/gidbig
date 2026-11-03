@@ -25,6 +25,7 @@ import (
 	"github.com/toksikk/gidbig/internal/logwindow"
 	"github.com/toksikk/gidbig/internal/openholidays"
 	"github.com/toksikk/gidbig/internal/openmeteo"
+	"github.com/toksikk/gidbig/internal/react"
 	"github.com/toksikk/gidbig/internal/settings"
 	"github.com/toksikk/gidbig/internal/shareddb"
 	"github.com/toksikk/gidbig/internal/soundboard"
@@ -327,6 +328,7 @@ func StartGidbig() {
 	registerOrLog(b, leetoclock.New())
 	registerOrLog(b, anticheat.New())
 	registerOrLog(b, stoll.New())
+	registerOrLog(b, react.New())
 	registerOrLog(b, wardogs.New())
 	registerOrLog(b, wttrin.New())
 	registerOrLog(b, openmeteo.New())
