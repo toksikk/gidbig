@@ -15,6 +15,7 @@ One file per internal package. Each doc: what it does + sequence diagram of the 
 | [openmeteo](openmeteo.md) | `/weather` | Weather + up to 16-day forecast via Open-Meteo; owns the LLM `weather` tool |
 | [openholidays](openholidays.md) | `/holidays` | Public and school holidays via the OpenHolidays API; owns the LLM `holidays` tool |
 | [eso](eso.md) | `/eso` | Esoteric nonsense generator (LLM, fallback) |
+| [react](react.md) | `/react` | Bot reacts with a picked custom emoji, removes the invoker's matching reaction |
 | [stoll](stoll.md) | `/stoll` | Random Dr. Axel Stoll quote |
 | [anticheat](anticheat.md) | `/anticheat` | GamingOnLinux anti-cheat compatibility lookup (cached CSV) |
 | [tmdb](tmdb.md) | `/wheretostream` | Optional: where a movie/series streams via TMDB/JustWatch; owns the LLM `streaming_providers` tool |
