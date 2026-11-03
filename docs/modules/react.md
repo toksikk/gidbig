@@ -4,8 +4,9 @@ Directory `internal/react`. Implements `bot.Module` and `bot.StatsProvider`.
 
 `/react` lets anyone pick a custom emoji from an ephemeral, paginated select
 menu. The bot reacts to the target message with it and, from then on, removes
-the invoker's own reaction with that emoji on that message. Other users'
-reactions are left alone.
+the invoker's own reaction with that emoji on that message, and withdraws its
+own reaction with it. The watch stays, so later re-adds by the invoker are
+removed too. Other users' reactions are left alone.
 
 - Command: `/react` with exactly one of `user` (that user's newest message among
   the last 20 in the channel) or `message_id` (must be in the current channel),
@@ -46,4 +47,5 @@ sequenceDiagram
     U->>D: adds same emoji
     D->>R: onReactionAdd
     R->>D: MessageReactionRemove(invoker)
+    R->>D: MessageReactionRemove(@me)
 ```

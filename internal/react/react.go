@@ -33,11 +33,20 @@ type Module struct {
 	sessions *sessionStore
 	watches  *watchStore
 	removed  atomic.Int64
+
+	// removeReaction is s.MessageReactionRemove; tests replace it.
+	removeReaction func(s *discordgo.Session, channelID, messageID, emoji, userID string) error
 }
 
 // New returns a new react Module.
 func New() *Module {
-	return &Module{sessions: newSessionStore(), watches: newWatchStore(maxWatches)}
+	return &Module{
+		sessions: newSessionStore(),
+		watches:  newWatchStore(maxWatches),
+		removeReaction: func(s *discordgo.Session, channelID, messageID, emoji, userID string) error {
+			return s.MessageReactionRemove(channelID, messageID, emoji, userID)
+		},
+	}
 }
 
 func (m *Module) Name() string { return "react" }
@@ -289,9 +298,13 @@ func (m *Module) onReactionAdd(s *discordgo.Session, r *discordgo.MessageReactio
 	if !m.shouldRemove(botID, r.MessageReaction) {
 		return
 	}
-	if err := s.MessageReactionRemove(r.ChannelID, r.MessageID, r.Emoji.APIName(), r.UserID); err != nil {
+	if err := m.removeReaction(s, r.ChannelID, r.MessageID, r.Emoji.APIName(), r.UserID); err != nil {
 		slog.Warn("react: remove reaction failed", "channel", r.ChannelID, "message", r.MessageID, "user", r.UserID, "error", err)
-		return
+	} else {
+		m.removed.Add(1)
 	}
-	m.removed.Add(1)
+	// The bot withdraws its own reaction too; removing an absent one is a no-op.
+	if err := m.removeReaction(s, r.ChannelID, r.MessageID, r.Emoji.APIName(), "@me"); err != nil {
+		slog.Warn("react: remove own reaction failed", "channel", r.ChannelID, "message", r.MessageID, "error", err)
+	}
 }

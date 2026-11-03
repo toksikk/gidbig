@@ -60,3 +60,33 @@ func TestCommandDefinition(t *testing.T) {
 		}
 	}
 }
+
+func TestOnReactionAddRemovesInvokerAndOwn(t *testing.T) {
+	m := New()
+	m.watches.add(watchKey{messageID: "m", emojiID: "e", userID: "inv"})
+	var calls []string
+	m.removeReaction = func(_ *discordgo.Session, ch, msg, emoji, user string) error {
+		calls = append(calls, ch+"/"+msg+"/"+emoji+"/"+user)
+		return nil
+	}
+	s := &discordgo.Session{State: discordgo.NewState()}
+	s.State.User = &discordgo.User{ID: "bot"}
+
+	r := reaction("inv", "m", "e")
+	r.ChannelID = "c"
+	m.onReactionAdd(s, &discordgo.MessageReactionAdd{MessageReaction: r})
+	want := []string{"c/m/x:e/inv", "c/m/x:e/@me"}
+	if len(calls) != 2 || calls[0] != want[0] || calls[1] != want[1] {
+		t.Fatalf("calls %v, want %v", calls, want)
+	}
+	if m.removed.Load() != 1 {
+		t.Fatalf("removed=%d", m.removed.Load())
+	}
+
+	calls = nil
+	other := reaction("other", "m", "e")
+	m.onReactionAdd(s, &discordgo.MessageReactionAdd{MessageReaction: other})
+	if len(calls) != 0 {
+		t.Fatalf("other user triggered removal: %v", calls)
+	}
+}
