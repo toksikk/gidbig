@@ -11,10 +11,7 @@ func reaction(user, msgID, emojiID string) *discordgo.MessageReaction {
 	return &discordgo.MessageReaction{UserID: user, MessageID: msgID, Emoji: discordgo.Emoji{ID: emojiID, Name: "x"}}
 }
 
-func TestShouldRemove(t *testing.T) {
-	m := New()
-	m.watches.add(watchKey{messageID: "m", emojiID: "e", userID: "inv"})
-
+func TestClaimWatch(t *testing.T) {
 	cases := []struct {
 		name string
 		r    *discordgo.MessageReaction
@@ -28,9 +25,11 @@ func TestShouldRemove(t *testing.T) {
 		{"unicode emoji", reaction("inv", "m", ""), false},
 		{"nil", nil, false},
 	}
-	m.watches.add(watchKey{messageID: "m", emojiID: "e", userID: "bot"})
 	for _, c := range cases {
-		if got := m.shouldRemove("bot", c.r); got != c.want {
+		m := New()
+		m.watches.add(watchKey{messageID: "m", emojiID: "e", userID: "inv"})
+		m.watches.add(watchKey{messageID: "m", emojiID: "e", userID: "bot"})
+		if got := m.claimWatch("bot", c.r); got != c.want {
 			t.Errorf("%s: got %v, want %v", c.name, got, c.want)
 		}
 	}
@@ -61,32 +60,35 @@ func TestCommandDefinition(t *testing.T) {
 	}
 }
 
-func TestOnReactionAddRemovesInvokerAndOwn(t *testing.T) {
+func TestOnReactionAddRemovesOnlyOwnReactionOnce(t *testing.T) {
 	m := New()
 	m.watches.add(watchKey{messageID: "m", emojiID: "e", userID: "inv"})
 	var calls []string
-	m.removeReaction = func(_ *discordgo.Session, ch, msg, emoji, user string) error {
-		calls = append(calls, ch+"/"+msg+"/"+emoji+"/"+user)
+	m.removeOwnReaction = func(_ *discordgo.Session, ch, msg, emoji string) error {
+		calls = append(calls, ch+"/"+msg+"/"+emoji)
 		return nil
 	}
 	s := &discordgo.Session{State: discordgo.NewState()}
 	s.State.User = &discordgo.User{ID: "bot"}
-
-	r := reaction("inv", "m", "e")
-	r.ChannelID = "c"
-	m.onReactionAdd(s, &discordgo.MessageReactionAdd{MessageReaction: r})
-	want := []string{"c/m/x:e/inv", "c/m/x:e/@me"}
-	if len(calls) != 2 || calls[0] != want[0] || calls[1] != want[1] {
-		t.Fatalf("calls %v, want %v", calls, want)
-	}
-	if m.removed.Load() != 1 {
-		t.Fatalf("removed=%d", m.removed.Load())
+	ev := func(user string) *discordgo.MessageReactionAdd {
+		r := reaction(user, "m", "e")
+		r.ChannelID = "c"
+		return &discordgo.MessageReactionAdd{MessageReaction: r}
 	}
 
-	calls = nil
-	other := reaction("other", "m", "e")
-	m.onReactionAdd(s, &discordgo.MessageReactionAdd{MessageReaction: other})
+	m.onReactionAdd(s, ev("other"))
 	if len(calls) != 0 {
 		t.Fatalf("other user triggered removal: %v", calls)
+	}
+	m.onReactionAdd(s, ev("inv"))
+	if len(calls) != 1 || calls[0] != "c/m/x:e" {
+		t.Fatalf("calls %v, want [c/m/x:e]", calls)
+	}
+	if m.removed.Load() != 1 || m.watches.len() != 0 {
+		t.Fatalf("removed=%d watches=%d", m.removed.Load(), m.watches.len())
+	}
+	m.onReactionAdd(s, ev("inv"))
+	if len(calls) != 1 {
+		t.Fatalf("watch fired twice: %v", calls)
 	}
 }

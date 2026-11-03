@@ -34,8 +34,8 @@ type Module struct {
 	watches  *watchStore
 	removed  atomic.Int64
 
-	// removeReaction is s.MessageReactionRemove; tests replace it.
-	removeReaction func(s *discordgo.Session, channelID, messageID, emoji, userID string) error
+	// removeOwnReaction removes the bot's reaction; tests replace it.
+	removeOwnReaction func(s *discordgo.Session, channelID, messageID, emoji string) error
 }
 
 // New returns a new react Module.
@@ -43,8 +43,8 @@ func New() *Module {
 	return &Module{
 		sessions: newSessionStore(),
 		watches:  newWatchStore(maxWatches),
-		removeReaction: func(s *discordgo.Session, channelID, messageID, emoji, userID string) error {
-			return s.MessageReactionRemove(channelID, messageID, emoji, userID)
+		removeOwnReaction: func(s *discordgo.Session, channelID, messageID, emoji string) error {
+			return s.MessageReactionRemove(channelID, messageID, emoji, "@me")
 		},
 	}
 }
@@ -63,7 +63,7 @@ func (m *Module) Init(d bot.Deps) error {
 func command() *discordgo.ApplicationCommand {
 	return &discordgo.ApplicationCommand{
 		Name:        commandName,
-		Description: "React to a message with a custom emoji; your own matching reaction gets removed",
+		Description: "React to a message with a custom emoji; it hands off when you add the same emoji",
 		Options: []*discordgo.ApplicationCommandOption{
 			{Type: discordgo.ApplicationCommandOptionUser, Name: optUser, Description: "Target this user's latest message in this channel"},
 			{Type: discordgo.ApplicationCommandOptionString, Name: optMessageID, Description: "Target this message ID in this channel"},
@@ -78,7 +78,7 @@ func (m *Module) Background() []bot.BackgroundTask {
 
 func (m *Module) Shutdown() error { return nil }
 
-// Stats reports the watch count and removed reactions for /status.
+// Stats reports the watch count and handed-off reactions for /status.
 func (m *Module) Stats(_ context.Context) (bot.ModuleStats, error) {
 	return bot.ModuleStats{Summary: []bot.Stat{
 		{Name: "react_watches", Value: strconv.Itoa(m.watches.len())},
@@ -279,14 +279,17 @@ func messageLink(p *pickerSession) string {
 	return fmt.Sprintf("https://discord.com/channels/%s/%s/%s", guild, p.channelID, p.messageID)
 }
 
-// shouldRemove reports whether r is a watched invoker reaction.
-func (m *Module) shouldRemove(botID string, r *discordgo.MessageReaction) bool {
+// claimWatch reports whether r is the invoker adding the watched emoji, and
+// consumes the watch so the hand-off happens once.
+func (m *Module) claimWatch(botID string, r *discordgo.MessageReaction) bool {
 	if r == nil || r.UserID == "" || r.UserID == botID || r.Emoji.ID == "" {
 		return false
 	}
-	return m.watches.has(watchKey{messageID: r.MessageID, emojiID: r.Emoji.ID, userID: r.UserID})
+	return m.watches.take(watchKey{messageID: r.MessageID, emojiID: r.Emoji.ID, userID: r.UserID})
 }
 
+// onReactionAdd hands the reaction over: once the invoker adds the same emoji,
+// the bot withdraws its own so the reaction appears to be the invoker's alone.
 func (m *Module) onReactionAdd(s *discordgo.Session, r *discordgo.MessageReactionAdd) {
 	if r == nil || r.MessageReaction == nil {
 		return
@@ -295,16 +298,12 @@ func (m *Module) onReactionAdd(s *discordgo.Session, r *discordgo.MessageReactio
 	if s.State != nil && s.State.User != nil {
 		botID = s.State.User.ID
 	}
-	if !m.shouldRemove(botID, r.MessageReaction) {
+	if !m.claimWatch(botID, r.MessageReaction) {
 		return
 	}
-	if err := m.removeReaction(s, r.ChannelID, r.MessageID, r.Emoji.APIName(), r.UserID); err != nil {
-		slog.Warn("react: remove reaction failed", "channel", r.ChannelID, "message", r.MessageID, "user", r.UserID, "error", err)
-	} else {
-		m.removed.Add(1)
-	}
-	// The bot withdraws its own reaction too; removing an absent one is a no-op.
-	if err := m.removeReaction(s, r.ChannelID, r.MessageID, r.Emoji.APIName(), "@me"); err != nil {
+	if err := m.removeOwnReaction(s, r.ChannelID, r.MessageID, r.Emoji.APIName()); err != nil {
 		slog.Warn("react: remove own reaction failed", "channel", r.ChannelID, "message", r.MessageID, "error", err)
+		return
 	}
+	m.removed.Add(1)
 }

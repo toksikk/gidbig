@@ -55,3 +55,17 @@ func (w *watchStore) len() int {
 	defer w.mu.Unlock()
 	return w.order.Len()
 }
+
+// take removes k and reports whether it was present, so concurrent events
+// handle a watch at most once.
+func (w *watchStore) take(k watchKey) bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	el, ok := w.index[k]
+	if !ok {
+		return false
+	}
+	w.order.Remove(el)
+	delete(w.index, k)
+	return true
+}

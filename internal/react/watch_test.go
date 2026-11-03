@@ -55,3 +55,12 @@ func TestWatchStoreConcurrent(t *testing.T) {
 		t.Fatalf("len=%d", w.len())
 	}
 }
+
+func TestWatchStoreTake(t *testing.T) {
+	w := newWatchStore(maxWatches)
+	k := watchKey{"m", "e", "u"}
+	w.add(k)
+	if !w.take(k) || w.take(k) || w.has(k) || w.len() != 0 {
+		t.Fatal("take must consume exactly once")
+	}
+}
