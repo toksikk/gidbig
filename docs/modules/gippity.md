@@ -30,6 +30,9 @@ sequenceDiagram
     U->>D: message (+ attachments)
     D->>G: onMessageCreate
     G->>DB: addMessageToDatabase
+    opt image attachments
+        G->>DB: addPendingAttachment(urls, empty description)
+    end
     G->>G: eligible()? author/bot/ignored/guild/message type
     alt mentioned
         G->>G: isLimitedUser? (reply budget)
@@ -45,11 +48,17 @@ sequenceDiagram
     opt answered and image attachments
         G->>V: describeImages(urls)
         V-->>G: description
-        G->>DB: addAttachmentsToDatabase
+        G->>DB: addAttachmentsToDatabase (fills the pending row)
     end
     alt answered
         G->>L: typing indicator
         G->>DB: getLastNMessagesFromDatabase(10)
+        opt pending images (reply target, then history newest first, max 3, author privacy off)
+            G->>D: ChannelMessage (re-signed CDN URLs, fallback: stored URLs)
+            G->>V: describeImages(urls)
+            V-->>G: description
+            G->>DB: setAttachmentDescription (cache)
+        end
         G->>G: build system prompt (personality, season, reactions, pseudonyms)
         loop bounded by max_iterations (tools enabled)
             G->>L: Chat.Completions.New (tools, tool_choice=auto)
@@ -70,3 +79,5 @@ sequenceDiagram
 ```
 
 Edited messages update `chat_history_edits` (versioned). Message replies inject a system note with the referenced message content.
+
+Lazy image analysis: every image post (`.jpg/.jpeg/.png/.webp`) stores a `gippity_chat_attachments` row with its URLs and an empty description, even when the bot is not asked. When a later answer is generated, `describePendingImages` (`gippity_lazyvision.go`) describes still-undescribed images of the replied-to message and of the 10-message history window, at most 3 per answer (reply target first, then newest first). Images of users whose privacy is on (including the default, no row) and of the bot are never analyzed. The URLs are re-fetched from Discord because CDN links expire; the stored URLs are the fallback. The description is cached in the row, so later questions do not call the vision model again. Failures are logged and the answer is generated without that image. The reply system note appends `[Image N: …]` when the referenced author is not private.

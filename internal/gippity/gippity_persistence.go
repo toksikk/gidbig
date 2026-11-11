@@ -2,6 +2,7 @@ package gippity
 
 import (
 	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 
@@ -149,18 +150,85 @@ func (m *Module) addMessageEditToDatabase(messageID, content string, editedAt in
 	}
 }
 
+// addAttachmentsToDatabase stores the description of a message's images. A
+// pending row written by addPendingAttachment is updated in place so a message
+// never gets two attachment rows (which would duplicate history lines).
 func (m *Module) addAttachmentsToDatabase(messageID string, urls []string, description string) {
 	m.dbMu.Lock()
 	defer m.dbMu.Unlock()
 
+	joined := strings.Join(urls, ",")
+	res := m.db.Model(&ChatAttachment{}).
+		Where("message_id = ?", messageID).
+		Updates(map[string]any{"attachment_url": joined, "image_description": description})
+	if res.Error != nil {
+		slog.Error("Error while updating attachment", "error", res.Error)
+		return
+	}
+	if res.RowsAffected > 0 {
+		return
+	}
 	attachment := ChatAttachment{
 		MessageID:        messageID,
-		AttachmentURL:    strings.Join(urls, ","),
+		AttachmentURL:    joined,
 		ImageDescription: description,
 	}
 	if err := m.db.Create(&attachment).Error; err != nil {
 		slog.Error("Error while inserting attachment", "error", err)
 	}
+}
+
+// addPendingAttachment stores a message's image URLs without a description so
+// the images can be described lazily when a later question needs them.
+func (m *Module) addPendingAttachment(messageID string, urls []string) {
+	m.dbMu.Lock()
+	defer m.dbMu.Unlock()
+
+	attachment := ChatAttachment{MessageID: messageID, AttachmentURL: strings.Join(urls, ",")}
+	if err := m.db.Create(&attachment).Error; err != nil {
+		slog.Error("Error while inserting pending attachment", "error", err)
+	}
+}
+
+// setAttachmentDescription fills the description of a pending attachment row.
+// Rows that already carry a description are left untouched.
+func (m *Module) setAttachmentDescription(messageID, description string) error {
+	m.dbMu.Lock()
+	defer m.dbMu.Unlock()
+
+	err := m.db.Model(&ChatAttachment{}).
+		Where("message_id = ? AND image_description = ''", messageID).
+		Update("image_description", description).Error
+	if err != nil {
+		return fmt.Errorf("set attachment description: %w", err)
+	}
+	return nil
+}
+
+// pendingAttachment is an undescribed attachment row joined with its author.
+type pendingAttachment struct {
+	MessageID     string
+	ChannelID     string
+	UserID        string
+	AttachmentURL string
+}
+
+// pendingAttachments returns the undescribed attachment rows of the given
+// stored messages. Messages without a stored history row are skipped.
+func (m *Module) pendingAttachments(messageIDs []string) ([]pendingAttachment, error) {
+	if len(messageIDs) == 0 {
+		return nil, nil
+	}
+	var rows []pendingAttachment
+	err := m.db.Table("gippity_chat_attachments AS ca").
+		Select("ca.message_id, ch.channel_id, ch.user_id, ca.attachment_url").
+		Joins("JOIN gippity_chat_history ch ON ch.message_id = ca.message_id").
+		Where("ca.message_id IN ? AND COALESCE(ca.image_description, '') = ''", messageIDs).
+		Scan(&rows).Error
+	if err != nil {
+		return nil, fmt.Errorf("query pending attachments: %w", err)
+	}
+	return rows, nil
 }
 
 // chatHistoryRow is the flat row shape returned by the history queries before

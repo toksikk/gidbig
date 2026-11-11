@@ -75,6 +75,9 @@ func setupGippityTest(t *testing.T) (*Module, *discordgo.Session) {
 		return &discordgo.Channel{ID: "thread-1"}, nil
 	}
 	m.channelIsThreadFunc = func(_ *discordgo.Session, _ string) bool { return false }
+	m.channelMessageFunc = func(_ *discordgo.Session, _, _ string) (*discordgo.Message, error) {
+		return nil, errors.New("no discord in tests")
+	}
 
 	t.Cleanup(func() {
 		if sqlDB, err := testDB.DB(); err == nil {

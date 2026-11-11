@@ -235,6 +235,9 @@ func (m *Module) onMessageCreate(s *discordgo.Session, mc *discordgo.MessageCrea
 
 	mentioned := m.isMentioned(mc)
 	m.addMessageToDatabase(mc, mentioned)
+	if urls := extractImageURLs(mc.Attachments); len(urls) > 0 {
+		m.addPendingAttachment(mc.ID, urls)
+	}
 
 	if !m.eligible(mc) {
 		return
@@ -457,6 +460,17 @@ func (m *Module) generateAnswer(mc *discordgo.MessageCreate, imageURLs []string)
 		chatHistory = []LLMChatMessage{}
 	}
 
+	replyToID := ""
+	if mc.MessageReference != nil {
+		replyToID = mc.MessageReference.MessageID
+	}
+	described := m.describePendingImages(mc.ID, replyToID, chatHistory)
+	for i := range chatHistory {
+		if desc, ok := described[chatHistory[i].MessageID]; ok && len(chatHistory[i].ImageDescriptions) == 0 {
+			chatHistory[i].ImageDescriptions = []string{desc}
+		}
+	}
+
 	reactionSummaries := reactionSummaryCache{}
 
 	// The member list is offered as the get_channel_members tool when tools are
@@ -495,12 +509,18 @@ Manche Namen sind Pseudonyme (Benutzer 1, 2, …) für anonyme Teilnehmer. Echte
 		} else if refMsg != nil {
 			content := refMsg.Content
 			isBot := refMsg.Author != nil && refMsg.Author.Bot
-			if !isBot && refMsg.Author != nil && m.getUserPrivacy(refMsg.Author.ID) {
+			private := !isBot && refMsg.Author != nil && m.getUserPrivacy(refMsg.Author.ID)
+			if private {
 				content = "[message content hidden -- user opted out]"
 			}
 			authorName := ""
 			if refMsg.Author != nil {
 				authorName = refMsg.Author.Username
+			}
+			if refMsg.Author != nil && !private {
+				for i, desc := range m.imageDescriptions(refMsg.ID) {
+					content += fmt.Sprintf(" [Image %d: %s]", i+1, desc)
+				}
 			}
 			note := fmt.Sprintf("[System note: User is replying to a message from %s: %s]", authorName, content)
 			refChannelID := refMsg.ChannelID
