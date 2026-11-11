@@ -509,14 +509,15 @@ Manche Namen sind Pseudonyme (Benutzer 1, 2, …) für anonyme Teilnehmer. Echte
 		} else if refMsg != nil {
 			content := refMsg.Content
 			isBot := refMsg.Author != nil && refMsg.Author.Bot
-			if !isBot && refMsg.Author != nil && m.getUserPrivacy(refMsg.Author.ID) {
+			private := !isBot && refMsg.Author != nil && m.getUserPrivacy(refMsg.Author.ID)
+			if private {
 				content = "[message content hidden -- user opted out]"
 			}
 			authorName := ""
 			if refMsg.Author != nil {
 				authorName = refMsg.Author.Username
 			}
-			if isBot || (refMsg.Author != nil && !m.getUserPrivacy(refMsg.Author.ID)) {
+			if refMsg.Author != nil && !private {
 				for i, desc := range m.imageDescriptions(refMsg.ID) {
 					content += fmt.Sprintf(" [Image %d: %s]", i+1, desc)
 				}
